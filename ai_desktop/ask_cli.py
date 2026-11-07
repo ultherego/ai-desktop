@@ -204,7 +204,14 @@ def _explain_denied(exc, args, state):
               "or use a lower level (/effort)." if getattr(exc, "expired", False)
               else "Consent expired or the access rules changed. The question was stopped.")
     elif exc.reason == "web-no-results":
-        print("No confirmed search results came back. The question ended without an answer.")
+        if exc.diagnostic == "web-no-search":
+            print("The model answered without running a web search, so there are no confirmed sources. The question ended "
+                  "without an answer. Ask again and say what to look up.")
+        elif exc.diagnostic == "web-no-links":
+            print("The web search ran but returned no links to cite. The question ended without an answer. Try other words, "
+                  "for example the exact error message or English terms.")
+        else:
+            print("No confirmed search results came back. The question ended without an answer.")
     else:
         print(failure_hint(exc.reason, HINTS.get(exc.reason, "Could not get an answer. Check ai-desktop status."),
                            config=state["execution"],

@@ -387,7 +387,7 @@ def web_text(raw):
         if final is None or pending:
             raise ValueError("missing result")
         if not completed or not observed:
-            raise AnalysisDenied("web-no-results")
+            raise AnalysisDenied("web-no-results", diagnostic="web-no-search" if not completed else "web-no-links")
         answer = _answer(final, observed)
         return ModelText(answer, {"models": [], "quota": windows}) if windows else answer
     except (ValueError, UnicodeError, TypeError, KeyError, OverflowError, RecursionError):

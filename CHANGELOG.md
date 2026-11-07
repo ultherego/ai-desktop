@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-108: a web search without sources says why
+
+- When a web question ends without confirmed sources, the message now says which case it was: the model answered without searching, or the search ran but returned no link to cite. Before, both looked the same. Nothing more is sent or shown; only a fixed code (`web-no-search`, `web-no-links`) crosses the service boundary.
+
 ## 0.1.0-107: the input grows with longer text
 
 - The input band grows upwards with what you type, like Codex and Claude Code: a long line wraps onto the next row and each new line (`\` + Enter) adds a row, up to about half the window; beyond that the text scrolls with the cursor. The conversation moves up to make room and comes back down after sending.

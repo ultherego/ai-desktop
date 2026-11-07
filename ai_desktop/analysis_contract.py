@@ -15,7 +15,7 @@ import unicodedata
 
 from .report_policy import serialize_report
 from .e2_ipc import _unique_pairs
-from .analysis_diagnostics import web_diagnostic, codex_diagnostic, failure_diagnostic
+from .analysis_diagnostics import web_diagnostic, web_empty_diagnostic, codex_diagnostic, failure_diagnostic
 from .execution import DEFAULT_LOCAL_PORT, PROVIDERS, UNSET, current as current_execution, validate as validate_execution
 from .execution import current_history, current_memory, using_history, using_memory, validate_history
 
@@ -376,6 +376,7 @@ class AnalysisDenied(RuntimeError):
         # packet construction/parsing additionally bind provider/mode/reason.
         self.stage = stage if type(stage) is str and stage in STAGES else "internal"
         self.diagnostic = ((web_diagnostic(diagnostic) if self.reason == "result" else None)
+                           or (web_empty_diagnostic(diagnostic) if self.reason == "web-no-results" else None)
                            or codex_diagnostic(diagnostic, self.reason))
         suffix = " check=" + self.diagnostic if self.diagnostic is not None else ""
         super().__init__("ANALYSIS: REFUSED reason=" + self.reason + suffix)

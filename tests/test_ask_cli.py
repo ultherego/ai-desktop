@@ -461,6 +461,18 @@ class AskCliTests(unittest.TestCase):
         self.assertNotIn(ask.ANSWER_SEPARATOR, r.output)
         r.collect.assert_not_called()
 
+    def test_an_empty_web_answer_says_whether_the_model_searched(self):
+        for check, text in (("web-no-search", "answered without running a web search"),
+                            ("web-no-links", "returned no links to cite")):
+            def send(auth, check=check):
+                if json.loads(auth.payload)["mode"] == "assistant":
+                    return json.dumps(WEB_PLAN)
+                raise AnalysisDenied("web-no-results", diagnostic=check)
+            with self.subTest(check=check):
+                r = self.run_ui(access=WEB_ACCESS, sources=WEB_SOURCES, send=send)
+                self.assertEqual(r.code, 2)
+                self.assertIn(text, r.output)
+
     def test_no_context_disables_web_even_when_policy_allows_it(self):
         r = self.run_ui(["--question", "Wiadomości?", "--no-context"], answers=("y",),
                         access=WEB_ACCESS, sources=WEB_SOURCES, planner=WEB_PLAN)
