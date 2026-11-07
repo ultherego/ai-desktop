@@ -55,7 +55,7 @@ Limits (default → highest allowed):
 ## `[commands]`: what the model may run
 
 - `allow`: read-only commands, run at once without asking, e.g. `"systemctl status <unit> --no-pager"`. Placeholders: `<unit>` systemd unit, `<int>` number, `<word>` one word.
-- `...` at the end: any further plain words after the fixed ones, e.g. `"docker ps ..."` allows `docker ps -a --format=json`. A path among them must be inside `files.read` (and, in `change`, `files.write`) and outside `files.deny`. In `allow`, a template that changes things (`run`, `rm`, `build`, `start`, …) cannot end with `...`: put it in `change`.
+- `...` at the end: any further plain words after the fixed ones, e.g. `"docker ps ..."` allows `docker ps -a --format=json`. A path among them must be inside `files.read` (and, in `change`, `files.write`) and outside `files.deny`. In `allow`, a template that changes things (`run`, `rm`, `pull`, `build`, `start`, …) cannot end with `...`, and such a word is refused among the open words too (`"docker image ..."` allows `docker image ls`, not `docker image rm`): put changes in `change`.
 - `change`: commands that change the system; each needs you to type `yes`, a test from `allow` and an undo. `...` works here too, e.g. `"docker run --rm ..."`.
 - `deny`: commands never run, as word prefixes, e.g. `"docker rm"` blocks every `docker rm …`. It wins over `allow` and `change`. It does not reliably block a flag (`"docker ps -a"` still lets `--all` through), so do not open a template with `...` if some flag must stay off.
 - `share_processes`: `true` lets `allow` commands see host processes and their command lines. Default `false`.

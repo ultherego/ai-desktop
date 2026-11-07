@@ -3,7 +3,7 @@
 ## 0.1.0-91: command groups, open arguments and commands.deny
 
 - `[commands.allow]` and `[commands.change]` can be split into named groups, e.g. `docker = [...]`, `general = [...]`.
-- A template ending with `...` accepts further arguments, e.g. `"docker ps ..."`; paths among them follow `files.read` and `files.deny`. A change such as `"docker run --rm ..."` belongs in `change`, where every run asks for `yes`; `allow` refuses it.
+- A template ending with `...` accepts further arguments, e.g. `"docker ps ..."`; paths among them follow `files.read` and `files.deny`. A change such as `"docker run --rm ..."` belongs in `change`, where every run asks for `yes`; `allow` refuses it, and an open read template never accepts a state-changing word such as `rm` or `pull` among its arguments.
 - `[commands] deny` blocks whole commands, e.g. `"docker rm"`. See `docs/PERMISSIONS.md`.
 
 ## 0.1.0-90: read commands get D-Bus only for reading

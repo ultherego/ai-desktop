@@ -72,6 +72,14 @@ class GroupedPolicyTests(ChangeBase):
         self.assertFalse(policy.allows_command(["docker", "ps", "-a"]))
         self.assertTrue(policy.allows_command(["docker", "ps", "--all"]))   # a flag deny is not exhaustive (documented)
 
+    def test_an_open_read_template_never_takes_a_state_changing_verb_among_its_words(self):
+        policy = self.load('["docker image ..."]')
+        self.assertTrue(policy.allows_command(["docker", "image", "ls", "-a"]))
+        self.assertTrue(policy.allows_command(["docker", "image", "inspect", "alpine"]))
+        for verb in ("rm", "prune", "pull", "push", "tag", "build", "import", "load"):
+            with self.subTest(verb=verb):
+                self.assertFalse(policy.allows_command(["docker", "image", verb, "alpine"]))
+
     def test_paths_left_open_follow_files_read_and_deny(self):
         policy = self.load('["journalctl ..."]')
         home = self.home

@@ -699,7 +699,7 @@ class Policy:
         """Owner opt-in: read-only commands see the host's processes (and their command lines)."""
         return self._share_processes
 
-    def _open_words_allowed(self, templates, argv, *, write=False):
+    def _open_words_allowed(self, templates, argv, *, write=False, read_only=False):
         """argv fits one of templates, is not in commands.deny, and every path among the words a "..." template left
         open is readable under files.read and not under files.deny."""
         from .command_ops import denied, extra_words
@@ -708,6 +708,12 @@ class Policy:
         extra = extra_words(templates, argv)
         if extra is None:
             return False
+        if read_only:
+            # "docker image ..." must not become "docker image rm x": an open read template never takes a verb that
+            # changes state among its open words, wherever it stands.
+            from .command_ops import STATE_VERBS
+            if any(word in STATE_VERBS for word in extra):
+                return False
         for word in extra:
             if "/" in word or word.startswith("~"):
                 candidate = word.split("=", 1)[1] if word.startswith("-") and "=" in word else word
@@ -722,7 +728,7 @@ class Policy:
 
     def allows_command(self, argv):
         """A read command the owner allows (see _open_words_allowed)."""
-        return self._open_words_allowed(self._commands, argv)
+        return self._open_words_allowed(self._commands, argv, read_only=True)
 
     def allows_exact_command(self, argv):
         """A read command that may also run outside the sandbox (the test of a change): exact templates only."""
