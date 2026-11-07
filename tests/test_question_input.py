@@ -394,7 +394,7 @@ class PromptSessionTerminalTests(unittest.TestCase):
         results = [json.loads(found) for found in re.findall(r"R=(\[.*\])\n", output)]
         self.assertEqual(results[0][0], "abc")
         self.assertEqual(results[1], ["ERR", "KeyboardInterrupt"])
-        self.assertIn("\x1b[1;19r", output)                       # 24 rows: the conversation scrolls in rows 1-19
+        self.assertIn("\x1b[1;18r", output)                       # 24 rows: the conversation scrolls in rows 1-18
         self.assertIn("\x1b[21;1H", output)                       # the input row sits at the bottom
         self.assertIn("Ask ai-desktop to do anything", output)
         self.assertIn("SYNTHETIC status", output)

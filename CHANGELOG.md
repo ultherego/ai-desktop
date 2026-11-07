@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-104: room between the conversation and the input
+
+- One empty row separates the conversation from the input band, so the last line of output no longer touches it. With the `/` list open, the empty row sits above the list.
+
 ## 0.1.0-103: `/` commands as a list above the input
 
 - Typing `/` opens a list of matching commands with their descriptions above the input, like Codex and Claude Code; the highlighted one is marked in colour, arrows move it, Tab completes it and Enter runs it. The conversation moves up to make room, so nothing is covered, and the list closes when it no longer matches.

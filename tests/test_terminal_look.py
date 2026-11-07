@@ -67,16 +67,17 @@ class FrameTests(unittest.TestCase):
         with patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True):
             frame = self.frame()
             rows, cursor = frame.layout("", 0)
-            self.assertEqual([number for number, _ in rows], [20, 21, 22, 23, 24])
-            self.assertIn(terminal_frame.PLACEHOLDER, rows[1][1])
-            self.assertIn("SYNTHETIC status", rows[3][1])
-            self.assertIn(terminal_frame.HINT, rows[4][1])
+            self.assertEqual([number for number, _ in rows], [19, 20, 21, 22, 23, 24])
+            self.assertEqual(rows[0][1], "\x1b[2K")                     # the spacer row
+            self.assertIn(terminal_frame.PLACEHOLDER, rows[2][1])
+            self.assertIn("SYNTHETIC status", rows[4][1])
+            self.assertIn(terminal_frame.HINT, rows[5][1])
             self.assertEqual(cursor, (21, 3))
             rows, cursor = frame.layout("x" * 200, 200)                     # a long line scrolls with the cursor
             self.assertEqual(cursor[0], 21)
             self.assertLessEqual(cursor[1], 80)
             frame.note = "(Press Ctrl+C again to exit)"
-            self.assertIn("(Press Ctrl+C again to exit)", frame.layout("", 0)[0][4][1])
+            self.assertIn("(Press Ctrl+C again to exit)", frame.layout("", 0)[0][5][1])
 
     def test_a_resize_sets_the_region_again_and_returns_to_its_last_row(self):
         with patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True):
@@ -85,9 +86,9 @@ class FrameTests(unittest.TestCase):
                 frame.draw("", 0)
             written = frame.stream.getvalue()
             # Taller: the old band (from row 20) is cleared, the region now ends at row 25 and the band follows.
-            self.assertIn("\x1b[r\x1b[20;1H\x1b[J\x1b[1;25r", written)
+            self.assertIn("\x1b[r\x1b[19;1H\x1b[J\x1b[1;24r", written)
             self.assertIn("\x1b[27;1H", written)
-            self.assertEqual(frame._back(), "\x1b[25;1H")
+            self.assertEqual(frame._back(), "\x1b[24;1H")
             self.assertEqual(frame._back(), "\x1b8")
 
     def test_a_resize_while_typing_redraws_the_band_at_once_with_the_typed_text(self):
@@ -100,28 +101,12 @@ class FrameTests(unittest.TestCase):
                 frame._on_resize()
             written = frame.stream.getvalue()
             self.assertIn("SYNTHETIC draft", written)
-            self.assertIn("\x1b[1;19r", written)
+            self.assertIn("\x1b[1;18r", written)
             frame.leave()
             frame.stream.seek(0)
             frame.stream.truncate()
             frame._on_resize()                                   # not typing: only noted, drawn on the next draw
             self.assertEqual(frame.stream.getvalue(), "")
-
-    def test_a_resize_while_typing_draws_the_conversation_again_from_the_top(self):
-        with patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True):
-            frame = self.frame()
-            frame.repaint = lambda: frame.stream.write("SYNTHETIC HEAD AND THREAD\n")
-            frame.draw("SYNTHETIC draft", 15)
-            frame.stream.seek(0)
-            frame.stream.truncate()
-            with patch.object(terminal_frame, "_size", return_value=(40, 120)):
-                frame._on_resize()
-            written = frame.stream.getvalue()
-        start = written.index("\x1b[2J")
-        self.assertLess(start, written.index("SYNTHETIC HEAD AND THREAD"))      # cleared first, then drawn again
-        self.assertIn("\x1b[1;35r", written)
-        self.assertLess(written.index("SYNTHETIC HEAD AND THREAD"), written.index("SYNTHETIC draft"))
-        self.assertEqual(frame._back(), "\x1b8")                              # the new end of the thread was saved
 
     def test_after_a_resize_the_conversation_is_drawn_again_from_the_top_and_the_input_stays_at_the_bottom(self):
         with patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True):
@@ -135,7 +120,7 @@ class FrameTests(unittest.TestCase):
             written = frame.stream.getvalue()
         cleared = written.index("\x1b[H\x1b[2J")
         self.assertLess(cleared, written.index("SYNTHETIC HEAD AND THREAD"))     # cleared, then drawn from the top
-        self.assertIn("\x1b[1;35r\x1b[H", written)                                # region 1-35, starting at row 1
+        self.assertIn("\x1b[1;34r\x1b[H", written)                                # region 1-35, starting at row 1
         self.assertIn("\x1b[37;1H", written)                                      # the input row at the new bottom
         self.assertLess(written.index("SYNTHETIC HEAD AND THREAD"), written.index("SYNTHETIC draft"))
         self.assertEqual(frame._back(), "\x1b8")                                  # the thread's new end was saved
@@ -147,8 +132,8 @@ class FrameTests(unittest.TestCase):
             frame.show_commands(commands, 1)
             frame.draw("/", 1)
             written = frame.stream.getvalue()
-            self.assertIn("\x1b[19;1H\n\n\n", written)                  # the conversation scrolls up three rows
-            self.assertIn("\x1b[1;16r", written)                          # and its region ends above the list
+            self.assertIn("\x1b[18;1H\n\n\n", written)                  # the conversation scrolls up three rows
+            self.assertIn("\x1b[1;15r", written)                          # and its region ends above the list
             rows = dict(frame.layout("/", 1)[0])
             self.assertIn("/help", rows[17])
             self.assertIn("\x1b[48;2;88;140;230m", rows[18])               # the highlighted row
@@ -159,8 +144,8 @@ class FrameTests(unittest.TestCase):
             frame.stream.truncate()
             frame.leave()                                                 # closed: the region grows back, rows cleared
             written = frame.stream.getvalue()
-            self.assertIn("\x1b[1;19r", written)
-            for row in (17, 18, 19):
+            self.assertIn("\x1b[1;18r", written)
+            for row in (16, 17, 18):
                 self.assertIn("\x1b[%d;1H\x1b[2K" % row, written)
             self.assertEqual(frame.extra, 0)
 
