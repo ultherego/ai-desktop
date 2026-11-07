@@ -239,10 +239,13 @@ def _finished(label, step):
 def _read_line(shown, step):
     """One row per read-only command: a whole batch stays readable on one screen."""
     healthy = step["status"] == "ok" and step["exit"] in (0, None)
+    # A non-zero code with no output at all is often an answer, not a fault (`pacman -Qu`: nothing to update).
+    empty = step["status"] == "failed" and step["exit"] is not None and not step["output"].strip()
     state = size_label(len(step["output"].encode("utf-8"))) if healthy else "%s%s" % (
-        step["status"], "" if step["exit"] is None else ", code " + str(step["exit"]))
-    return "  %s %s %s %s" % (paint(symbol("ok" if healthy else "fail"), "accent" if healthy else "red", "bold"), shown,
-                              paint(symbol("dot"), "muted"), paint(state, "muted" if healthy else "red"))
+        "empty" if empty else step["status"], "" if step["exit"] is None else ", code " + str(step["exit"]))
+    tone = "accent" if healthy else "yellow" if empty else "red"
+    return "  %s %s %s %s" % (paint(symbol("ok" if healthy else "skip" if empty else "fail"), tone, "bold"), shown,
+                              paint(symbol("dot"), "muted"), paint(state, "muted" if healthy else tone))
 
 
 def _run_command(snapshot, ledger, plan, permit, args, reader):
@@ -268,6 +271,13 @@ def _run_command(snapshot, ledger, plan, permit, args, reader):
             return ledger.output_room()
         except ask_discovery.BudgetExhausted as exhausted:
             if exhausted.name == "discovery_bytes" and ledger.soft_stop(exhausted.name):
+                print(paint("  %s output budget used up (discovery_bytes): further commands are not run, the answer "
+                            "uses what was collected" % symbol("skip"), "muted"))
+                return None
+            if exhausted.name in ("discovery_bytes", "command_rounds") and ledger.budget_closed():
+                # a late command after the model was told to stop: recorded as refused, so the model answers next
+                add(argv, "change" if policy.allows_change(argv) else "read", "not-allowed",
+                    output="The output budget is used up; answer from what was collected.\n")
                 return None
             _budget_stop(policy, exhausted.name)
 

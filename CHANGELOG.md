@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.1.0-97: an empty result is not shown as a failure
+
+- A read command that ends with a non-zero code and prints nothing (for example `pacman -Qu` when there is nothing to update) is shown in yellow as `empty, code 1`. A non-zero code with output (for example a permission message) stays red as `failed`.
+
+## 0.1.0-96: up to 32 commands in one batch
+
+- One plan may run up to 32 commands (before: 16), and the model is told it may send another batch while `command_rounds` allows. Before, a request for "everything" could send more than 16 and be refused as an invalid plan.
+
+## 0.1.0-95: `command_rounds` above 32 works
+
+- With `command_rounds` above 32 every question with commands was refused with a misleading `discovery_bytes` message: the data sent to the model still allowed at most 32 remaining commands. It now follows the 128 ceiling.
+
+## 0.1.0-94: a full data budget no longer cancels the question
+
+- When command output fills `discovery_bytes`, the remaining commands are skipped and the model answers from what it collected. Before, the next command of the same batch cancelled the whole question.
+- Tip: with many commands, keep `command_output` small (e.g. `"16KiB"`), so one long log does not take most of `discovery_bytes`.
+
+## 0.1.0-93: snapper works for read commands, more commands per question
+
+- `snapper list-configs` and `snapper list` work again in `allow`: the D-Bus filter now passes the read-only Snapper calls the tool makes.
+- `command_rounds` can be set up to `128` (before: `32`). The default stays `24`. All output still shares `discovery_bytes`.
+
 ## 0.1.0-92: refused changes say why
 
 - The model is now told how to propose a change from `change`: with a `test` (an exact `allow` command) and an `undo` (a `change` or exact `allow` command). Before, it was not, so changes such as `docker pull ...` were refused.

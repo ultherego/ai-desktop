@@ -48,8 +48,8 @@ Limits (default → highest allowed):
 - `search_scan`: directory entries examined per question, `20000` → `100000`.
 - `discovery_rounds`: listing/search steps per question, `4` → `8`.
 - `plan_corrections`: corrected read plans per question, `2` → `4`.
-- `command_rounds`: commands run per question, `24` → `32` (`0` = none).
-- `command_output`: output of one command sent to the model, `"8KiB"` → `"128KiB"`.
+- `command_rounds`: commands run per question, `24` → `128` (`0` = none). Their output still shares `discovery_bytes`.
+- `command_output`: output of one command sent to the model, `"8KiB"` → `"128KiB"`. All commands of a question share `discovery_bytes`; when it fills up, no more commands run and the model answers from what it has. With many commands keep this small, e.g. `"16KiB"`.
 - `command_timeout`: seconds per command, `20` → `60`.
 
 ## `[commands]`: what the model may run

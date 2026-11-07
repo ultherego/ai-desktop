@@ -143,7 +143,7 @@ SYSTEM_PROMPT = (
     "fixed ones, and a path among them must lie inside access.files). Propose a command with the plan {\"action\":\"run\",\"argv\":"
     "[\"program\",\"argument\"]} (a list of words, no shell, pipes or redirection; give the program as a bare name). "
     "Such a command runs at once, without asking the user: the owner has already allowed it. It works read-only, without network. "
-    "Run several commands with one plan {\"action\":\"run\",\"commands\":[[\"lscpu\"],[\"free\",\"-h\"]]} (up to 16 in a plan, without test and undo); you get all results at once. "
+    "Run several commands with one plan {\"action\":\"run\",\"commands\":[[\"lscpu\"],[\"free\",\"-h\"]]} (up to 32 in a plan, without test and undo); you get all results at once, and when the question needs more and remaining.commands allows, send another plan. "
     "When access.change_commands exists, the owner also allows those commands that change the system, each only after the user types yes. "
     "Propose one as {\"action\":\"run\",\"argv\":[...],\"test\":[...],\"undo\":[...]}: test is a read command that checks the result and "
     "must match an access.commands template exactly (one ending in ... does not count); undo puts things back and must match "

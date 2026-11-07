@@ -17,6 +17,7 @@ import stat
 import tomllib
 import unicodedata
 
+from .discovery_contract import MAX_COMMAND_ROUNDS
 from .file_context_contract import (plain_text, MAX_FILES, MAX_FILE_BYTES, MAX_TOTAL_BYTES, CEILING_FILES,
                                     contains_private_key, validate_context)
 
@@ -141,7 +142,7 @@ LIMIT_SPECS = {
     "search_scan": ("count", 100, 100000),
     "discovery_rounds": ("count", 1, 8),
     "plan_corrections": ("count", 0, 4),
-    "command_rounds": ("count", 0, 32),
+    "command_rounds": ("count", 0, MAX_COMMAND_ROUNDS),
     "command_output": ("size", 1024, 131072),
     "command_timeout": ("count", 1, 60),
 }

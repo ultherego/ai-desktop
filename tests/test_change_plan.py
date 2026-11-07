@@ -532,9 +532,9 @@ class CommandBatchTests(ChangeBase):
     def test_batch_shape_is_closed(self):
         from ai_desktop import assistant_contract
         access = {"files": [], "systemd": [], "weather": False, "commands": ["uname -s"]}
-        good = {"action": "run", "commands": [["uname", "-s"]] * 16}
-        self.assertEqual(len(assistant_contract.parse_plan(json.dumps(good), access)["commands"]), 16)
-        for bad in ({"action": "run", "commands": [["uname", "-s"]] * 17}, {"action": "run", "commands": []},
+        good = {"action": "run", "commands": [["uname", "-s"]] * assistant_contract.MAX_COMMANDS_IN_PLAN}
+        self.assertEqual(len(assistant_contract.parse_plan(json.dumps(good), access)["commands"]), assistant_contract.MAX_COMMANDS_IN_PLAN)
+        for bad in ({"action": "run", "commands": [["uname", "-s"]] * (assistant_contract.MAX_COMMANDS_IN_PLAN + 1)}, {"action": "run", "commands": []},
                     {"action": "run", "commands": "uname -s"}, {"action": "run", "commands": [["uname"]], "argv": ["uname"]},
                     {"action": "run", "commands": [["uname"]], "test": ["uname"], "undo": ["uname"]},
                     {"action": "run", "commands": [["a b"]]}):

@@ -54,6 +54,13 @@ class OperationsBase(Base):
 
 
 class FlowTests(OperationsBase):
+    def test_a_failed_command_without_output_is_shown_as_empty_and_one_with_output_as_failed(self):
+        step = lambda output: {"status": "failed", "exit": 1, "output": output}
+        self.assertIn("empty, code 1", flow._read_line("pacman -Qu", step("")))
+        self.assertIn("empty, code 1", flow._read_line("pacman -Qu", step("\n")))
+        self.assertIn("failed, code 1", flow._read_line("snapper list", step("SYNTHETIC: no permission\n")))
+        self.assertIn("timeout", flow._read_line("x", {"status": "timeout", "exit": None, "output": ""}))
+
     def test_an_allowed_command_runs_without_a_prompt_and_the_bounded_result_reaches_the_model(self):
         result = self.run_flow([run("uname", "-s"), ANSWER_PLAN])
         self.assertEqual(result, ANSWER)
@@ -94,6 +101,18 @@ class FlowTests(OperationsBase):
             self.run_flow([run("uname", "-s")])
         self.assertEqual(caught.exception.check, "access")
         self.assertEqual(self.executed, [])
+
+    def test_when_command_output_fills_the_data_budget_the_question_is_still_answered(self):
+        self.write_policy('discovery_bytes = "2KiB"\n')
+        batch = json.dumps({"action": "run", "commands": [["uname", "-s"]] * 16})
+        result = self.run_flow([batch, run("uname", "-r"), ANSWER_PLAN])
+        self.assertEqual(result, ANSWER)
+        self.assertLess(len(self.executed), 16)
+        self.assertNotIn(["uname", "-r"], self.executed)
+        last = self.wire[-1]["discovery"]
+        self.assertEqual(last["remaining"]["commands"], 0)
+        self.assertEqual([step["code"] for step in last["steps"] if step["op"] == "refusal"], ["discovery-budget"])
+        self.assertIn("output budget used up", self.output.getvalue())
 
     def test_the_command_budget_is_the_owners_and_exhaustion_is_named(self):
         self.write_policy("command_rounds = 1\n")
@@ -181,7 +200,7 @@ class PolicyAndWireTests(OperationsBase):
         self.assertNotIn("commands", permissions.load_policy().access())
 
     def test_limits_are_validated(self):
-        for line in ("command_rounds = 33", "command_rounds = -1", "command_output = 100", 'command_output = "200KiB"',
+        for line in ("command_rounds = 129", "command_rounds = -1", "command_output = 100", 'command_output = "200KiB"',
                      "command_timeout = 0", "command_timeout = 61", "command_timeout = true"):
             with self.subTest(line=line):
                 self.write_policy(line + "\n")
@@ -190,6 +209,26 @@ class PolicyAndWireTests(OperationsBase):
         self.write_policy("command_rounds = 2\ncommand_output = 4096\ncommand_timeout = 5\n")
         limits = permissions.load_policy().limits()
         self.assertEqual((limits.command_rounds, limits.command_output, limits.command_timeout), (2, 4096, 5))
+        self.write_policy("command_rounds = 128\n")
+        self.assertEqual(permissions.load_policy().limits().command_rounds, 128)
+
+    def test_the_highest_command_budget_still_fits_one_valid_discovery_document(self):
+        from ai_desktop import ask_discovery
+        self.write_policy("command_rounds = 128\n")
+        ledger = ask_discovery.DiscoveryLedger(permissions.load_policy(), "SYNTHETIC question")
+        ran = 0
+        try:
+            while True:
+                ledger.take_command()
+                room = ledger.output_room()
+                ledger.add_run({"op": "run", "argv": ["uptime"], "status": "ok", "exit": 0,
+                                "output": "x" * min(room, 300), "truncated": False, "role": "read"})
+                ran += 1
+                ledger.snapshot()                   # every document on the way is valid, with up to 127 left
+        except ask_discovery.BudgetExhausted:
+            pass
+        self.assertGreater(ran, 32)
+        dc.validate_discovery(ledger.document())
 
     def test_run_plan_shape(self):
         access = {"files": [], "systemd": [], "weather": False, "commands": ["uname -r"]}
@@ -199,6 +238,14 @@ class PolicyAndWireTests(OperationsBase):
             with self.subTest(bad=bad), self.assertRaises(plans.PlanError):
                 plans.parse_plan(json.dumps(bad), access)
 
+    def test_one_plan_runs_at_most_32_commands_and_the_prompt_says_so(self):
+        access = {"files": [], "systemd": [], "weather": False, "commands": ["uname -r"]}
+        many = lambda count: json.dumps({"action": "run", "commands": [["uname", "-r"]] * count})
+        self.assertEqual(len(plans.parse_plan(many(32), access)["commands"]), 32)
+        with self.assertRaises(plans.PlanError):
+            plans.parse_plan(many(33), access)
+        self.assertIn("up to 32 in a plan", contract.SYSTEM_PROMPT)
+
     def test_wire_step_is_closed_and_bounded(self):
         good = {"steps": [{"op": "run", "argv": ["uname", "-r"], "status": "ok", "exit": 0, "output": "7.3\n",
                            "truncated": False}], "remaining": {"rounds": 4, "corrections": 2, "commands": 3}}
@@ -206,7 +253,7 @@ class PolicyAndWireTests(OperationsBase):
         for mutate in (lambda d: d["steps"][0].update(shell="x"), lambda d: d["steps"][0].update(status="weird"),
                        lambda d: d["steps"][0].update(exit=999), lambda d: d["steps"][0].update(exit=True),
                        lambda d: d["steps"][0].update(output="x\x1b[0m"), lambda d: d["steps"][0].update(output="x" * 140000),
-                       lambda d: d["steps"][0].update(argv=["a b"]), lambda d: d["remaining"].update(commands=33),
+                       lambda d: d["steps"][0].update(argv=["a b"]), lambda d: d["remaining"].update(commands=dc.MAX_COMMAND_ROUNDS + 1),
                        lambda d: d["steps"][0].pop("truncated")):
             bad = json.loads(json.dumps(good))
             mutate(bad)
