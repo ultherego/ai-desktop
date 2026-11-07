@@ -54,6 +54,13 @@ class OperationsBase(Base):
 
 
 class FlowTests(OperationsBase):
+    def test_a_failed_command_without_output_is_shown_as_empty_and_one_with_output_as_failed(self):
+        step = lambda output: {"status": "failed", "exit": 1, "output": output}
+        self.assertIn("empty, code 1", flow._read_line("pacman -Qu", step("")))
+        self.assertIn("empty, code 1", flow._read_line("pacman -Qu", step("\n")))
+        self.assertIn("failed, code 1", flow._read_line("snapper list", step("SYNTHETIC: no permission\n")))
+        self.assertIn("timeout", flow._read_line("x", {"status": "timeout", "exit": None, "output": ""}))
+
     def test_an_allowed_command_runs_without_a_prompt_and_the_bounded_result_reaches_the_model(self):
         result = self.run_flow([run("uname", "-s"), ANSWER_PLAN])
         self.assertEqual(result, ANSWER)

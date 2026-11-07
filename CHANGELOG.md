@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-97: an empty result is not shown as a failure
+
+- A read command that ends with a non-zero code and prints nothing (for example `pacman -Qu` when there is nothing to update) is shown in yellow as `empty, code 1`. A non-zero code with output (for example a permission message) stays red as `failed`.
+
 ## 0.1.0-96: up to 32 commands in one batch
 
 - One plan may run up to 32 commands (before: 16), and the model is told it may send another batch while `command_rounds` allows. Before, a request for "everything" could send more than 16 and be refused as an invalid plan.
