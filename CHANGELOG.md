@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-100: the input stays at the bottom of the window
+
+- In a colour terminal an interactive conversation keeps its input at the bottom of the window, like Codex: a taller band with `Ask ai-desktop to do anything` while it is empty, the service and profile under it, then the key hint. Everything else (answers, commands, consent questions) scrolls above it. A sent message goes into the thread on the same band.
+- `/` commands are listed in the hint line while you type them. Resizing the window redraws the bottom rows.
+- Without colour, in a pipe or in a window under 12 rows the prompt stays inline as before.
+
 ## 0.1.0-99: the template and documentation catch up
 
 - `config/permissions.example.toml` uses the grouped form (`[commands.allow]` with `system`, `systemd`, `hardware`, `packages`) and shows `share_processes`, `host_sockets` and `deny` with their default values. The commands themselves are unchanged. An existing `permissions.toml` is never replaced.

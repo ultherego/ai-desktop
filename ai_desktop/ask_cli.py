@@ -381,6 +381,9 @@ def main(argv=None, *, reader=input):
                 args.presence.update(talk.number, conversation.session_id if conversation is not None else None)
             return result
         if question is None:
+            if reader is input:
+                from . import run_controls, terminal_frame
+                terminal_frame.start(sys.stdout, run_controls.label())
             greeted = False                    # the greeting is shown once, not again after each local command
             while True:
                 question = (_read_message(prompt_session, greeted) if reader is input else reader(QUESTION_PROMPT))
@@ -583,6 +586,8 @@ def main(argv=None, *, reader=input):
         print("Could not finish the question (prepare-" + state["phase"] + ").")
         return 2
     finally:
+        from . import terminal_frame
+        terminal_frame.stop()
         if args.presence is not None:
             args.presence.close()
         if conversation is not None:

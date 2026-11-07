@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** CachyOS look check of candidate 99 (conversation look, template and documentation), then the general system-call filter for the client (Stage 4). S0 and S7 remain deferred.
+**Next step:** CachyOS look check of candidate 100 (input pinned to the bottom, in a terminal and a multiplexer), then the general system-call filter for the client (Stage 4). S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -272,7 +272,7 @@ Earlier dated entries preserve the evidence and status at that point. The latest
   - Without colour every byte stays as before, which the existing PTY tests check.
 - Tests: `tests/test_terminal_look.py`, a colour PTY test in `tests/test_question_input.py`, a tree test in `tests/test_ask_operations.py`.
 - **Candidate 0.1.0-99** (same branch): the maintainer noticed that the template and documentation lagged behind PRs #27–#30. The template now uses groups and lists the `[commands]` keys with their defaults (same commands; tests check that it loads, stays grouped, sends no logs or network names and has no change list). README, `THREAT_MODEL.md` and `PERMISSIONS.md` describe `...`, `commands.deny`, groups, exact test/undo, 32 commands per plan, `command_rounds` up to 128, the closed data budget and the `empty` row.
-- Not done yet: an input field pinned to the bottom of the window while the answer streams above it. Answers arrive whole, and input is read only between turns, so the band already follows the last output; a fixed bottom area needs a scroll region and its own resize handling.
+- **Candidate 0.1.0-100** (same branch): the maintainer accepted the look and asked for the input pinned to the bottom of the window, taller, with a placeholder, as in Codex. `ai_desktop/terminal_frame.py` sets the terminal's scroll region above five reserved rows (a three-row band, a status line, the key hint); the editor draws there with absolute positions and puts the sent message into the thread. Resizing resets the region on the next draw. `ask` gives the region back in its `finally`. Tests: a 24-row PTY test (region 1–19, input on row 21, placeholder, message in the thread, region released, terminal restored) and `FrameTests` in `tests/test_terminal_look.py`.
 
 ### 2026-11-07 — Stage 4 follow-up: snapper through the D-Bus filter, a larger command budget
 

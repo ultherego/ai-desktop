@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import pty
+import re
 import select
 import struct
 import subprocess
@@ -381,6 +382,27 @@ class PromptSessionTerminalTests(unittest.TestCase):
         plain = self.run_script(self.READS.format(attach=True, count=1), [b"abc\r"])
         self.assertNotIn(band, plain)
         self.assertNotIn(editor.FOOTER, plain)
+
+    def test_a_pinned_frame_keeps_the_input_at_the_bottom_and_puts_the_sent_message_into_the_thread(self):
+        colour = {key: value for key, value in os.environ.items() if key != "NO_COLOR"}
+        colour.update(TERM="xterm-256color", COLORTERM="truecolor")
+        body = ("import ai_desktop.terminal_frame as frame\n"
+                "frame.start(sys.stdout, 'SYNTHETIC status')\n" + self.READS.format(attach=True, count=2) +
+                "frame.stop()\n")
+        output = self.run_script(body, [b"abc\r", b"/he", b"\x03", b"\x03", b"\x03"], env=colour)
+        # The frame draws without line breaks, so a result line starts after the last drawn bytes, not at a new line.
+        results = [json.loads(found) for found in re.findall(r"R=(\[.*\])\n", output)]
+        self.assertEqual(results[0][0], "abc")
+        self.assertEqual(results[1], ["ERR", "KeyboardInterrupt"])
+        self.assertIn("\x1b[1;19r", output)                       # 24 rows: the conversation scrolls in rows 1-19
+        self.assertIn("\x1b[21;1H", output)                       # the input row sits at the bottom
+        self.assertIn("Ask ai-desktop to do anything", output)
+        self.assertIn("SYNTHETIC status", output)
+        self.assertRegex(output, r"\u203a(\x1b\[0m)?\x1b\[48;2;40;42;54m abc\x1b\[K")  # the sent message, on the band, in the thread
+        self.assertIn(editor.CTRL_C_HINT, output)
+        self.assertTrue(output.rstrip().endswith("DONE"))
+        self.assertIn("\x1b[r", output)                           # the scroll region is given back at the end
+        self.assertIn("RESTORED=True", output)
 
     def test_up_and_down_walk_the_history_of_this_command_only(self):
         output = self.run_script(self.READS.format(attach=False, count=3),

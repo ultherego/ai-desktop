@@ -14,6 +14,7 @@ import time
 import unicodedata
 
 from .analysis_contract import MAX_MESSAGE_BYTES, MAX_QUESTION_BYTES, validate_question
+from . import terminal_frame
 from .terminal_style import bar, greeting, paint
 
 
@@ -470,7 +471,28 @@ def read_question(*, max_bytes=MAX_QUESTION_BYTES, followup=False, prompt=None, 
     edited[3] &= ~(termios.ICANON | termios.ECHO | termios.IEXTEN | termios.ISIG)
     edited[6][termios.VMIN], edited[6][termios.VTIME] = 1, 0
     termios.tcsetattr(fd, termios.TCSANOW, edited)
-    pushed, line = None, None
+    pushed, line, result = None, None, None
+    frame = terminal_frame.current() if session is not None else None
+
+    def redraw():
+        if frame is None:
+            _draw(line, output)
+            _suggest(line, session, output)
+            _footer(line, session, output)
+            return
+        found = _matches(session, line.text)
+        if found:
+            session.pick = min(session.pick, len(found) - 1)
+            frame.note = "  ".join(("\u203a" if index == session.pick else " ") + name
+                                   for index, (name, _) in enumerate(found))
+        elif not session.armed:
+            frame.note = ""
+        before = line.text[:line.cursor]
+        row = before.count("\n")
+        rows = line.text.split("\n")
+        shown = rows[row] + ("   (line %d of %d)" % (row + 1, len(rows)) if len(rows) > 1 else "")
+        frame.draw(shown, len(before.split("\n")[-1]))
+
     try:
         termios.tcflush(fd, termios.TCIFLUSH)
         line = _Line(max_bytes)
@@ -483,9 +505,14 @@ def read_question(*, max_bytes=MAX_QUESTION_BYTES, followup=False, prompt=None, 
             else:
                 output.write("\x1b[>4;2m")                          # xterm modifyOtherKeys; terminals without it ignore this
                 pushed = "xterm"
-        output.write("\x1b[?2004h" + _styled_prompt(prompt if prompt is not None else FOLLOWUP_PROMPT if followup else PROMPT, output))
-        output.flush()
-        _footer(line, session, output)
+        if frame is not None:
+            frame.enter()
+            output.write("\x1b[?2004h")
+            redraw()
+        else:
+            output.write("\x1b[?2004h" + _styled_prompt(prompt if prompt is not None else FOLLOWUP_PROMPT if followup else PROMPT, output))
+            output.flush()
+            _footer(line, session, output)
         position, draft = None, ""
         while True:
             idle = _wait(fd, idle)
@@ -502,14 +529,16 @@ def read_question(*, max_bytes=MAX_QUESTION_BYTES, followup=False, prompt=None, 
                 if line.text:
                     line.text, line.cursor, session.armed = "", 0, False
                     session.reset_pastes()
-                    _draw(line, output)
-                    _suggest(line, session, output)
-                    _footer(line, session, output)
+                    redraw()
                     continue
                 if session.armed:
                     session.armed = False
                     raise
                 session.armed = True
+                if frame is not None:
+                    frame.note = CTRL_C_HINT
+                    redraw()
+                    continue
                 output.write("\r\x1b[2K" + CTRL_C_HINT + "\r\n" + _row(output, "", True))
                 output.flush()
                 _footer(line, session, output)
@@ -518,16 +547,13 @@ def read_question(*, max_bytes=MAX_QUESTION_BYTES, followup=False, prompt=None, 
                 session.armed = False
             if value == b"\n" and attach and lf_breaks:
                 line.insert("\n")                                   # Ctrl+J / a terminal binding that sends LF: break the line
-                _draw(line, output)
-                _footer(line, session, output)
+                redraw()
                 continue
             if value == b"\t" and _matches(session, line.text):
                 line.text = _matches(session, line.text)[session.pick][0] + " "
                 line.cursor = len(line.text)
                 session.pick = 0
-                _draw(line, output)
-                _suggest(line, session, output)
-                _footer(line, session, output)
+                redraw()
                 continue
             if value in (b"\r", b"\n"):
                 found = _matches(session, line.text)
@@ -540,13 +566,13 @@ def read_question(*, max_bytes=MAX_QUESTION_BYTES, followup=False, prompt=None, 
                     line.text = line.text[:-1]                      # backslash + Enter: a line break instead of sending
                     line.cursor -= 1
                     line.insert("\n")
-                    _draw(line, output)
-                    _footer(line, session, output)
+                    redraw()
                     continue
                 text = validate_question(line.text, MAX_MESSAGE_BYTES)
                 if session is not None:
                     session.armed = False
                     session.remember(text)
+                result = text
                 return text
             if value == b"\x04":
                 if not line.text:
@@ -594,19 +620,25 @@ def read_question(*, max_bytes=MAX_QUESTION_BYTES, followup=False, prompt=None, 
                     line.edit(_KEYS[key])
             else:
                 line.insert(_character(fd, value))
-            _draw(line, output)
-            _suggest(line, session, output)
-            _footer(line, session, output)
+            redraw()
     finally:
-        _hide_suggestions(session, output)
+        if frame is None:
+            _hide_suggestions(session, output)
         try:
             termios.tcflush(fd, termios.TCIFLUSH)
         finally:
             try:
                 termios.tcsetattr(fd, termios.TCSANOW, original)
             finally:
-                below = max(0, line.rows_total - 1 - line.row_drawn) if line is not None else 0
-                output.write(("\x1b[%dB" % below if below else "")
-                             + ("\x1b[<u" if pushed == "kitty" else "\x1b[>4;0m" if pushed == "xterm" else "")
-                             + "\x1b[?2004l" + ("\r\n\x1b[J" if bar(output) else "\n"))
-                output.flush()
+                keys = "\x1b[<u" if pushed == "kitty" else "\x1b[>4;0m" if pushed == "xterm" else ""
+                if frame is not None:
+                    output.write(keys + "\x1b[?2004l")
+                    if result is not None:
+                        frame.submitted(result)
+                    else:
+                        frame.leave()
+                else:
+                    below = max(0, line.rows_total - 1 - line.row_drawn) if line is not None else 0
+                    output.write(("\x1b[%dB" % below if below else "") + keys
+                                 + "\x1b[?2004l" + ("\r\n\x1b[J" if bar(output) else "\n"))
+                    output.flush()
