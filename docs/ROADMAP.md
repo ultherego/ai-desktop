@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** CachyOS acceptance of candidates 90 (read-only D-Bus) and 91 (command groups, `...`, `commands.deny`), then the general system-call filter for the client (Stage 4). S0 and S7 remain deferred.
+**Next step:** CachyOS acceptance of candidates 90 (read-only D-Bus) and 92 (command groups, `...`, `commands.deny`), then the general system-call filter for the client (Stage 4). S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -263,13 +263,14 @@ Earlier dated entries preserve the evidence and status at that point. The latest
 
 ### 2026-11-07 — Stage 4 follow-up: grouped command lists, open arguments and `commands.deny`
 
-- **READY FOR TEST**, candidate **0.1.0-91**, branch `feature/command-groups`, stacked on candidate 90 (PR #28). Requested by the maintainer: exact templates could not express `docker ps` with its options or a `docker run --rm` with an image, and a long `allow` list needed structure.
+- **READY FOR TEST**, candidate **0.1.0-92** (91 plus the change-refusal fix below), branch `feature/command-groups`, stacked on candidate 90 (PR #28). Requested by the maintainer: exact templates could not express `docker ps` with its options or a `docker run --rm` with an image, and a long `allow` list needed structure.
 - `[commands.allow]` and `[commands.change]` may be tables of named lists (groups); the program flattens them, and duplicates across groups are refused.
 - A template may end with `...`: the fixed words, then further plain words (`[A-Za-z0-9._:=,@%+/-]`, within the existing argv limit). The verb before it must be literal (`docker ...` is refused). Paths among the open words must be absolute, inside `files.read` and outside `files.deny`; in `change` also inside `files.write`. In `allow`, an open template with a state-changing verb (`run`, `rm`, `build`, `start`, …) is refused with a pointer to `change`, because `allow` runs without asking; at run time such a verb among the open words is refused too (found when the maintainer wrote `docker image ...`, which would otherwise have allowed `docker image rm`). Test and undo commands of a change (which run outside the sandbox) only match exact templates.
 - `[commands] deny`: literal word prefixes that win over `allow` and `change`, e.g. `docker rm`. Flag spellings are not normalised, which `PERMISSIONS.md` and `KNOWN_LIMITATIONS.md` state.
 - The system prompt explains `...` to the model. State-changing templates such as `docker build` or `docker run` belong in `change`, never in `allow`, where they would run root-equivalent without consent.
 - Tests: `tests/test_command_groups.py`; full unit suite, `verify.py --mode ci` and `--mode local` pass.
-- **Next step:** CachyOS acceptance of 90 and 91 together, then regroup the maintainer's file.
+- A real session showed `docker pull` and `docker run --rm` from `change` refused with one generic line: the system prompt never told the model that a change needs `test` and `undo` fields or which lists they come from. Candidate 92 explains this in the prompt, and a refusal names its reason (no test or undo, a test that is not an exact `allow` command or that itself changes the system, an undo on neither list) both on screen and in the step output the model sees. Test: `test_a_refused_change_names_its_reason_to_the_user_and_to_the_model`.
+- **Next step:** CachyOS acceptance of 90 and 92 together. The maintainer's file is regrouped.
 
 ### 2026-11-07 — Stage 4: read-only D-Bus for `allow` commands
 

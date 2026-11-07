@@ -174,6 +174,20 @@ class ChangeFlowTests(ChangeBase):
                 self.assertNotIn("run-change", self.asked)
                 self.assertEqual(self.steps()[0]["status"], "not-allowed")
 
+    def test_a_refused_change_names_its_reason_to_the_user_and_to_the_model(self):
+        for test, undo, reason in ((["uname", "-r"], REVERT, "is not an exact `allow` command"),
+                                   (RESTART, REVERT, "itself changes the system"),
+                                   (STATUS, ["rm", "-rf", "/"], "The undo rm -rf / is neither")):
+            with self.subTest(reason=reason):
+                self.wire = []
+                self.output.seek(0)
+                self.output.truncate()
+                self.facts([change(RESTART, test, undo), ANSWER_PLAN])
+                self.assertIn(reason, self.output.getvalue())
+                self.assertIn(reason, self.steps()[0]["output"])
+        from ai_desktop.analysis_contract import SYSTEM_PROMPT
+        self.assertIn("\"test\":[...],\"undo\":[...]", SYSTEM_PROMPT)
+
     def test_a_change_outside_the_owners_change_list_is_not_run(self):
         self.facts([change(["systemctl", "stop", "foo.service"], STATUS, REVERT), ANSWER_PLAN])
         self.assertEqual(self.calls, [])

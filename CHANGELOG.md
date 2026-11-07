@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-92: refused changes say why
+
+- The model is now told how to propose a change from `change`: with a `test` (an exact `allow` command) and an `undo` (a `change` or exact `allow` command). Before, it was not, so changes such as `docker pull ...` were refused.
+- A refused change says exactly what is missing, on screen and to the model, so it can correct the plan or tell you which template to add.
+
 ## 0.1.0-91: command groups, open arguments and commands.deny
 
 - `[commands.allow]` and `[commands.change]` can be split into named groups, e.g. `docker = [...]`, `general = [...]`.
