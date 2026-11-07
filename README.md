@@ -15,6 +15,30 @@ Supported system packages are used directly. Clients installed in your home dire
 - It does not use an API key and does not switch to another service when something fails.
 - It is not certified isolation or a secret scanner. See [SECURITY.md](SECURITY.md).
 
+## How a conversation works
+
+1. **You type a question and press Enter**, for example "check everything you know about my PC".
+2. **AI Desktop does not interpret your question.** It does not look for words such as "everything" and does not decide for you what matters. Your text goes to the model as written. The program only adds what you allowed in `permissions.toml`:
+   - which commands may run (`allow`) and which changes may be proposed (`change`);
+   - which directories may be read;
+   - how many commands and how much data may be used;
+   - the names and short descriptions of your Skills, without their content;
+   - the latest exchanges of this conversation and notes about earlier actions.
+
+   Your files and command output are not sent yet.
+3. **You are asked for consent:** `Send this request to Claude? [y/n]`. Until then nothing has left your computer.
+4. **The model only answers with a plan.** Claude runs in a closed environment without any tools and cannot run anything itself. It sends back a plan as text, for example "run `sensors`, `free -h`, `lscpu`". The model, not AI Desktop, decides that "everything" means many commands.
+5. **AI Desktop checks every command in the plan.**
+   - Commands that are not on your list are refused.
+   - Commands from `allow` run in a sandbox: read-only, without network, with a mostly empty `/run` and D-Bus only through a read filter.
+   - Commands from `change` are shown on a red card and wait for you to type `yes`.
+6. **The results go back to the model**, cut to the `command_output` and `discovery_bytes` limits.
+7. **The model may ask for more**, for example another batch of commands, a file or a Skill. Steps 5 and 6 repeat while the limits allow. Within this one question you are not asked again, except for changes (`yes`) and file writes (a diff to approve).
+8. **The model writes the answer**, and AI Desktop shows it.
+9. **The conversation is saved locally.** With your next question the model sees the latest exchanges of this conversation, and `ai-desktop -c` returns to it later.
+
+In short: the model decides what it needs; AI Desktop decides what is actually allowed, according to your file.
+
 ## Choose where to work
 
 | In a terminal | Result |
@@ -38,7 +62,7 @@ This is a development version, not a 1.0 release.
 
 The current candidate package is **0.1.0-96** (changes: [CHANGELOG.md](CHANGELOG.md)).
 
-Recent candidates: 82–83 run independently installed Claude and Codex clients through a reviewed, root-owned copy of your native installation, with Codex limits in the DMS widget; 84 asks once for a bounded multi-stage project analysis or a declared task test; 85 saves conversations automatically; 86 tightens Codex registration; 87 adds `ai-desktop -c` and the whole read-back thread; 88 makes task refusals say why; 89 hides daemon sockets from read commands; 90 gives them D-Bus only for reading; 91 adds command groups, `...` and `commands.deny`. Every candidate's evidence and open items are in [docs/ROADMAP.md](docs/ROADMAP.md). None of these checks performed a real login or model request unless stated there.
+Recent candidates: 82–83 run independently installed Claude and Codex clients through a reviewed, root-owned copy of your native installation, with Codex limits in the DMS widget; 84 asks once for a bounded multi-stage project analysis or a declared task test; 85 saves conversations automatically; 86 tightens Codex registration; 87 adds `ai-desktop -c` and the whole read-back thread; 88 makes task refusals say why; 89 hides daemon sockets from read commands; 90 gives them D-Bus only for reading; 91 adds command groups, `...` and `commands.deny`; 92 makes refused changes say why; 93–96 fix snapper reads and allow more commands per question. Every candidate's evidence and open items are in [docs/ROADMAP.md](docs/ROADMAP.md). None of these checks performed a real login or model request unless stated there.
 
 `ai-desktop doctor` and `doctor --v` inspect metadata without executing a client. `doctor --clients` explicitly probes the selected cloud client offline, without login, network or a model request. A successful probe checks adapter prerequisites; it does not certify the vendor or prove that authentication and inference work.
 
