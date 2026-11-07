@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-96: up to 32 commands in one batch
+
+- One plan may run up to 32 commands (before: 16), and the model is told it may send another batch while `command_rounds` allows. Before, a request for "everything" could send more than 16 and be refused as an invalid plan.
+
 ## 0.1.0-95: `command_rounds` above 32 works
 
 - With `command_rounds` above 32 every question with commands was refused with a misleading `discovery_bytes` message: the data sent to the model still allowed at most 32 remaining commands. It now follows the 128 ceiling.

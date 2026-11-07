@@ -231,6 +231,14 @@ class PolicyAndWireTests(OperationsBase):
             with self.subTest(bad=bad), self.assertRaises(plans.PlanError):
                 plans.parse_plan(json.dumps(bad), access)
 
+    def test_one_plan_runs_at_most_32_commands_and_the_prompt_says_so(self):
+        access = {"files": [], "systemd": [], "weather": False, "commands": ["uname -r"]}
+        many = lambda count: json.dumps({"action": "run", "commands": [["uname", "-r"]] * count})
+        self.assertEqual(len(plans.parse_plan(many(32), access)["commands"]), 32)
+        with self.assertRaises(plans.PlanError):
+            plans.parse_plan(many(33), access)
+        self.assertIn("up to 32 in a plan", contract.SYSTEM_PROMPT)
+
     def test_wire_step_is_closed_and_bounded(self):
         good = {"steps": [{"op": "run", "argv": ["uname", "-r"], "status": "ok", "exit": 0, "output": "7.3\n",
                            "truncated": False}], "remaining": {"rounds": 4, "corrections": 2, "commands": 3}}
