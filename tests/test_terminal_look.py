@@ -149,6 +149,27 @@ class FrameTests(unittest.TestCase):
                 self.assertIn("\x1b[%d;1H\x1b[2K" % row, written)
             self.assertEqual(frame.extra, 0)
 
+    def test_the_band_grows_with_longer_text_and_the_conversation_makes_room(self):
+        with patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True), \
+                patch.object(terminal_frame, "_size", return_value=(24, 40)):
+            frame = terminal_frame.Frame(Terminal(), "SYNTHETIC status")
+            text = "first line\nsecond line\n" + "x" * 50            # the last line wraps at 36 columns
+            frame.draw(text, len(text))
+            self.assertEqual(frame.lines, 4)
+            self.assertIn("\x1b[18;1H\n\n\n", frame.stream.getvalue())  # the conversation scrolled up three rows
+            self.assertIn("\x1b[1;15r", frame.stream.getvalue())
+            rows = dict(frame.layout(text, len(text))[0])
+            self.assertIn("first line", rows[18])
+            self.assertIn("second line", rows[19])
+            self.assertIn("x" * 36, rows[20])
+            self.assertIn("x" * 14, rows[21])
+            self.assertEqual(frame.cursor_at, (21, 3 + 14))
+            frame.draw("y" * 2000, 2000)                                  # never more than about half the window
+            self.assertEqual(frame.lines, 8)
+            self.assertEqual(frame.cursor_at[0], 21)                      # the cursor's row stays visible
+            frame.leave()
+            self.assertEqual((frame.lines, frame.extra), (1, 0))
+
     def test_the_conversation_starts_at_the_top_and_old_screen_text_goes_to_the_history(self):
         with patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True), \
                 patch.object(terminal_frame.os, "isatty", return_value=True), \

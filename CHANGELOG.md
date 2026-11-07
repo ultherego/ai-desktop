@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-107: the input grows with longer text
+
+- The input band grows upwards with what you type, like Codex and Claude Code: a long line wraps onto the next row and each new line (`\` + Enter) adds a row, up to about half the window; beyond that the text scrolls with the cursor. The conversation moves up to make room and comes back down after sending.
+
 ## 0.1.0-106: a wrongly written command no longer ends the turn
 
 - Commands have no shell: each argument is one word without spaces. The model is now told this (and to use a waiting program such as `sleep infinity` to keep something running), and when it still writes a command with a script or spaces, it gets a `command-invalid` refusal and may correct it within `plan_corrections`, instead of the turn ending with `invalid plan (plan-command)`.

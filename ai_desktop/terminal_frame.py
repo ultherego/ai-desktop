@@ -44,7 +44,9 @@ class Frame:
         self.editing = None                        # (text, cursor) while the editor waits for keys
         self.repaint = None                        # prints the head and the thread again after a resize
         self.commands, self.pick = (), 0           # the `/` list shown above the band, and its highlighted row
-        self.extra = 0                             # rows the `/` list takes above the band right now
+        self.extra = 0                             # rows above the default reserved block: the `/` list and extra input rows
+        self.listed = 0                            # rows of the `/` list right now
+        self.lines = 1                             # rows of the input band's text right now
         self.cursor_at = (1, 1)                    # where the input cursor was last drawn
         self.busy = None                           # the live input of a running turn, which redraws itself
         self.draft = ""                            # text typed during a turn, put back into the next prompt
@@ -55,10 +57,17 @@ class Frame:
         """The last row of the conversation's scroll region."""
         return self.rows - RESERVED - self.extra
 
+    def _reserve(self, listed, lines):
+        """Room above the band for the `/` list and for input text longer than one row. The conversation scrolls up to
+        make room (nothing is covered) and the region shrinks; when they shrink, the region grows back and the freed
+        rows are cleared. The conversation always keeps at least three rows; the input takes at most about half."""
+        room = max(0, self.rows - RESERVED - 3)
+        self.lines = max(1, min(lines, room // 2 + 1))
+        self.listed = max(0, min(listed, POPUP_ROWS, room - (self.lines - 1)))
+        self._list_rows(self.listed + self.lines - 1)
+
     def _list_rows(self, wanted):
-        """Give the `/` list room above the band. The conversation scrolls up to make room (nothing is covered) and the
-        region shrinks; when the list closes, the region grows back and the freed rows are cleared."""
-        wanted = max(0, min(wanted, POPUP_ROWS, self.rows - RESERVED - 3))
+        wanted = max(0, wanted)
         delta = wanted - self.extra
         if not delta:
             return
@@ -141,33 +150,57 @@ class Frame:
         return "\x1b8"
 
     # -- drawing -----------------------------------------------------------------------------------------------------
+    @staticmethod
+    def wrap(text, cursor, room):
+        """Visual rows of the input: each line is cut every `room` characters. Returns (rows, cursor row, cursor column)."""
+        rows, cursor_row, cursor_column, offset = [], 0, 0, 0
+        for line in text.split("\n"):
+            pieces = [line[start:start + room] for start in range(0, len(line), room)] or [""]
+            if offset <= cursor <= offset + len(line):
+                column = cursor - offset
+                if column == len(line) and line and len(line) % room == 0:
+                    pieces.append("")              # the cursor after a full row starts the next one
+                cursor_row, cursor_column = len(rows) + column // room, column % room
+            rows.extend(pieces)
+            offset += len(line) + 1
+        return rows, cursor_row, cursor_column
+
     def layout(self, text, cursor):
         """The reserved rows as (row number, content) and the cursor's (row, column): pure, for drawing and tests."""
-        base = self.rows - RESERVED + 1            # the spacer that keeps the conversation off the band
-        top = base + 1
         width = max(self.columns, 4)
+        room = max(1, width - 4)
         shade = bar(self.stream)
-        pointer = paint("›", "accent", "bold", stream=self.stream)
-        if text:
-            room = width - 4
-            start = max(0, cursor - room + 1)
-            shown, column = text[start:start + room], cursor - start
-            body = shade + "  " + shade + shown
-        else:
-            body = shade + "  " + paint(PLACEHOLDER[:width - 4], "muted", stream=self.stream) + shade
-            column = 0
+        pointer = paint("\u203a", "accent", "bold", stream=self.stream)
+        hint = self.rows                           # from the bottom: hint, status, band (padding, text rows, padding)
+        first_text = hint - 2 - self.lines
+        top_pad = first_text - 1
+        spacer = top_pad - self.listed - 1         # above the `/` list when it is open, so the list touches the band
         empty = shade + "\x1b[K\x1b[0m"
-        rows = [(base - self.extra, "\x1b[2K"),     # above the `/` list when it is open, so the list touches the band
-                (top, empty),
-                (top + 1, shade + pointer + shade + body[len(shade) + 1:] + "\x1b[K\x1b[0m"),
-                (top + 2, empty),
-                (top + 3, "\x1b[2K" + paint(self.status[:width - 1], "muted", stream=self.stream)),
-                (top + 4, "\x1b[2K" + paint((self.note or HINT)[:width - 1], "muted", stream=self.stream))]
-        if self.extra:
-            first = max(0, min(self.pick - self.extra + 1, len(self.commands) - self.extra))
-            for offset, index in enumerate(range(first, first + self.extra)):
-                rows.insert(1 + offset, (base - self.extra + 1 + offset, self._command_row(index, width)))
-        return rows, (top + 1, 3 + column)
+        if text:
+            visual, cursor_row, column = self.wrap(text, cursor, room)
+            start = min(max(0, cursor_row - self.lines + 1), max(0, len(visual) - self.lines))
+            shown = visual[start:start + self.lines]
+            cursor_row -= start
+        else:
+            shown, cursor_row, column = [None], 0, 0
+        rows = [(spacer, "\x1b[2K"), (top_pad, empty)]
+        for index in range(self.lines):
+            head = shade + (pointer if index == 0 else " ") + shade + " "
+            if index < len(shown) and shown[index] is not None:
+                body = shown[index]
+            elif index == 0 and not text:
+                body = paint(PLACEHOLDER[:room], "muted", stream=self.stream) + shade
+            else:
+                body = ""
+            rows.append((first_text + index, head + body + "\x1b[K\x1b[0m"))
+        rows += [(hint - 2, empty),
+                 (hint - 1, "\x1b[2K" + paint(self.status[:width - 1], "muted", stream=self.stream)),
+                 (hint, "\x1b[2K" + paint((self.note or HINT)[:width - 1], "muted", stream=self.stream))]
+        if self.listed:
+            first = max(0, min(self.pick - self.listed + 1, len(self.commands) - self.listed))
+            for offset, index in enumerate(range(first, first + self.listed)):
+                rows.insert(1 + offset, (spacer + 1 + offset, self._command_row(index, width)))
+        return rows, (first_text + cursor_row, 3 + column)
 
     def _command_row(self, index, width):
         if index >= len(self.commands):
@@ -190,7 +223,8 @@ class Frame:
         """Draw the input band with this text and leave the terminal cursor in it."""
         self.editing = (text, cursor)
         self._refresh_size(typing)
-        self._list_rows(len(self.commands))
+        visual = self.wrap(text, cursor, max(1, max(self.columns, 4) - 4))[0] if text else [""]
+        self._reserve(len(self.commands), len(visual))
         rows, (row, column) = self.layout(text, cursor)
         self.cursor_at = (row, column)
         self.stream.write("".join("\x1b[%d;1H%s" % (number, content) for number, content in rows)
@@ -201,7 +235,7 @@ class Frame:
         """Back to the conversation: the sent message goes into the thread on the same band, the input is emptied."""
         self.note = ""
         self.commands = ()
-        self._list_rows(0)
+        self._reserve(0, 1)
         shade = bar(self.stream)
         lines = [shade + "\x1b[K\x1b[0m"]
         for index, line in enumerate(text.split("\n")):
@@ -222,7 +256,7 @@ class Frame:
         """Return the cursor to the conversation without echoing anything (a cancelled or local input)."""
         self.note = ""
         self.commands = ()
-        self._list_rows(0)
+        self._reserve(0, 1)
         self.draw("", 0, typing=False)
         self.editing = None
         self.stream.write(self._back())

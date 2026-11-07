@@ -98,7 +98,7 @@ class TypeAhead:
                 text = self._question + " " + self._answer.text
                 cursor = len(self._question) + 1 + self._answer.cursor
             else:
-                text, cursor = self.line.text.replace("\n", " "), self.line.cursor
+                text, cursor = self.line.text, self.line.cursor
             self.frame.note = self._note()
             self.frame.draw(text, cursor, typing=False)
 

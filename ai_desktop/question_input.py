@@ -486,11 +486,7 @@ def read_question(*, max_bytes=MAX_QUESTION_BYTES, followup=False, prompt=None, 
         frame.show_commands(found, session.pick if found else 0)
         if not session.armed:
             frame.note = ""
-        before = line.text[:line.cursor]
-        row = before.count("\n")
-        rows = line.text.split("\n")
-        shown = rows[row] + ("   (line %d of %d)" % (row + 1, len(rows)) if len(rows) > 1 else "")
-        frame.draw(shown, len(before.split("\n")[-1]))
+        frame.draw(line.text, line.cursor)          # the band grows with the text, like Codex and Claude Code
 
     try:
         termios.tcflush(fd, termios.TCIFLUSH)
