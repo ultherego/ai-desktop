@@ -196,7 +196,7 @@ def validate_discovery(value):
                 or type(value["remaining"]) is not dict or set(value["remaining"]) != {"rounds", "corrections", "commands"}):
             raise ValueError()
         remaining = value["remaining"]
-        for name, ceiling in (("rounds", 8), ("corrections", 4), ("commands", 32)):
+        for name, ceiling in (("rounds", 8), ("corrections", 4), ("commands", MAX_COMMAND_ROUNDS)):
             if (type(remaining[name]) is not int or isinstance(remaining[name], bool)
                     or not 0 <= remaining[name] <= ceiling):
                 raise ValueError()

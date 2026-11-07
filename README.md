@@ -36,7 +36,7 @@ See [agent settings, accounts and sessions](docs/AGENT_MANAGEMENT.md), [verified
 
 This is a development version, not a 1.0 release.
 
-The current candidate package is **0.1.0-94** (changes: [CHANGELOG.md](CHANGELOG.md)).
+The current candidate package is **0.1.0-95** (changes: [CHANGELOG.md](CHANGELOG.md)).
 
 Recent candidates: 82–83 run independently installed Claude and Codex clients through a reviewed, root-owned copy of your native installation, with Codex limits in the DMS widget; 84 asks once for a bounded multi-stage project analysis or a declared task test; 85 saves conversations automatically; 86 tightens Codex registration; 87 adds `ai-desktop -c` and the whole read-back thread; 88 makes task refusals say why; 89 hides daemon sockets from read commands; 90 gives them D-Bus only for reading; 91 adds command groups, `...` and `commands.deny`. Every candidate's evidence and open items are in [docs/ROADMAP.md](docs/ROADMAP.md). None of these checks performed a real login or model request unless stated there.
 

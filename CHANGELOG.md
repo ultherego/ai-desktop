@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-95: `command_rounds` above 32 works
+
+- With `command_rounds` above 32 every question with commands was refused with a misleading `discovery_bytes` message: the data sent to the model still allowed at most 32 remaining commands. It now follows the 128 ceiling.
+
 ## 0.1.0-94: a full data budget no longer cancels the question
 
 - When command output fills `discovery_bytes`, the remaining commands are skipped and the model answers from what it collected. Before, the next command of the same batch cancelled the whole question.

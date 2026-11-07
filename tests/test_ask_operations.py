@@ -217,6 +217,7 @@ class PolicyAndWireTests(OperationsBase):
                 ledger.add_run({"op": "run", "argv": ["uptime"], "status": "ok", "exit": 0,
                                 "output": "x" * min(room, 300), "truncated": False, "role": "read"})
                 ran += 1
+                ledger.snapshot()                   # every document on the way is valid, with up to 127 left
         except ask_discovery.BudgetExhausted:
             pass
         self.assertGreater(ran, 32)
@@ -237,7 +238,7 @@ class PolicyAndWireTests(OperationsBase):
         for mutate in (lambda d: d["steps"][0].update(shell="x"), lambda d: d["steps"][0].update(status="weird"),
                        lambda d: d["steps"][0].update(exit=999), lambda d: d["steps"][0].update(exit=True),
                        lambda d: d["steps"][0].update(output="x\x1b[0m"), lambda d: d["steps"][0].update(output="x" * 140000),
-                       lambda d: d["steps"][0].update(argv=["a b"]), lambda d: d["remaining"].update(commands=33),
+                       lambda d: d["steps"][0].update(argv=["a b"]), lambda d: d["remaining"].update(commands=dc.MAX_COMMAND_ROUNDS + 1),
                        lambda d: d["steps"][0].pop("truncated")):
             bad = json.loads(json.dumps(good))
             mutate(bad)
