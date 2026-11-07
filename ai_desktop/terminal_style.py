@@ -40,6 +40,18 @@ def paint(text, *styles, stream=None):
     return "\x1b[%sm%s\x1b[0m" % (";".join(codes), text)
 
 
+_BAR = ((40, 42, 54), "236")
+
+
+def bar(stream=None):
+    """The background of the input band and of your messages in the thread: an SGR start sequence, or "" without
+    colour. The caller ends the band with erase-to-end-of-line (which fills it) and a reset."""
+    if not enabled(stream):
+        return ""
+    rgb, basic = _BAR
+    return "\x1b[48;2;%d;%d;%dm" % rgb if _truecolor() else "\x1b[48;5;%sm" % basic
+
+
 def _unicode(stream=None):
     stream = sys.stdout if stream is None else stream
     return (getattr(stream, "encoding", None) or "").lower().replace("-", "") in ("utf8", "utf")
@@ -48,7 +60,7 @@ def _unicode(stream=None):
 def symbol(name, stream=None):
     """Status marks; plain ASCII when the terminal cannot show them."""
     marks = {"ok": ("✔", "+"), "fail": ("✘", "x"), "arrow": ("→", "->"), "dot": ("·", "-"), "pointer": ("›", ">"),
-             "skip": ("–", "-")}
+             "skip": ("–", "-"), "branch": ("└", "`"), "bullet": ("●", "*")}
     fancy, plain = marks[name]
     return fancy if _unicode(stream) else plain
 

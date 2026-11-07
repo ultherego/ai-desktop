@@ -236,7 +236,22 @@ def _finished(label, step):
         len(step["output"].encode("utf-8")), symbol("arrow"))
 
 
-def _read_line(shown, step):
+def _group(ledger, count):
+    """The head of a group of read commands; their rows hang under it like a tree."""
+    print(paint(symbol("bullet"), "violet", "bold") + " " + paint("Running %d command%s" % (count, "" if count == 1 else "s"), "bold"))
+    ledger.tree_rows = 0
+
+
+def _branch(ledger):
+    """The tree mark of the next row: a corner for the first one under the head, an indent after it."""
+    rows = getattr(ledger, "tree_rows", None)
+    if rows is None:
+        return ""
+    ledger.tree_rows = rows + 1
+    return (symbol("branch") if rows == 0 else " ") + " "
+
+
+def _read_line(shown, step, branch=""):
     """One row per read-only command: a whole batch stays readable on one screen."""
     healthy = step["status"] == "ok" and step["exit"] in (0, None)
     # A non-zero code with no output at all is often an answer, not a fault (`pacman -Qu`: nothing to update).
@@ -244,7 +259,7 @@ def _read_line(shown, step):
     state = size_label(len(step["output"].encode("utf-8"))) if healthy else "%s%s" % (
         "empty" if empty else step["status"], "" if step["exit"] is None else ", code " + str(step["exit"]))
     tone = "accent" if healthy else "yellow" if empty else "red"
-    return "  %s %s %s %s" % (paint(symbol("ok" if healthy else "skip" if empty else "fail"), tone, "bold"), shown,
+    return "  %s%s %s %s %s" % (paint(branch, "muted"), paint(symbol("ok" if healthy else "skip" if empty else "fail"), tone, "bold"), shown,
                               paint(symbol("dot"), "muted"), paint(state, "muted" if healthy else tone))
 
 
@@ -326,7 +341,7 @@ def _run_command(snapshot, ledger, plan, permit, args, reader):
         path = command_ops.resolve(argv[0]) if policy.allows_command(argv) else None
         if path is None:
             if policy.allows_command(argv):
-                print(paint("  %s %s %s program not found" % (symbol("skip"), shown(argv), symbol("dot")), "muted"))
+                print(paint("  %s%s %s %s program not found" % (_branch(ledger), symbol("skip"), shown(argv), symbol("dot")), "muted"))
                 add(argv, "read", "missing")
                 return
             print("This command is not on the allowed list in permissions.toml and will not run: " + shown(argv))
@@ -343,7 +358,7 @@ def _run_command(snapshot, ledger, plan, permit, args, reader):
         step = command_ops.execute(path, argv, output_limit=room, timeout=policy.limits().command_timeout, **extra)
         permit.check()
         step = add(argv, "read", step["status"], step["exit"], step["output"], step["truncated"])
-        print(_read_line(shown(argv), step))
+        print(_read_line(shown(argv), step, _branch(ledger)))
         if args.details:
             print(terminal_text(step["output"]))
         return
@@ -552,12 +567,17 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                     progress("collect")
                     if "commands" in plan:
                         # One planner step, many reads: the model gets all the results in its next single round.
+                        _group(ledger, len(plan["commands"]))
                         for argv in plan["commands"]:
                             if ledger.commands_left <= 0:
                                 break
                             permit.renew()    # commands may take their full timeout each; the question ceiling still holds
                             _run_command(snapshot, ledger, {"action": "run", "argv": argv}, permit, args, reader)
                     else:
+                        if "test" not in plan and not (snapshot.policy and snapshot.policy.allows_change(plan["argv"])):
+                            _group(ledger, 1)
+                        else:
+                            ledger.tree_rows = None          # a change shows its own card, not a tree
                         _run_command(snapshot, ledger, plan, permit, args, reader)
                     plan = next_plan()
                     continue

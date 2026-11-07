@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** CachyOS acceptance of candidate 97 (snapper through the D-Bus filter, `command_rounds` up to 128, a full data budget ends discovery instead of the question), then the general system-call filter for the client (Stage 4). S0 and S7 remain deferred.
+**Next step:** CachyOS look check of candidate 98 (conversation look), then the general system-call filter for the client (Stage 4). S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -260,6 +260,18 @@ Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaini
 ## Progress log
 
 Earlier dated entries preserve the evidence and status at that point. The latest entry supersedes historical pending/next-step statements.
+
+### 2026-11-07 — Usability: a conversation look closer to Codex
+
+- Candidate 97 passed the maintainer's checks and PR #30 was merged (`c1c552b`).
+- **READY FOR TEST**, candidate **0.1.0-98**, branch `feature/codex-like-terminal`. Requested by the maintainer, after the Codex terminal UI. Display only; no change to what is sent, run or allowed.
+  - The input row is a full-width band (`bar()` in `terminal_style.py`, erase-to-end-of-line with a background) and stays in the thread after sending; a muted key hint sits under it and is erased on send, and never covers the `/` command list.
+  - An interactive `ask` opens with a framed head (`run_controls.banner`); other commands keep the one-line label.
+  - Read commands hang as a tree under `● Running N commands`; a change keeps its red card.
+  - The waiting line shows elapsed seconds and the Ctrl+C hint.
+  - Without colour every byte stays as before, which the existing PTY tests check.
+- Tests: `tests/test_terminal_look.py`, a colour PTY test in `tests/test_question_input.py`, a tree test in `tests/test_ask_operations.py`.
+- Not done yet: an input field pinned to the bottom of the window while the answer streams above it. Answers arrive whole, and input is read only between turns, so the band already follows the last output; a fixed bottom area needs a scroll region and its own resize handling.
 
 ### 2026-11-07 — Stage 4 follow-up: snapper through the D-Bus filter, a larger command budget
 

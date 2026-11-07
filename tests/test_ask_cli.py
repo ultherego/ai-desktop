@@ -154,7 +154,9 @@ class AskCliTests(unittest.TestCase):
                     policy.access.return_value = ACCESS
                     policy.scopes.return_value = (Scope(0, "~/example/*"),)
                     policy.expand.return_value = (FILES["files"][0]["path"],)
-                    with patch.object(file_context.permissions, "read_selected", side_effect=ValueError(reason)) as read:
+                    # No colour of our own, so any escape byte in the output could only have leaked from the reason.
+                    with patch.object(file_context.permissions, "read_selected", side_effect=ValueError(reason)) as read, \
+                            patch.dict(os.environ, {"NO_COLOR": "1"}):
                         r = self.run_ui(["--details"] if details else [], access=ACCESS, planner=PLAN,
                                         policy=policy, collect_source=assistant_flow.collect,
                                         answers=("Sprawdź konfigurację", "yes"))

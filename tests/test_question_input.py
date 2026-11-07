@@ -312,7 +312,7 @@ if __name__ == "__main__":
 class PromptSessionTerminalTests(unittest.TestCase):
     """Shared prompt behaviour of ask/task/material/project: history, double Ctrl+C, attachments, idle hook (real PTY)."""
 
-    def run_script(self, body, keystrokes, *, columns=60, delay=0.15):
+    def run_script(self, body, keystrokes, *, columns=60, delay=0.15, env=None):
         script = (f"import json, sys, termios\nsys.path.insert(0, {str(ROOT)!r})\n"
                   "from ai_desktop.question_input import (read_question, PromptSession, QuestionInputError, paste_token)\n"
                   "import ai_desktop.question_input as q\nq._KITTY = False\n"
@@ -321,7 +321,7 @@ class PromptSessionTerminalTests(unittest.TestCase):
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, columns, 0, 0))
         process = subprocess.Popen([sys.executable, "-I", "-B", "-c", script], cwd=ROOT, stdin=slave, stdout=slave,
-                                   stderr=slave, close_fds=True)
+                                   stderr=slave, close_fds=True, env=env)
         os.close(slave)
         output = bytearray()
         try:
@@ -366,6 +366,21 @@ class PromptSessionTerminalTests(unittest.TestCase):
              "    except (KeyboardInterrupt, EOFError, QuestionInputError) as error:\n"
              "        print('R=' + json.dumps(['ERR', type(error).__name__]), flush=True)\n"
              "        break\n")
+
+    def test_in_a_colour_terminal_the_input_is_a_full_width_band_with_a_hint_that_is_cleared_on_send(self):
+        colour = {key: value for key, value in os.environ.items() if key != "NO_COLOR"}
+        colour.update(TERM="xterm-256color", COLORTERM="truecolor")
+        output = self.run_script(self.READS.format(attach=True, count=1), [b"abc", b"\r"], env=colour)
+        self.assertEqual([r[0] for r in self.results(output.replace("\x1b[J", ""))], ["abc"])
+        band = "\x1b[48;2;40;42;54m"
+        self.assertIn(band, output)
+        self.assertIn("abc\x1b[K\x1b[0m", output)                       # the band reaches the right edge, then resets
+        self.assertIn(editor.FOOTER, output)
+        self.assertRegex(output, r"\x1b\[\?2004l\r*\n\x1b\[J")              # the hint is erased when the message is sent
+        self.assertIn("RESTORED=True", output)
+        plain = self.run_script(self.READS.format(attach=True, count=1), [b"abc\r"])
+        self.assertNotIn(band, plain)
+        self.assertNotIn(editor.FOOTER, plain)
 
     def test_up_and_down_walk_the_history_of_this_command_only(self):
         output = self.run_script(self.READS.format(attach=False, count=3),

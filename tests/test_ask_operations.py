@@ -74,6 +74,14 @@ class FlowTests(OperationsBase):
         self.assertEqual(self.wire[0]["access"]["commands"][0], "uname -s")           # the planner sees the owner's templates
         self.assertIn("uname -s", self.output.getvalue())                             # the exact command was shown first
 
+    def test_a_batch_of_commands_is_shown_as_a_tree_under_one_head(self):
+        batch = json.dumps({"action": "run", "commands": [["uname", "-s"], ["uname", "-r"]]})
+        self.assertEqual(self.run_flow([batch, ANSWER_PLAN]), ANSWER)
+        lines = [line for line in self.output.getvalue().splitlines() if "uname" in line or "Running" in line]
+        self.assertRegex(lines[0], r"Running 2 commands")
+        self.assertRegex(lines[1], r"^  [└`] \S uname -s ")
+        self.assertRegex(lines[2], r"^    \S uname -r ")
+
     def test_a_declined_question_runs_no_command(self):
         self.confirm.side_effect = lambda action, **kwargs: False
         with self.assertRaises(flow.Declined):

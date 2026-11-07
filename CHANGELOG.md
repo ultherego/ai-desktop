@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-98: a new look for conversations
+
+- In a colour terminal the input is a band across the whole width with a different background; your sent messages keep it in the thread, and a muted hint with the keys is shown under it.
+- An interactive conversation opens with a framed head: service, profile, model and reasoning.
+- Commands appear as a tree under one head (`● Running 32 commands`, then `└ ✔ sensors · 1.4 KiB`).
+- The waiting line reads `Claude: Analyzing the question (12s · Ctrl+C to stop)`.
+- Without colour (`NO_COLOR`, `TERM=dumb`, a pipe) everything stays as before.
+
 ## 0.1.0-97: an empty result is not shown as a failure
 
 - A read command that ends with a non-zero code and prints nothing (for example `pacman -Qu` when there is nothing to update) is shown in yellow as `empty, code 1`. A non-zero code with output (for example a permission message) stays red as `failed`.
