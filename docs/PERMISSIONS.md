@@ -55,7 +55,9 @@ Limits (default → highest allowed):
 ## `[commands]`: what the model may run
 
 - `allow`: read-only commands, run at once without asking, e.g. `"systemctl status <unit> --no-pager"`. Placeholders: `<unit>` systemd unit, `<int>` number, `<word>` one word.
-- `change`: commands that change the system; each needs you to type `yes`, a test from `allow` and an undo.
+- `...` at the end: any further plain words after the fixed ones, e.g. `"docker ps ..."` allows `docker ps -a --format=json`. A path among them must be inside `files.read` (and, in `change`, `files.write`) and outside `files.deny`. In `allow`, a template that changes things (`run`, `rm`, `pull`, `build`, `start`, …) cannot end with `...`, and such a word is refused among the open words too (`"docker image ..."` allows `docker image ls`, not `docker image rm`): put changes in `change`.
+- `change`: commands that change the system; each needs you to type `yes`, a test (an exact `allow` command, no `...`) and an undo (a `change` command or an exact `allow` command). `...` works here too, e.g. `"docker run --rm ..."`. For `"docker pull ..."` keep `"docker images"` in `allow` as the test and add `"docker image rm <word>"` to `change` as the undo.
+- `deny`: commands never run, as word prefixes, e.g. `"docker rm"` blocks every `docker rm …`. It wins over `allow` and `change`. It does not reliably block a flag (`"docker ps -a"` still lets `--all` through), so do not open a template with `...` if some flag must stay off.
 - `share_processes`: `true` lets `allow` commands see host processes and their command lines. Default `false`.
 - `host_sockets`: list of extra sockets under `/run` that `allow` commands may reach (at most 8; never `/run/user`). Default `[]`.
 
@@ -70,12 +72,20 @@ Limits (default → highest allowed):
 | `/run/libvirt/libvirt-sock-ro` | `virsh` read-only queries |
 | `/run/systemd/resolve/io.systemd.Resolve` | `resolvectl` (also allows DNS lookups) |
 
-Example:
+`allow` and `change` can also be named groups. They only organise the file; the program sees one list:
 
 ```toml
 [commands]
-allow = ["docker ps", "exampletool status"]
 host_sockets = ["/run/docker.sock", "/run/example-daemon.sock"]
+deny = ["docker rm", "docker rmi"]
+
+[commands.allow]
+general = ["uptime", "free -h"]
+docker = ["docker ps ...", "docker images"]
+gpu = ["exampletool status"]
+
+[commands.change]
+docker = ["docker run --rm ..."]
 ```
 
 The exact path depends on the package; check it with `ls -l /run`.

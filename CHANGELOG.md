@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.0-92: refused changes say why
+
+- The model is now told how to propose a change from `change`: with a `test` (an exact `allow` command) and an `undo` (a `change` or exact `allow` command). Before, it was not, so changes such as `docker pull ...` were refused.
+- A refused change says exactly what is missing, on screen and to the model, so it can correct the plan or tell you which template to add.
+
+## 0.1.0-91: command groups, open arguments and commands.deny
+
+- `[commands.allow]` and `[commands.change]` can be split into named groups, e.g. `docker = [...]`, `general = [...]`.
+- A template ending with `...` accepts further arguments, e.g. `"docker ps ..."`; paths among them follow `files.read` and `files.deny`. A change such as `"docker run --rm ..."` belongs in `change`, where every run asks for `yes`; `allow` refuses it, and an open read template never accepts a state-changing word such as `rm` or `pull` among its arguments.
+- `[commands] deny` blocks whole commands, e.g. `"docker rm"`. See `docs/PERMISSIONS.md`.
+
 ## 0.1.0-90: read commands get D-Bus only for reading
 
 - Commands from `allow` reach the system D-Bus only through `xdg-dbus-proxy` (now a package dependency), which passes a fixed list of read methods: properties, introspection and listing units, sessions, network links, devices and snapshots. State changes, DNS lookups, secrets and polkit are refused. Without the proxy a command gets no D-Bus.

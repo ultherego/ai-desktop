@@ -206,6 +206,21 @@ def _deny(policy, code, prefix, sent):
 
 COMMITTED_OUTPUT = 256
 _LABEL = {"read": "Command", "change": "Change", "test": "Test after change", "undo": "Undo"}
+
+
+def change_problem(policy, test, undo):
+    """Why a change from the `change` list cannot run with this test and undo, or "" when both fit. Test and undo run
+    on the live system, so only exact templates count for them, never an open "..." read template."""
+    if test is None or undo is None:
+        return "A change needs a test (an exact `allow` command) and an undo (a `change` or exact `allow` command)"
+    words = lambda argv: " ".join(argv)
+    if policy.allows_change(test):
+        return "The test %s itself changes the system; it must be a read command from `allow`" % words(test)
+    if not policy.allows_exact_command(test):
+        return ("The test %s is not an exact `allow` command (a template ending in ... does not count)" % words(test))
+    if not (policy.allows_change(undo) or policy.allows_exact_command(undo)):
+        return ("The undo %s is neither on the `change` list nor an exact `allow` command" % words(undo))
+    return ""
 _OUTCOME = {"declined": "declined by the user, not run", "not-allowed": "not on the list, not run",
             "unavailable": "sandbox unavailable, not run", "timeout": "timed out", "ok": "ok",
             "missing": "this program is not on the system, not run"}
@@ -289,7 +304,7 @@ def _run_command(snapshot, ledger, plan, permit, args, reader):
         permit.check()
         return step
 
-    changing = command_ops.match(policy.changes(), argv)
+    changing = policy.allows_change(argv)
     if not changing:
         if "test" in plan:
             print("A test and an undo apply only to changes from the `change` list: " + shown(argv))
@@ -298,9 +313,9 @@ def _run_command(snapshot, ledger, plan, permit, args, reader):
         room = spend()
         if room is None:
             return
-        path = command_ops.resolve(argv[0]) if command_ops.match(policy.commands(), argv) else None
+        path = command_ops.resolve(argv[0]) if policy.allows_command(argv) else None
         if path is None:
-            if command_ops.match(policy.commands(), argv):
+            if policy.allows_command(argv):
                 print(paint("  %s %s %s program not found" % (symbol("skip"), shown(argv), symbol("dot")), "muted"))
                 add(argv, "read", "missing")
                 return
@@ -324,16 +339,14 @@ def _run_command(snapshot, ledger, plan, permit, args, reader):
         return
     # A change: it needs its test (a reading command) and its undo (a change or reading command), all named up front.
     test, undo = plan.get("test"), plan.get("undo")
-    ok = (test is not None and command_ops.match(policy.commands(), test)
-          and not command_ops.match(policy.changes(), test)          # a "test" must never itself change the system
-          and (command_ops.match(policy.changes(), undo) or command_ops.match(policy.commands(), undo)))
-    if not ok or not ledger.can_afford(3):
+    # Test and undo run on the live system, so only exact templates count for them, never an open "..." read template.
+    problem = change_problem(policy, test, undo)
+    if problem or not ledger.can_afford(3):
         # without room for change + test + undo (or without a valid test/undo) nothing is changed
-        if ok:
+        if not problem:
             _budget_stop(policy, "command_rounds" if ledger.commands_left < 3 else "discovery_bytes")
-        print("A change needs a test command (from the `allow` list) and an undo (from the `change` or `allow` list); not run: "
-              + shown(argv))
-        spend() is None or add(argv, "change", "not-allowed")
+        print("Change not run: %s. %s" % (shown(argv), terminal_text(problem)))
+        spend() is None or add(argv, "change", "not-allowed", output=problem + "\n")
         return
     permit.check()
     print()
