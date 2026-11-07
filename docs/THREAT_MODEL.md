@@ -136,7 +136,7 @@ A provider, account slot and local port, where applicable, are part of the recip
 | T13 | Invalid response or error from the offline executor | Refusal, the program does not start the model from this path |
 | T14 | Prompt injection through `SKILL.md` | Skill only from the package or the user's directory, no foreign owner and no write access for others, size limit. Gives no permissions. Content is not filtered |
 | T15 | WebSearch without `web = true` or after a policy change | Refusal before the client, no tools in other modes |
-| T16 | Files or systemd data in a search | Web mode gets only the question and fixed instructions |
+| T16 | Files or systemd data in a search | Web mode gets the question, the bounded conversation and fixed instructions; no files, task memory or Skills. What earlier answers already contain reaches the web request; the instructions forbid personal details in search queries, which is a request to the model, not an enforced filter |
 | T17 | Another tool, excess turns, forged result or source URL | Restricted client configuration and strict control of the stream and sources |
 | T18 | Model proposes a command outside the list or with a different argument | Exact match, otherwise it does not run |
 | T19 | Model picks a dangerous subcommand through a placeholder | A placeholder cannot stand before a subcommand |

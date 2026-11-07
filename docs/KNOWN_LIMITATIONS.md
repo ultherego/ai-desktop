@@ -16,6 +16,8 @@ Candidate 83 installed and rendered the new Codex card. After an initial `busy` 
 - A saved conversation keeps what you typed or pasted, including any secret, until you delete it with `ai-desktop sessions`; there is no automatic retention period. Saving is chosen per run with `--no-save`, not by a persistent setting.
 - The read-back thread of a saved conversation holds up to 2000 turns and 256 KiB per question or answer; beyond that, or when the record reaches 16 MiB, the oldest turns are no longer shown. Only the newest turns that fit the request limits are sent to the model, so the model does not remember the whole thread.
 
+- A web search receives the latest exchanges of the conversation, so details an earlier answer quoted (a log line, a path) reach that request too. Claude is told to keep personal details out of search queries; nothing enforces it.
+
 ## Conversation look
 - The input pinned to the bottom grows to about half the window; longer text scrolls inside it with the cursor. Characters that take two cells (some CJK and emoji) are counted as one when wrapping, so such a row can be cut a little late.
 - The pinned input relies on the terminal's scroll region. After a resize the conversation is drawn again from the saved thread: questions and answers, without the command rows of earlier turns; each redraw also leaves a copy in the terminal's scrollback. Text written by other programs into the same terminal can land in the band until the next redraw.

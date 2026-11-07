@@ -14,7 +14,7 @@ All `true`/`false`, default `false`.
 - `codex`: requests may go to Codex.
 - `local`: requests may go to a model you run yourself on this computer (an OpenAI-compatible server such as llama.cpp, listening on `127.0.0.1`). Nothing leaves the computer. Choose it with `ai-desktop agent use local`.
 - `weather`: weather from Open-Meteo (sends the place name).
-- `web`: Claude may search the Internet for a question that needs current information. Only your question is sent, without files, command output or conversation; it is a separate request.
+- `web`: Claude may search the Internet for a question that needs current information. It is a separate request with your question and the latest exchanges of the conversation (so "the error above" is understood), without files, task memory or Skills.
 
 ## `[local]`
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-109: a web search knows the conversation
+
+- A web search now gets the latest exchanges of the conversation, like every other question, so "check online what the error above means" knows which error, also after returning with `ai-desktop -c`. Before, it got only the sentence you typed and often came back without sources. Files, task memory and Skills are still not sent, and Claude is told to keep personal details out of search queries.
+
 ## 0.1.0-108: a web search without sources says why
 
 - When a web question ends without confirmed sources, the message now says which case it was: the model answered without searching, or the search ran but returned no link to cite. Before, both looked the same. Nothing more is sent or shown; only a fixed code (`web-no-search`, `web-no-links`) crosses the service boundary.

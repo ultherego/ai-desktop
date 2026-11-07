@@ -667,8 +667,8 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
             if plan["action"] == "answer":
                 return plan["text"]
             if plan["action"] == "web":
-                # Web is a separate final request: the exact original question,
-                # never local context, file contents or a write proposal.
+                # Web is a separate final request: the exact original question and the conversation (added by the
+                # request builder), never files, task memory, Skills or a write proposal.
                 permit.require_web()
                 progress("answer-request")
                 answer = request(question, args, reader, web=True, check=permit.check,

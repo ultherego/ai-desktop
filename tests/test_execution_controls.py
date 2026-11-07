@@ -417,7 +417,10 @@ class ConversationControlsTests(unittest.TestCase):
                 self.assertEqual(json.loads(parsed)["conversation"], history)
                 body, _ = child.native_input("analyze", parsed.encode())
                 self.assertEqual(json.loads(body)["conversation"], history)
-            for source in (dict(report=report_fixture()), dict(report=None, question="synthetic", web=True)):
+            web = contract.application_input(None, "synthetic", web=True)     # a web search knows the conversation
+            self.assertEqual(json.loads(web)["conversation"], history)
+            self.assertEqual(json.loads(contract.parse_request(web.encode())[0])["conversation"], history)
+            for source in (dict(report=report_fixture()),):
                 payload = contract.application_input(**source)
                 self.assertNotIn("conversation", json.loads(payload))
                 parsed, _ = contract.parse_request(payload.encode())

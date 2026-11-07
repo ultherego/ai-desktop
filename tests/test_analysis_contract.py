@@ -243,3 +243,15 @@ class AnswerLanguageTests(unittest.TestCase):
         self.assertIn("starting with Continue the task, does not set the language", contract.SYSTEM_PROMPT)
         self.assertIn("A question starting with Continue the task comes from the application", contract.SYSTEM_PROMPT)
 
+
+
+class WebConversationTests(unittest.TestCase):
+    def test_a_web_request_carries_the_conversation_through_the_service_check(self):
+        from ai_desktop import execution
+        history = [{"question": "SYNTHETIC earlier question", "answer": "SYNTHETIC error 107"}]
+        with execution.using_history(history):
+            raw = contract.application_input(None, "what does the error above mean", web=True)
+        data = json.loads(contract.parse_request(raw.encode())[0])
+        self.assertEqual((data["mode"], data["conversation"]), ("web", history))
+        self.assertNotIn("memory", data)
+        self.assertIn("never put host names", contract.WEB_SYSTEM_PROMPT)
