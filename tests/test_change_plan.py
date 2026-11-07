@@ -379,6 +379,8 @@ class DefaultExampleTests(ChangeBase):
         self.assertGreater(len(policy.commands()), 24)
         self.assertEqual(len(policy.access()["commands"]), len(policy.commands()))
         self.assertFalse(policy.share_processes())
+        self.assertEqual(policy.host_sockets(), ())
+        self.assertFalse(policy.allows_change(["systemctl", "restart", "sshd.service"]))   # no change list by default
 
     def test_the_raised_ceilings_are_accepted_and_nothing_above_them(self):
         self.write_policy('command_output = "128KiB"\ndiscovery_bytes = "256KiB"\n')

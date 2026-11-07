@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-99: the template and documentation catch up
+
+- `config/permissions.example.toml` uses the grouped form (`[commands.allow]` with `system`, `systemd`, `hardware`, `packages`) and shows `share_processes`, `host_sockets` and `deny` with their default values. The commands themselves are unchanged. An existing `permissions.toml` is never replaced.
+- README and the threat model describe `...`, `commands.deny`, groups, the exact test and undo of a change, 32 commands per step, up to 128 per question, the full data budget and the yellow `empty` row. `docs/PERMISSIONS.md` explains `local`, `web` and `[local] port` more plainly.
+
 ## 0.1.0-98: a new look for conversations
 
 - In a colour terminal the input is a band across the whole width with a different background; your sent messages keep it in the thread, and a muted hint with the keys is shown under it.
