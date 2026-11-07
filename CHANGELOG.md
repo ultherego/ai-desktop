@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-102: the conversation is always drawn from the top
+
+- After the window changes size, the conversation is drawn again from the top (the head, then your questions and the answers at the new width) with the input at the bottom. Before, a terminal that grows pulled old lines back in and the whole conversation slid down. A resize while the model works is drawn when the input is ready again.
+
 ## 0.1.0-101: the conversation starts at the top and follows the window size
 
 - Starting `ai-desktop` with a full screen no longer squeezes the conversation into the bottom rows: what was on the screen scrolls up into the terminal's history (it is not erased) and the head starts at the top of the window.

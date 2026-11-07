@@ -40,6 +40,7 @@ class Frame:
         self._resized = False
         self._moved = False                        # the window changed size since the conversation position was saved
         self.editing = None                        # (text, cursor) while the editor waits for keys
+        self.repaint = None                        # prints the head and the thread again after a resize
         self._previous_handler = None
 
     # -- region ------------------------------------------------------------------------------------------------------
@@ -55,7 +56,7 @@ class Frame:
             self._previous_handler = signal.signal(signal.SIGWINCH, self._on_resize)
         except (ValueError, OSError):              # not the main thread: resizing is then handled on the next draw
             self._previous_handler = None
-        self.draw("", 0)
+        self.draw("", 0, typing=False)
         self.editing = None
         self.stream.write("\x1b8")                 # back to the conversation, above the reserved rows
         self.stream.flush()
@@ -69,12 +70,25 @@ class Frame:
             except (OSError, ValueError):
                 pass
 
-    def _refresh_size(self):
+    def _refresh_size(self, typing=False):
         rows, columns = _size(self.stream)
         if (rows, columns) != (self.rows, self.columns) or self._resized:
             self._resized = False
             old = self.rows - RESERVED
             self.rows, self.columns = rows, columns
+            if typing and self.repaint is not None:
+                # A terminal that grows pulls old lines back in at the top and shifts everything down. Like Codex, draw
+                # the conversation again instead: clear the window, set the region, print the head and the thread.
+                top = self.rows - RESERVED
+                self.stream.write("\x1b[r\x1b[H\x1b[2J\x1b[1;%dr\x1b[H" % top)
+                self.stream.flush()
+                try:
+                    self.repaint()
+                except (OSError, ValueError, TypeError, KeyError):
+                    pass
+                self.stream.write("\x1b7")
+                self._moved = False
+                return
             # The old reserved rows may now sit inside the conversation: clear from whichever reserved block starts
             # higher, then set the region again. No save/restore here: that slot holds the conversation position.
             top = self.rows - RESERVED
@@ -111,10 +125,10 @@ class Frame:
                 (top + 4, "\x1b[2K" + paint((self.note or HINT)[:width - 1], "muted", stream=self.stream))]
         return rows, (top + 1, 3 + column)
 
-    def draw(self, text, cursor):
+    def draw(self, text, cursor, typing=True):
         """Draw the input band with this text and leave the terminal cursor in it."""
         self.editing = (text, cursor)
-        self._refresh_size()
+        self._refresh_size(typing)
         rows, (row, column) = self.layout(text, cursor)
         self.stream.write("".join("\x1b[%d;1H%s" % (number, content) for number, content in rows)
                           + "\x1b[%d;%dH" % (row, column))
@@ -130,7 +144,7 @@ class Frame:
             lines.append(shade + head + line + "\x1b[K\x1b[0m")
         lines.append(shade + "\x1b[K\x1b[0m")
         self.stream.write(self._back() + "\r\n".join(lines) + "\r\n\x1b7")
-        self.draw("", 0)
+        self.draw("", 0, typing=False)
         self.editing = None
         self.stream.write(self._back())
         self.stream.flush()
@@ -142,7 +156,7 @@ class Frame:
     def leave(self):
         """Return the cursor to the conversation without echoing anything (a cancelled or local input)."""
         self.note = ""
-        self.draw("", 0)
+        self.draw("", 0, typing=False)
         self.editing = None
         self.stream.write(self._back())
         self.stream.flush()

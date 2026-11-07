@@ -107,6 +107,39 @@ class FrameTests(unittest.TestCase):
             frame._on_resize()                                   # not typing: only noted, drawn on the next draw
             self.assertEqual(frame.stream.getvalue(), "")
 
+    def test_a_resize_while_typing_draws_the_conversation_again_from_the_top(self):
+        with patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True):
+            frame = self.frame()
+            frame.repaint = lambda: frame.stream.write("SYNTHETIC HEAD AND THREAD\n")
+            frame.draw("SYNTHETIC draft", 15)
+            frame.stream.seek(0)
+            frame.stream.truncate()
+            with patch.object(terminal_frame, "_size", return_value=(40, 120)):
+                frame._on_resize()
+            written = frame.stream.getvalue()
+        start = written.index("\x1b[2J")
+        self.assertLess(start, written.index("SYNTHETIC HEAD AND THREAD"))      # cleared first, then drawn again
+        self.assertIn("\x1b[1;35r", written)
+        self.assertLess(written.index("SYNTHETIC HEAD AND THREAD"), written.index("SYNTHETIC draft"))
+        self.assertEqual(frame._back(), "\x1b8")                              # the new end of the thread was saved
+
+    def test_after_a_resize_the_conversation_is_drawn_again_from_the_top_and_the_input_stays_at_the_bottom(self):
+        with patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True):
+            frame = self.frame()
+            frame.repaint = lambda: frame.stream.write("SYNTHETIC HEAD AND THREAD\n")
+            frame.draw("SYNTHETIC draft", 15)
+            frame.stream.seek(0)
+            frame.stream.truncate()
+            with patch.object(terminal_frame, "_size", return_value=(40, 120)):
+                frame._on_resize()
+            written = frame.stream.getvalue()
+        cleared = written.index("\x1b[H\x1b[2J")
+        self.assertLess(cleared, written.index("SYNTHETIC HEAD AND THREAD"))     # cleared, then drawn from the top
+        self.assertIn("\x1b[1;35r\x1b[H", written)                                # region 1-35, starting at row 1
+        self.assertIn("\x1b[37;1H", written)                                      # the input row at the new bottom
+        self.assertLess(written.index("SYNTHETIC HEAD AND THREAD"), written.index("SYNTHETIC draft"))
+        self.assertEqual(frame._back(), "\x1b8")                                  # the thread's new end was saved
+
     def test_the_conversation_starts_at_the_top_and_old_screen_text_goes_to_the_history(self):
         with patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True), \
                 patch.object(terminal_frame.os, "isatty", return_value=True), \

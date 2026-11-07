@@ -383,7 +383,14 @@ def main(argv=None, *, reader=input):
         if question is None:
             if reader is input:
                 from . import run_controls, terminal_frame
-                terminal_frame.start(sys.stdout, run_controls.label())
+                frame = terminal_frame.start(sys.stdout, run_controls.label())
+                if frame is not None:
+                    def repaint():
+                        from .session_cli import print_thread
+                        print("\n".join(run_controls.banner()))
+                        if talk.transcript:
+                            print_thread(talk.transcript, output_format=args.format)
+                    frame.repaint = repaint
             greeted = False                    # the greeting is shown once, not again after each local command
             while True:
                 question = (_read_message(prompt_session, greeted) if reader is input else reader(QUESTION_PROMPT))

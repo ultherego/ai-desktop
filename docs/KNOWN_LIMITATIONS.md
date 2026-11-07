@@ -18,7 +18,7 @@ Candidate 83 installed and rendered the new Codex card. After an initial `busy` 
 
 ## Conversation look
 - The input pinned to the bottom shows one row of text: a multi-line message shows the row with the cursor and its line number. While the model works the band stays idle, and a consent question appears in the conversation above it.
-- The pinned input relies on the terminal's scroll region. After a resize the conversation continues from the last row above the band; text written by other programs into the same terminal can land in the band until the next redraw.
+- The pinned input relies on the terminal's scroll region. After a resize the conversation is drawn again from the saved thread: questions and answers, without the command rows of earlier turns; each redraw also leaves a copy in the terminal's scrollback. Text written by other programs into the same terminal can land in the band until the next redraw.
 
 ## Security
 - The sandbox for read commands shows an empty `/run` apart from a fixed list, so Docker, systemd varlink and other daemon sockets are hidden unless listed in `[commands] host_sockets`. The system D-Bus is reached only through a filter (`xdg-dbus-proxy`) that passes a fixed list of read methods (property reads, introspection, listing units, sessions, links, devices, snapshots); everything else, including DNS lookups and state changes, is refused. A read tool that needs a method outside the list fails until the list is extended, and `resolvectl status` needs the resolver socket in `host_sockets`, which also allows DNS lookups. Without `xdg-dbus-proxy` commands get no D-Bus. An opted-in socket gives whatever its daemon allows; Docker's is root-equivalent. Put only strictly read-only commands in `allow`.
