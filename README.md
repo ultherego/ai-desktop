@@ -36,9 +36,9 @@ See [agent settings, accounts and sessions](docs/AGENT_MANAGEMENT.md), [verified
 
 This is a development version, not a 1.0 release.
 
-The current candidate package is **0.1.0-89** (changes: [CHANGELOG.md](CHANGELOG.md)).
+The current candidate package is **0.1.0-90** (changes: [CHANGELOG.md](CHANGELOG.md)).
 
-Recent candidates: 82–83 run independently installed Claude and Codex clients through a reviewed, root-owned copy of your native installation, with Codex limits in the DMS widget; 84 asks once for a bounded multi-stage project analysis or a declared task test; 85 saves conversations automatically; 86 tightens Codex registration; 87 adds `ai-desktop -c` and the whole read-back thread; 88 makes task refusals say why; 89 hides daemon sockets from read commands. Every candidate's evidence and open items are in [docs/ROADMAP.md](docs/ROADMAP.md). None of these checks performed a real login or model request unless stated there.
+Recent candidates: 82–83 run independently installed Claude and Codex clients through a reviewed, root-owned copy of your native installation, with Codex limits in the DMS widget; 84 asks once for a bounded multi-stage project analysis or a declared task test; 85 saves conversations automatically; 86 tightens Codex registration; 87 adds `ai-desktop -c` and the whole read-back thread; 88 makes task refusals say why; 89 hides daemon sockets from read commands; 90 gives them D-Bus only for reading. Every candidate's evidence and open items are in [docs/ROADMAP.md](docs/ROADMAP.md). None of these checks performed a real login or model request unless stated there.
 
 `ai-desktop doctor` and `doctor --v` inspect metadata without executing a client. `doctor --clients` explicitly probes the selected cloud client offline, without login, network or a model request. A successful probe checks adapter prerequisites; it does not certify the vendor or prove that authentication and inference work.
 
@@ -50,7 +50,7 @@ Keep the Claude/Codex installation you use: supported Arch/AUR packages, officia
 
 ```fish
 # 1. Application build tools and the selected system client (Codex example)
-sudo pacman -S --needed base-devel git fish python bubblewrap libseccomp sudo python-rich python-cryptography openai-codex
+sudo pacman -S --needed base-devel git fish python bubblewrap xdg-dbus-proxy libseccomp sudo python-rich python-cryptography openai-codex
 
 # 2. Code and application installation; this does not download a provider client
 git clone https://github.com/ultherego/ai-desktopv2.git ~/ai-desktop
@@ -155,7 +155,7 @@ For Docker, Btrfs and nmcli, give the complete command path before a placeholder
 
 **Commands from `allow` run without asking, and their output goes to the model.** Remove from the list what you do not want to share, including any extra `journalctl`, `ps aux` or `docker ps` rules you add. `deny` does not filter command output.
 
-Commands from `allow` run in a sandbox: read-only file system, hidden `/home` and `/root`, an empty `/run` apart from the system D-Bus and plain state files, no network and no input. The system D-Bus is not filtered, so only list commands that change nothing. Some programs will not see the host state (e.g. `ip`, `wpctl`, `glxinfo`).
+Commands from `allow` run in a sandbox: read-only file system, hidden `/home` and `/root`, an empty `/run` apart from plain state files, D-Bus only for reading (through `xdg-dbus-proxy`), no network and no input. Still list only commands that change nothing. Some programs will not see the host state (e.g. `ip`, `wpctl`, `glxinfo`).
 
 A placeholder must not stand where a tool's command could be. Write an option that takes a value together with it (`--output=json`) or give the command further on: `systemctl -H host restart <unit>` is valid, and `systemctl -H host <word>` is not.
 

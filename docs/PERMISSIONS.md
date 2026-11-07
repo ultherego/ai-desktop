@@ -59,7 +59,7 @@ Limits (default → highest allowed):
 - `share_processes`: `true` lets `allow` commands see host processes and their command lines. Default `false`.
 - `host_sockets`: list of extra sockets under `/run` that `allow` commands may reach (at most 8; never `/run/user`). Default `[]`.
 
-`allow` commands see an empty `/run` except the system D-Bus, the DNS resolver's query socket, journals, systemd and login state, udev data, mounts, `utmp` and NetworkManager state. Anything else needs `host_sockets`:
+`allow` commands see an empty `/run` except journals, systemd and login state, udev data, mounts, `utmp` and NetworkManager state. D-Bus is available read-only, through a filter. Anything else needs `host_sockets`:
 
 | Socket | For |
 |---|---|
@@ -68,6 +68,7 @@ Limits (default → highest allowed):
 | `/run/containerd/containerd.sock` | `ctr`, `nerdctl` (root-equivalent) |
 | `/run/example-daemon.sock` | `exampletool` (example service) |
 | `/run/libvirt/libvirt-sock-ro` | `virsh` read-only queries |
+| `/run/systemd/resolve/io.systemd.Resolve` | `resolvectl` (also allows DNS lookups) |
 
 Example:
 

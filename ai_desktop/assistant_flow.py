@@ -8,6 +8,7 @@ question and its captured permissions; each payload has its own managed session.
 from contextlib import nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass
+import functools
 import json
 import os
 
@@ -312,8 +313,8 @@ def _run_command(snapshot, ledger, plan, permit, args, reader):
         extra = {}
         share, sockets = policy.share_processes(), policy.host_sockets()
         if share or sockets:                  # owner opt-ins; the default call is exactly what it always was
-            extra["command"] = lambda program, words: command_ops.sandbox_command(
-                program, words, share_processes=share, host_sockets=sockets)
+            extra["command"] = functools.partial(command_ops.sandbox_command, share_processes=share,
+                                                 host_sockets=sockets)
         step = command_ops.execute(path, argv, output_limit=room, timeout=policy.limits().command_timeout, **extra)
         permit.check()
         step = add(argv, "read", step["status"], step["exit"], step["output"], step["truncated"])
