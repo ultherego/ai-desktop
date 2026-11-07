@@ -13,6 +13,8 @@ from .terminal_style import bar, enabled, paint
 RESERVED = 5               # band top padding, input row, band bottom padding, status, hint
 MIN_ROWS = 12
 PLACEHOLDER = "Ask ai-desktop to do anything"
+POPUP_ROWS = 8             # `/` commands listed above the band at once
+_PICKED = ((88, 140, 230), "44")
 HINT = "enter send · \\ enter new line · / commands · ctrl+c clear"
 
 _current = None
@@ -41,9 +43,34 @@ class Frame:
         self._moved = False                        # the window changed size since the conversation position was saved
         self.editing = None                        # (text, cursor) while the editor waits for keys
         self.repaint = None                        # prints the head and the thread again after a resize
+        self.commands, self.pick = (), 0           # the `/` list shown above the band, and its highlighted row
+        self.extra = 0                             # rows the `/` list takes above the band right now
         self._previous_handler = None
 
     # -- region ------------------------------------------------------------------------------------------------------
+    def _top(self):
+        """The last row of the conversation's scroll region."""
+        return self.rows - RESERVED - self.extra
+
+    def _list_rows(self, wanted):
+        """Give the `/` list room above the band. The conversation scrolls up to make room (nothing is covered) and the
+        region shrinks; when the list closes, the region grows back and the freed rows are cleared."""
+        wanted = max(0, min(wanted, POPUP_ROWS, self.rows - RESERVED - 3))
+        delta = wanted - self.extra
+        if not delta:
+            return
+        old = self._top()
+        if delta > 0:
+            self.stream.write("\x1b[%d;1H" % old + "\n" * delta)
+            self.extra = wanted
+            self.stream.write("\x1b[1;%dr" % self._top())
+            if not self._moved:
+                self.stream.write("\x1b8\x1b[%dA\x1b7" % delta)    # the end of the conversation moved up with it
+        else:
+            self.extra = wanted
+            self.stream.write("\x1b[1;%dr" % self._top()
+                              + "".join("\x1b[%d;1H\x1b[2K" % row for row in range(old + 1, self._top() + 1)))
+
     def _region(self):
         """Keep the cursor above the reserved rows and limit scrolling to the area above them."""
         top = self.rows - RESERVED
@@ -72,14 +99,16 @@ class Frame:
 
     def _refresh_size(self, typing=False):
         rows, columns = _size(self.stream)
+        if rows < MIN_ROWS or columns < 20:
+            rows, columns = self.rows, self.columns         # an unreadable or tiny size: keep the last good one
         if (rows, columns) != (self.rows, self.columns) or self._resized:
             self._resized = False
-            old = self.rows - RESERVED
+            old = self._top()
             self.rows, self.columns = rows, columns
             if typing and self.repaint is not None:
                 # A terminal that grows pulls old lines back in at the top and shifts everything down. Like Codex, draw
                 # the conversation again instead: clear the window, set the region, print the head and the thread.
-                top = self.rows - RESERVED
+                top = self._top()
                 self.stream.write("\x1b[r\x1b[H\x1b[2J\x1b[1;%dr\x1b[H" % top)
                 self.stream.flush()
                 try:
@@ -91,7 +120,7 @@ class Frame:
                 return
             # The old reserved rows may now sit inside the conversation: clear from whichever reserved block starts
             # higher, then set the region again. No save/restore here: that slot holds the conversation position.
-            top = self.rows - RESERVED
+            top = self._top()
             self.stream.write("\x1b[r\x1b[%d;1H\x1b[J\x1b[1;%dr" % (max(1, min(old, top) + 1), top))
             self._moved = True
 
@@ -99,7 +128,7 @@ class Frame:
         """To the conversation text: the saved position, or the last region row when the window size changed."""
         if self._moved:
             self._moved = False
-            return "\x1b[%d;1H" % (self.rows - RESERVED)
+            return "\x1b[%d;1H" % self._top()
         return "\x1b8"
 
     # -- drawing -----------------------------------------------------------------------------------------------------
@@ -123,12 +152,34 @@ class Frame:
                 (top + 2, empty),
                 (top + 3, "\x1b[2K" + paint(self.status[:width - 1], "muted", stream=self.stream)),
                 (top + 4, "\x1b[2K" + paint((self.note or HINT)[:width - 1], "muted", stream=self.stream))]
+        if self.extra:
+            first = max(0, min(self.pick - self.extra + 1, len(self.commands) - self.extra))
+            for offset, index in enumerate(range(first, first + self.extra)):
+                rows.insert(offset, (top - self.extra + offset, self._command_row(index, width)))
         return rows, (top + 1, 3 + column)
+
+    def _command_row(self, index, width):
+        if index >= len(self.commands):
+            return "\x1b[2K"
+        name, description = self.commands[index]
+        if index == self.pick:
+            if not enabled(self.stream):
+                return "\x1b[2K" + ("\u203a %-14s %s" % (name, description))[:width - 1]
+            rgb, basic = _PICKED
+            colour = ("\x1b[48;2;%d;%d;%dm\x1b[38;2;20;22;30m" % rgb if bar(self.stream).startswith("\x1b[48;2")
+                      else "\x1b[%sm\x1b[30m" % basic)
+            return "\x1b[2K" + colour + ("\u203a %-14s %s" % (name, description))[:width - 1] + "\x1b[K\x1b[0m"
+        return "\x1b[2K  " + ("%-14s " % name)[:width - 3] + paint(description[:max(0, width - 18)], "muted", stream=self.stream)
+
+    def show_commands(self, commands, pick):
+        """The `/` commands matching what is typed, listed above the band like Codex and Claude Code."""
+        self.commands, self.pick = tuple(commands), pick
 
     def draw(self, text, cursor, typing=True):
         """Draw the input band with this text and leave the terminal cursor in it."""
         self.editing = (text, cursor)
         self._refresh_size(typing)
+        self._list_rows(len(self.commands))
         rows, (row, column) = self.layout(text, cursor)
         self.stream.write("".join("\x1b[%d;1H%s" % (number, content) for number, content in rows)
                           + "\x1b[%d;%dH" % (row, column))
@@ -137,6 +188,8 @@ class Frame:
     def submitted(self, text):
         """Back to the conversation: the sent message goes into the thread on the same band, the input is emptied."""
         self.note = ""
+        self.commands = ()
+        self._list_rows(0)
         shade = bar(self.stream)
         lines = [shade + "\x1b[K\x1b[0m"]
         for index, line in enumerate(text.split("\n")):
@@ -156,6 +209,8 @@ class Frame:
     def leave(self):
         """Return the cursor to the conversation without echoing anything (a cancelled or local input)."""
         self.note = ""
+        self.commands = ()
+        self._list_rows(0)
         self.draw("", 0, typing=False)
         self.editing = None
         self.stream.write(self._back())
@@ -167,8 +222,7 @@ class Frame:
                 signal.signal(signal.SIGWINCH, self._previous_handler)
         except (ValueError, OSError):
             pass
-        top = self.rows - RESERVED
-        self.stream.write("\x1b[r\x1b[%d;1H\x1b[J" % (top + 1))
+        self.stream.write("\x1b[r\x1b[%d;1H\x1b[J" % (self._top() + 1))
         self.stream.flush()
 
 

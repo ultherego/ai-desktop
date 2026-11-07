@@ -140,6 +140,30 @@ class FrameTests(unittest.TestCase):
         self.assertLess(written.index("SYNTHETIC HEAD AND THREAD"), written.index("SYNTHETIC draft"))
         self.assertEqual(frame._back(), "\x1b8")                                  # the thread's new end was saved
 
+    def test_slash_commands_open_as_a_list_above_the_band_and_the_conversation_makes_room(self):
+        commands = [("/help", "list commands"), ("/model", "change the model"), ("/exit", "end the conversation")]
+        with patch.dict(os.environ, {"TERM": "xterm-256color", "COLORTERM": "truecolor"}, clear=True):
+            frame = self.frame()
+            frame.show_commands(commands, 1)
+            frame.draw("/", 1)
+            written = frame.stream.getvalue()
+            self.assertIn("\x1b[19;1H\n\n\n", written)                  # the conversation scrolls up three rows
+            self.assertIn("\x1b[1;16r", written)                          # and its region ends above the list
+            rows = dict(frame.layout("/", 1)[0])
+            self.assertIn("/help", rows[17])
+            self.assertIn("\x1b[48;2;88;140;230m", rows[18])               # the highlighted row
+            self.assertIn("/model", rows[18])
+            self.assertIn("/exit", rows[19])
+            self.assertNotIn("/model", rows[21])                          # the band itself keeps only the typed text
+            frame.stream.seek(0)
+            frame.stream.truncate()
+            frame.leave()                                                 # closed: the region grows back, rows cleared
+            written = frame.stream.getvalue()
+            self.assertIn("\x1b[1;19r", written)
+            for row in (17, 18, 19):
+                self.assertIn("\x1b[%d;1H\x1b[2K" % row, written)
+            self.assertEqual(frame.extra, 0)
+
     def test_the_conversation_starts_at_the_top_and_old_screen_text_goes_to_the_history(self):
         with patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True), \
                 patch.object(terminal_frame.os, "isatty", return_value=True), \

@@ -480,12 +480,11 @@ def read_question(*, max_bytes=MAX_QUESTION_BYTES, followup=False, prompt=None, 
             _suggest(line, session, output)
             _footer(line, session, output)
             return
-        found = _matches(session, line.text)
+        found = _matches(session, line.text) if "\n" not in line.text else ()
         if found:
             session.pick = min(session.pick, len(found) - 1)
-            frame.note = "  ".join(("\u203a" if index == session.pick else " ") + name
-                                   for index, (name, _) in enumerate(found))
-        elif not session.armed:
+        frame.show_commands(found, session.pick if found else 0)
+        if not session.armed:
             frame.note = ""
         before = line.text[:line.cursor]
         row = before.count("\n")

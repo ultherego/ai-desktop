@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-103: `/` commands as a list above the input
+
+- Typing `/` opens a list of matching commands with their descriptions above the input, like Codex and Claude Code; the highlighted one is marked in colour, arrows move it, Tab completes it and Enter runs it. The conversation moves up to make room, so nothing is covered, and the list closes when it no longer matches.
+
 ## 0.1.0-102: the conversation is always drawn from the top
 
 - After the window changes size, the conversation is drawn again from the top (the head, then your questions and the answers at the new width) with the input at the bottom. Before, a terminal that grows pulled old lines back in and the whole conversation slid down. A resize while the model works is drawn when the input is ready again.
