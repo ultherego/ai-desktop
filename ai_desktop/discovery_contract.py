@@ -11,7 +11,8 @@ import unicodedata
 
 MAX_SKILL_ROUNDS = 3
 MAX_REUSED_SKILLS = 4
-MAX_STEPS = 8 + 4 + 32 + MAX_SKILL_ROUNDS * 4 + MAX_REUSED_SKILLS
+MAX_COMMAND_ROUNDS = 128      # ceiling of [files] command_rounds; output stays bounded by discovery_bytes
+MAX_STEPS = 8 + 4 + MAX_COMMAND_ROUNDS + MAX_SKILL_ROUNDS * 4 + MAX_REUSED_SKILLS
 MAX_DIRECTORIES = 4            # directories in one list step
 CEILING_ENTRIES = 512          # entries of one list/find step
 CEILING_TOTAL_ENTRIES = 1024   # entries of the whole document

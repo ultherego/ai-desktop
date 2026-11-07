@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-93: snapper works for read commands, more commands per question
+
+- `snapper list-configs` and `snapper list` work again in `allow`: the D-Bus filter now passes the read-only Snapper calls the tool makes.
+- `command_rounds` can be set up to `128` (before: `32`). The default stays `24`. All output still shares `discovery_bytes`.
+
 ## 0.1.0-92: refused changes say why
 
 - The model is now told how to propose a change from `change`: with a `test` (an exact `allow` command) and an `undo` (a `change` or exact `allow` command). Before, it was not, so changes such as `docker pull ...` were refused.

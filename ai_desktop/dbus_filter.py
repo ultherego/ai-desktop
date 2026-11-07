@@ -81,7 +81,10 @@ SERVICES = {
     "org.opensuse.Snapper": (
         "org.opensuse.Snapper.ListConfigs", "org.opensuse.Snapper.GetConfig", "org.opensuse.Snapper.ListSnapshots",
         "org.opensuse.Snapper.GetSnapshot", "org.opensuse.Snapper.GetDefaultSnapshot",
-        "org.opensuse.Snapper.GetActiveSnapshot",
+        "org.opensuse.Snapper.GetActiveSnapshot", "org.opensuse.Snapper.ListSnapshotsAtTime",
+        "org.opensuse.Snapper.GetUsedSpace", "org.opensuse.Snapper.GetMountPoint",
+        "org.opensuse.Snapper.IsSnapshotReadOnly",
+        "org.opensuse.Snapper.GetPluginsReport",     # the snapper tool asks for it after every command
     ),
     "org.freedesktop.UDisks2": (),
     "org.freedesktop.Accounts": (),

@@ -36,7 +36,7 @@ See [agent settings, accounts and sessions](docs/AGENT_MANAGEMENT.md), [verified
 
 This is a development version, not a 1.0 release.
 
-The current candidate package is **0.1.0-92** (changes: [CHANGELOG.md](CHANGELOG.md)).
+The current candidate package is **0.1.0-93** (changes: [CHANGELOG.md](CHANGELOG.md)).
 
 Recent candidates: 82–83 run independently installed Claude and Codex clients through a reviewed, root-owned copy of your native installation, with Codex limits in the DMS widget; 84 asks once for a bounded multi-stage project analysis or a declared task test; 85 saves conversations automatically; 86 tightens Codex registration; 87 adds `ai-desktop -c` and the whole read-back thread; 88 makes task refusals say why; 89 hides daemon sockets from read commands; 90 gives them D-Bus only for reading; 91 adds command groups, `...` and `commands.deny`. Every candidate's evidence and open items are in [docs/ROADMAP.md](docs/ROADMAP.md). None of these checks performed a real login or model request unless stated there.
 
@@ -138,7 +138,7 @@ The fields below are optional. Add them in the given section when you want to ch
 | `[files] search_scan` | 20000 | 100000 | directory entries per question |
 | `[files] discovery_rounds` | 4 | 8 | list/find steps per question |
 | `[files] plan_corrections` | 2 | 4 | read plan corrections per question |
-| `[files] command_rounds` | 24 | 32 | commands per question (0 turns them off) |
+| `[files] command_rounds` | 24 | 128 | commands per question (0 turns them off) |
 | `[files] command_output` | `"8KiB"` | `"128KiB"` | bytes of the output of one command |
 | `[files] command_timeout` | 20 | 60 | seconds per command |
 | `[commands] share_processes` | `false` | | `true`: commands see host processes and their command lines |

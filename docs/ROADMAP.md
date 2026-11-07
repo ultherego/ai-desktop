@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** CachyOS acceptance of candidates 90 (read-only D-Bus) and 92 (command groups, `...`, `commands.deny`), then the general system-call filter for the client (Stage 4). S0 and S7 remain deferred.
+**Next step:** CachyOS acceptance of candidate 93 (snapper through the D-Bus filter, `command_rounds` up to 128), then the general system-call filter for the client (Stage 4). S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -260,6 +260,14 @@ Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaini
 ## Progress log
 
 Earlier dated entries preserve the evidence and status at that point. The latest entry supersedes historical pending/next-step statements.
+
+### 2026-11-07 — Stage 4 follow-up: snapper through the D-Bus filter, a larger command budget
+
+- Candidates 90 and 92 passed the maintainer's CachyOS checks (read commands, `docker` reads, `docker pull`/`run`/`rm` as changes with test and undo) and were merged as PRs #28 and #29 (`72efcb0`).
+- **READY FOR TEST**, candidate **0.1.0-93**, branch `feature/command-budget`. A real question showed two problems:
+  - `snapper list-configs` failed in the read sandbox with `AccessDenied`. The snapper tool calls `GetPluginsReport` after every command, and the filter did not list it. Added with the other read-only Snapper methods (`ListSnapshotsAtTime`, `GetUsedSpace`, `GetMountPoint`, `IsSnapshotReadOnly`). `CalculateUsedSpace`, `Sync`, mounts and every create, set, delete or lock method stay refused.
+  - A general question used up all 24 commands. The ceiling of `command_rounds` rises from 32 to 128. The default stays 24. All command output still shares `discovery_bytes` (at most 256 KiB), so more commands do not mean more data per question, only more, shorter results.
+- Tests: Snapper in `tests/test_dbus_filter.py` (rule and, where snapper is configured, a real run through the proxy); `tests/test_ask_operations.py` checks the new ceiling and that 128 commands still fit one valid discovery document.
 
 ### 2026-11-07 — Stage 4 follow-up: grouped command lists, open arguments and `commands.deny`
 

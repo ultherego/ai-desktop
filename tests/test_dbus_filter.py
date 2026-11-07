@@ -31,6 +31,7 @@ class RuleTests(unittest.TestCase):
                                r"Attach|Detach|Link|Unlink|Preset|Revert|Freeze|Thaw|Clean|Subscribe)[A-Za-z]*\Z")
         self.assertEqual([method for method in methods if forbidden.search(method)], [])
         self.assertIn("org.freedesktop.DBus.Properties.Get", methods)
+        self.assertIn("org.opensuse.Snapper.GetPluginsReport", methods)      # snapper asks for it after every command
         self.assertNotIn("org.freedesktop.DBus.Properties.Set", methods)
         self.assertNotIn("org.freedesktop.PolicyKit1", " ".join(dbus_filter.arguments()))
 
@@ -107,6 +108,15 @@ class RealProxyTests(unittest.TestCase):
                 result = self.busctl(*args)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("Access denied", result.stderr)
+
+    @unittest.skipUnless(shutil.which("snapper") and subprocess.run(["snapper", "list-configs"], capture_output=True,
+                                                                    stdin=subprocess.DEVNULL).returncode == 0,
+                         "snapper with a readable configuration is needed")
+    def test_the_snapper_tool_reads_its_configurations_through_the_filter(self):
+        with dbus_filter.session():
+            command = command_ops.sandbox_command(shutil.which("snapper"), ["snapper", "list-configs"])
+            result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_the_proxy_stops_and_leaves_nothing_behind(self):
         with dbus_filter.session() as bus:

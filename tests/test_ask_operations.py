@@ -181,7 +181,7 @@ class PolicyAndWireTests(OperationsBase):
         self.assertNotIn("commands", permissions.load_policy().access())
 
     def test_limits_are_validated(self):
-        for line in ("command_rounds = 33", "command_rounds = -1", "command_output = 100", 'command_output = "200KiB"',
+        for line in ("command_rounds = 129", "command_rounds = -1", "command_output = 100", 'command_output = "200KiB"',
                      "command_timeout = 0", "command_timeout = 61", "command_timeout = true"):
             with self.subTest(line=line):
                 self.write_policy(line + "\n")
@@ -190,6 +190,25 @@ class PolicyAndWireTests(OperationsBase):
         self.write_policy("command_rounds = 2\ncommand_output = 4096\ncommand_timeout = 5\n")
         limits = permissions.load_policy().limits()
         self.assertEqual((limits.command_rounds, limits.command_output, limits.command_timeout), (2, 4096, 5))
+        self.write_policy("command_rounds = 128\n")
+        self.assertEqual(permissions.load_policy().limits().command_rounds, 128)
+
+    def test_the_highest_command_budget_still_fits_one_valid_discovery_document(self):
+        from ai_desktop import ask_discovery
+        self.write_policy("command_rounds = 128\n")
+        ledger = ask_discovery.DiscoveryLedger(permissions.load_policy(), "SYNTHETIC question")
+        ran = 0
+        try:
+            while True:
+                ledger.take_command()
+                room = ledger.output_room()
+                ledger.add_run({"op": "run", "argv": ["uptime"], "status": "ok", "exit": 0,
+                                "output": "x" * min(room, 300), "truncated": False, "role": "read"})
+                ran += 1
+        except ask_discovery.BudgetExhausted:
+            pass
+        self.assertGreater(ran, 32)
+        dc.validate_discovery(ledger.document())
 
     def test_run_plan_shape(self):
         access = {"files": [], "systemd": [], "weather": False, "commands": ["uname -r"]}
