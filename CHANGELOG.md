@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-101: the conversation starts at the top and follows the window size
+
+- Starting `ai-desktop` with a full screen no longer squeezes the conversation into the bottom rows: what was on the screen scrolls up into the terminal's history (it is not erased) and the head starts at the top of the window.
+- Making the window larger or smaller redraws the input band at once, with what you have typed, across the new width.
+
 ## 0.1.0-100: the input stays at the bottom of the window
 
 - In a colour terminal an interactive conversation keeps its input at the bottom of the window, like Codex: a taller band with `Ask ai-desktop to do anything` while it is empty, the service and profile under it, then the key hint. Everything else (answers, commands, consent questions) scrolls above it. A sent message goes into the thread on the same band.

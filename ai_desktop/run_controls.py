@@ -189,6 +189,8 @@ def configured(function):
                                   "instructions": "", "profile": "default", "access": "changes"})
             with execution.using(None if vanilla else config):
                 if function.__module__ == "ai_desktop.ask_cli" and _conversation(remaining):
+                    from .terminal_frame import clear_view
+                    clear_view(sys.stdout)
                     print("\n".join(banner()))
                 elif not vanilla:
                     print(label())

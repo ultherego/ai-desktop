@@ -84,9 +84,40 @@ class FrameTests(unittest.TestCase):
             with patch.object(terminal_frame, "_size", return_value=(30, 80)):
                 frame.draw("", 0)
             written = frame.stream.getvalue()
-            self.assertIn("\x1b[r\x1b[26;1H\x1b[J\x1b[1;25r", written)
+            # Taller: the old band (from row 20) is cleared, the region now ends at row 25 and the band follows.
+            self.assertIn("\x1b[r\x1b[20;1H\x1b[J\x1b[1;25r", written)
+            self.assertIn("\x1b[27;1H", written)
             self.assertEqual(frame._back(), "\x1b[25;1H")
             self.assertEqual(frame._back(), "\x1b8")
+
+    def test_a_resize_while_typing_redraws_the_band_at_once_with_the_typed_text(self):
+        with patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True):
+            frame = self.frame(columns=40)
+            frame.draw("SYNTHETIC draft", 15)
+            frame.stream.seek(0)
+            frame.stream.truncate()
+            with patch.object(terminal_frame, "_size", return_value=(24, 120)):
+                frame._on_resize()
+            written = frame.stream.getvalue()
+            self.assertIn("SYNTHETIC draft", written)
+            self.assertIn("\x1b[1;19r", written)
+            frame.leave()
+            frame.stream.seek(0)
+            frame.stream.truncate()
+            frame._on_resize()                                   # not typing: only noted, drawn on the next draw
+            self.assertEqual(frame.stream.getvalue(), "")
+
+    def test_the_conversation_starts_at_the_top_and_old_screen_text_goes_to_the_history(self):
+        with patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True), \
+                patch.object(terminal_frame.os, "isatty", return_value=True), \
+                patch.object(terminal_frame, "_size", return_value=(24, 80)):
+            stream = Terminal()
+            stream.fileno = lambda: 1
+            terminal_frame.clear_view(stream)
+        self.assertEqual(stream.getvalue(), "\x1b[24;1H" + "\n" * 24 + "\x1b[H")
+        plain = io.StringIO()
+        terminal_frame.clear_view(plain)
+        self.assertEqual(plain.getvalue(), "")
 
 
 if __name__ == "__main__":

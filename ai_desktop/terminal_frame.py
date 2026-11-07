@@ -39,6 +39,7 @@ class Frame:
         self.note = ""
         self._resized = False
         self._moved = False                        # the window changed size since the conversation position was saved
+        self.editing = None                        # (text, cursor) while the editor waits for keys
         self._previous_handler = None
 
     # -- region ------------------------------------------------------------------------------------------------------
@@ -55,21 +56,29 @@ class Frame:
         except (ValueError, OSError):              # not the main thread: resizing is then handled on the next draw
             self._previous_handler = None
         self.draw("", 0)
+        self.editing = None
         self.stream.write("\x1b8")                 # back to the conversation, above the reserved rows
         self.stream.flush()
 
     def _on_resize(self, *unused):
+        """Redraw at once while the editor waits for a key, so the band follows the window; otherwise on the next draw."""
         self._resized = True
+        if self.editing is not None:
+            try:
+                self.draw(*self.editing)
+            except (OSError, ValueError):
+                pass
 
     def _refresh_size(self):
         rows, columns = _size(self.stream)
         if (rows, columns) != (self.rows, self.columns) or self._resized:
             self._resized = False
+            old = self.rows - RESERVED
             self.rows, self.columns = rows, columns
-            # The old reserved rows may now sit inside the text: clear from the new region's end and set it again.
-            # No save/restore here: that slot holds the conversation position.
+            # The old reserved rows may now sit inside the conversation: clear from whichever reserved block starts
+            # higher, then set the region again. No save/restore here: that slot holds the conversation position.
             top = self.rows - RESERVED
-            self.stream.write("\x1b[r\x1b[%d;1H\x1b[J\x1b[1;%dr" % (top + 1, top))
+            self.stream.write("\x1b[r\x1b[%d;1H\x1b[J\x1b[1;%dr" % (max(1, min(old, top) + 1), top))
             self._moved = True
 
     def _back(self):
@@ -104,6 +113,7 @@ class Frame:
 
     def draw(self, text, cursor):
         """Draw the input band with this text and leave the terminal cursor in it."""
+        self.editing = (text, cursor)
         self._refresh_size()
         rows, (row, column) = self.layout(text, cursor)
         self.stream.write("".join("\x1b[%d;1H%s" % (number, content) for number, content in rows)
@@ -121,6 +131,7 @@ class Frame:
         lines.append(shade + "\x1b[K\x1b[0m")
         self.stream.write(self._back() + "\r\n".join(lines) + "\r\n\x1b7")
         self.draw("", 0)
+        self.editing = None
         self.stream.write(self._back())
         self.stream.flush()
 
@@ -132,6 +143,7 @@ class Frame:
         """Return the cursor to the conversation without echoing anything (a cancelled or local input)."""
         self.note = ""
         self.draw("", 0)
+        self.editing = None
         self.stream.write(self._back())
         self.stream.flush()
 
@@ -146,18 +158,33 @@ class Frame:
         self.stream.flush()
 
 
+def usable(stream):
+    """A colour terminal with room for the pinned input."""
+    try:
+        if not (enabled(stream) and stream.isatty() and os.isatty(stream.fileno())):
+            return False
+    except (OSError, ValueError, AttributeError):
+        return False
+    rows, columns = _size(stream)
+    return rows >= MIN_ROWS and columns >= 20
+
+
+def clear_view(stream):
+    """Start the conversation at the top of the window, like Codex: what was on the screen is scrolled up into the
+    terminal's own history (not erased), then the cursor goes to the first row."""
+    if not usable(stream):
+        return
+    rows, _ = _size(stream)
+    stream.write("\x1b[%d;1H" % rows + "\n" * rows + "\x1b[H")
+    stream.flush()
+
+
 def start(stream, status):
     """Pin the input to the bottom when the terminal can show it; return the frame or None."""
     global _current
     if _current is not None:
         return _current
-    try:
-        if not (enabled(stream) and stream.isatty() and os.isatty(stream.fileno())):
-            return None
-    except (OSError, ValueError, AttributeError):
-        return None
-    rows, columns = _size(stream)
-    if rows < MIN_ROWS or columns < 20:
+    if not usable(stream):
         return None
     _current = Frame(stream, status)
     _current.start()
