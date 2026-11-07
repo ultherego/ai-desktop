@@ -268,6 +268,13 @@ def _run_command(snapshot, ledger, plan, permit, args, reader):
             return ledger.output_room()
         except ask_discovery.BudgetExhausted as exhausted:
             if exhausted.name == "discovery_bytes" and ledger.soft_stop(exhausted.name):
+                print(paint("  %s output budget used up (discovery_bytes): further commands are not run, the answer "
+                            "uses what was collected" % symbol("skip"), "muted"))
+                return None
+            if exhausted.name in ("discovery_bytes", "command_rounds") and ledger.budget_closed():
+                # a late command after the model was told to stop: recorded as refused, so the model answers next
+                add(argv, "change" if policy.allows_change(argv) else "read", "not-allowed",
+                    output="The output budget is used up; answer from what was collected.\n")
                 return None
             _budget_stop(policy, exhausted.name)
 

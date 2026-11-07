@@ -258,7 +258,13 @@ class DiscoveryLedger:
         self.steps.append({"op": "refusal", "code": "discovery-budget", "selectors": [],
                            "limit": getattr(self.limits, name)})
         self.rounds_left = 0
+        if name == "discovery_bytes":
+            self.commands_left = 0          # no room for more output either: the model answers from what it has
         return True
+
+    def budget_closed(self):
+        """True once soft_stop has told the model that discovery is over."""
+        return any(step["op"] == "refusal" and step["code"] == "discovery-budget" for step in self.steps)
 
     # -- corrections ---------------------------------------------------------------------------------------------------
     def correction(self, problem):

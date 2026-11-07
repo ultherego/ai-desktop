@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-94: a full data budget no longer cancels the question
+
+- When command output fills `discovery_bytes`, the remaining commands are skipped and the model answers from what it collected. Before, the next command of the same batch cancelled the whole question.
+- Tip: with many commands, keep `command_output` small (e.g. `"16KiB"`), so one long log does not take most of `discovery_bytes`.
+
 ## 0.1.0-93: snapper works for read commands, more commands per question
 
 - `snapper list-configs` and `snapper list` work again in `allow`: the D-Bus filter now passes the read-only Snapper calls the tool makes.

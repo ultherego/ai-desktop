@@ -95,6 +95,18 @@ class FlowTests(OperationsBase):
         self.assertEqual(caught.exception.check, "access")
         self.assertEqual(self.executed, [])
 
+    def test_when_command_output_fills_the_data_budget_the_question_is_still_answered(self):
+        self.write_policy('discovery_bytes = "2KiB"\n')
+        batch = json.dumps({"action": "run", "commands": [["uname", "-s"]] * 16})
+        result = self.run_flow([batch, run("uname", "-r"), ANSWER_PLAN])
+        self.assertEqual(result, ANSWER)
+        self.assertLess(len(self.executed), 16)
+        self.assertNotIn(["uname", "-r"], self.executed)
+        last = self.wire[-1]["discovery"]
+        self.assertEqual(last["remaining"]["commands"], 0)
+        self.assertEqual([step["code"] for step in last["steps"] if step["op"] == "refusal"], ["discovery-budget"])
+        self.assertIn("output budget used up", self.output.getvalue())
+
     def test_the_command_budget_is_the_owners_and_exhaustion_is_named(self):
         self.write_policy("command_rounds = 1\n")
         out = self.refused([run("uname", "-s"), run("uname", "-r"), ANSWER_PLAN])
