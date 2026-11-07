@@ -289,7 +289,7 @@ def _run_command(snapshot, ledger, plan, permit, args, reader):
         permit.check()
         return step
 
-    changing = command_ops.match(policy.changes(), argv)
+    changing = policy.allows_change(argv)
     if not changing:
         if "test" in plan:
             print("A test and an undo apply only to changes from the `change` list: " + shown(argv))
@@ -298,9 +298,9 @@ def _run_command(snapshot, ledger, plan, permit, args, reader):
         room = spend()
         if room is None:
             return
-        path = command_ops.resolve(argv[0]) if command_ops.match(policy.commands(), argv) else None
+        path = command_ops.resolve(argv[0]) if policy.allows_command(argv) else None
         if path is None:
-            if command_ops.match(policy.commands(), argv):
+            if policy.allows_command(argv):
                 print(paint("  %s %s %s program not found" % (symbol("skip"), shown(argv), symbol("dot")), "muted"))
                 add(argv, "read", "missing")
                 return
@@ -324,9 +324,10 @@ def _run_command(snapshot, ledger, plan, permit, args, reader):
         return
     # A change: it needs its test (a reading command) and its undo (a change or reading command), all named up front.
     test, undo = plan.get("test"), plan.get("undo")
-    ok = (test is not None and command_ops.match(policy.commands(), test)
-          and not command_ops.match(policy.changes(), test)          # a "test" must never itself change the system
-          and (command_ops.match(policy.changes(), undo) or command_ops.match(policy.commands(), undo)))
+    # Test and undo run on the live system, so only exact templates count for them, never an open "..." read template.
+    ok = (test is not None and policy.allows_exact_command(test)
+          and not policy.allows_change(test)          # a "test" must never itself change the system
+          and (policy.allows_change(undo) or policy.allows_exact_command(undo)))
     if not ok or not ledger.can_afford(3):
         # without room for change + test + undo (or without a valid test/undo) nothing is changed
         if ok:

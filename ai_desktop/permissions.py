@@ -636,6 +636,7 @@ class Policy:
     _local: bool = False
     local_port: int = 8080
     _host_sockets: tuple = ()
+    _denied_commands: tuple = ()
 
     def fingerprint(self):
         """Identifies the exact permissions.toml this policy came from, including what `access()` does not list."""
@@ -697,6 +698,41 @@ class Policy:
     def share_processes(self):
         """Owner opt-in: read-only commands see the host's processes (and their command lines)."""
         return self._share_processes
+
+    def _open_words_allowed(self, templates, argv, *, write=False):
+        """argv fits one of templates, is not in commands.deny, and every path among the words a "..." template left
+        open is readable under files.read and not under files.deny."""
+        from .command_ops import denied, extra_words
+        if denied(self._denied_commands, argv):
+            return False
+        extra = extra_words(templates, argv)
+        if extra is None:
+            return False
+        for word in extra:
+            if "/" in word or word.startswith("~"):
+                candidate = word.split("=", 1)[1] if word.startswith("-") and "=" in word else word
+                if not candidate.startswith("/") or not self.allows(candidate):
+                    return False
+                try:
+                    if write and not self.can_write(candidate):
+                        return False
+                except ValueError:
+                    return False
+        return True
+
+    def allows_command(self, argv):
+        """A read command the owner allows (see _open_words_allowed)."""
+        return self._open_words_allowed(self._commands, argv)
+
+    def allows_exact_command(self, argv):
+        """A read command that may also run outside the sandbox (the test of a change): exact templates only."""
+        from .command_ops import denied, exact_match
+        return not denied(self._denied_commands, argv) and exact_match(self._commands, argv)
+
+    def allows_change(self, argv):
+        """A change the owner allows; it still needs the strict yes, a test and an undo before it runs."""
+        # A change runs on the live system, so a path it names must also lie inside files.write.
+        return self._open_words_allowed(self._changes, argv, write=True)
 
     def host_sockets(self):
         """Owner opt-in: extra /run sockets read commands may reach, e.g. /run/docker.sock for docker templates."""
@@ -994,21 +1030,33 @@ def load_policy(*, optional=False):
             raise _SettingError("part_size") from None
         limits = parse_limits(value["files"])
         section = value.get("commands", {})
-        if type(section) is not dict or set(section) - {"allow", "change", "share_processes", "host_sockets"}:
-            raise _Problem("[commands] only accepts the keys allow, change, share_processes, host_sockets.")
-        from .command_ops import MAX_TEMPLATES, parse_template, parse_templates
+        if type(section) is not dict or set(section) - {"allow", "change", "deny", "share_processes", "host_sockets"}:
+            raise _Problem("[commands] only accepts the keys allow, change, deny, share_processes, host_sockets.")
+        from .command_ops import MAX_TEMPLATES, opens_a_change, parse_deny, parse_template, parse_templates, valid_group
         parsed_lists = {}
         for key in ("allow", "change"):
             items = section.get(key, [])
+            if type(items) is dict:
+                # Named groups ([commands.allow] docker = [...]) only organise the list; they are one list to the program.
+                bad = [name for name in items if not valid_group(name)]
+                if bad:
+                    raise _Problem("commands.%s: a group name is lowercase letters, digits, - or _: %s"
+                                   % (key, _shown(str(bad[0]))))
+                if any(type(group) is not list for group in items.values()):
+                    raise _Problem("commands.%s: each group must be a list of templates." % key)
+                items = [item for group in items.values() for item in group]
             if type(items) is not list:
-                raise _Problem("commands.%s must be a list." % key)
+                raise _Problem("commands.%s must be a list or groups of lists." % key)
             if len(items) > MAX_TEMPLATES:
                 raise _Problem("commands.%s has too many templates (%d, max %d)." % (key, len(items), MAX_TEMPLATES))
             for item in items:
                 try:
-                    parse_template(item, strict=key == "change")
+                    tokens = parse_template(item, strict=key == "change")
                 except ValueError:
                     raise _Problem("Invalid template in commands.%s: %s" % (key, _shown(item))) from None
+                if key == "allow" and opens_a_change(tokens):
+                    raise _Problem("commands.allow runs without asking, so it cannot leave the arguments of a change open: "
+                                   + _shown(item) + ". Put it in commands.change, which asks for yes every time.")
             again = _repeated(items)
             if again:
                 raise _Problem(*("Repeated template in commands.%s: %s" % (key, _shown(item)) for item in again))
@@ -1017,6 +1065,10 @@ def load_policy(*, optional=False):
         both = [" ".join(t) for t in commands if t in set(changes)]
         if both:
             raise _Problem(*("A template is in both allow and change: " + _shown(item) for item in both))
+        try:
+            denies = parse_deny(section.get("deny", []))
+        except ValueError:
+            raise _Problem("commands.deny is a list of commands without placeholders, e.g. \"docker rm\", without repeats.") from None
         share = section.get("share_processes", False)
         if type(share) is not bool:
             raise _Problem("commands.share_processes must be true or false.")
@@ -1033,7 +1085,7 @@ def load_policy(*, optional=False):
         policy = Policy(uid, home, raw, identity, *rules,
                         network.get("claude", False), network.get("weather", False), tuple(systemd), value["version"],
                         network.get("web", False), file_size, part_size, network.get("codex", False), limits, commands, changes, share,
-                        network.get("local", False), local.get("port", DEFAULT_LOCAL_PORT), _host_sockets=tuple(sockets))
+                        network.get("local", False), local.get("port", DEFAULT_LOCAL_PORT), _host_sockets=tuple(sockets), _denied_commands=denies)
         for template in (*commands, *changes):
             for token in template[1:]:
                 if token[:1] == "/":        # templates carry absolute literal paths only (`~` is refused by the parser)

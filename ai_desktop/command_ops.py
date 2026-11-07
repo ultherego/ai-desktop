@@ -119,12 +119,35 @@ def _require_command_path(program, arguments):
             raise ValueError("command-template")
 
 
+# A read template may end with "...": the fixed words, then up to the argv limit of further words, each a plain word.
+# Paths among them are checked against the files policy by the caller (permissions.Policy.allows_command).
+ELLIPSIS = "..."
+_EXTRA = re.compile(r"[A-Za-z0-9._:=,@%+/-]{1,100}\Z")
+MAX_GROUP_NAME = 32
+# Verbs that change state. A read template that leaves its arguments open with "..." must not start with one: "docker
+# run --rm ..." in allow would run any container without asking. Such a template belongs in change.
+STATE_VERBS = frozenset(("run", "exec", "start", "stop", "restart", "kill", "rm", "rmi", "build", "pull", "push", "create",
+                         "delete", "remove", "install", "uninstall", "enable", "disable", "mask", "unmask", "set", "apply",
+                         "edit", "cp", "commit", "prune", "update", "upgrade", "mount", "umount", "load", "import", "tag",
+                         "reload", "reset", "connect", "disconnect", "up", "down", "add", "del", "modify", "write"))
+
+
+def opens_a_change(tokens):
+    """True for an open read template whose fixed words include a state-changing verb."""
+    return tokens[-1] == ELLIPSIS and any(token in STATE_VERBS for token in tokens[1:-1])
+_GROUP = re.compile(r"[a-z][a-z0-9_-]{0,31}\Z")
+
+
+def valid_group(name):
+    return type(name) is str and bool(_GROUP.fullmatch(name))
+
+
 def _require_literal_verb(tokens):
     """No placeholder may stand where the verb could be. After an option not known to stand alone, the next word may be
     its value (`systemctl -H host <word>`), so the verb is looked for one word further on."""
     maybe_value = False
     for token in tokens[1:]:
-        if token in _PLACEHOLDERS:
+        if token in _PLACEHOLDERS or token == ELLIPSIS:
             raise ValueError("command-template")
         if token.startswith("-"):
             maybe_value = "=" not in token and token not in _STANDALONE_OPTIONS
@@ -144,6 +167,8 @@ def parse_template(text, *, strict=False):
     program = tokens[0]
     if not _PROGRAM.fullmatch(program) or program.casefold() in FORBIDDEN_PROGRAMS:
         raise ValueError("command-template")
+    if ELLIPSIS in tokens[:-1] or (tokens[-1] == ELLIPSIS and len(tokens) < 2):
+        raise ValueError("command-template")      # only at the end, never alone
     for token in tokens[1:]:
         if token not in _PLACEHOLDERS and not _LITERAL.fullmatch(token):
             raise ValueError("command-template")
@@ -175,14 +200,58 @@ def clean_argv(value):
     return list(value)
 
 
+def _matches(template, argv):
+    fixed = template[:-1] if template[-1] == ELLIPSIS else template
+    if len(argv) < len(fixed) or (template[-1] != ELLIPSIS and len(argv) != len(fixed)):
+        return False
+    if not all((_PLACEHOLDERS[token].fullmatch(word) if token in _PLACEHOLDERS else token == word)
+               for token, word in zip(fixed, argv)):
+        return False
+    return all(_EXTRA.fullmatch(word) for word in argv[len(fixed):])
+
+
+def extra_words(templates, argv):
+    """The words a matching "..." template left open (an exact match leaves none). None when nothing matches."""
+    exact = None
+    for template in templates:
+        if _matches(template, argv):
+            if template[-1] != ELLIPSIS:
+                return ()
+            exact = tuple(argv[len(template) - 1:]) if exact is None else exact
+    return exact
+
+
+def parse_deny(items):
+    """Commands the owner never wants run, as word prefixes: "docker rm" refuses every docker rm call."""
+    if type(items) is not list or len(items) > MAX_TEMPLATES:
+        raise ValueError("command-template")
+    result = []
+    for item in items:
+        if type(item) is not str or len(item.encode("utf-8")) > MAX_TEMPLATE_BYTES:
+            raise ValueError("command-template")
+        tokens = tuple(item.split())
+        if (not 1 <= len(tokens) <= MAX_TOKENS or " ".join(tokens) != item or not _PROGRAM.fullmatch(tokens[0])
+                or any(token in _PLACEHOLDERS or token == ELLIPSIS or not _LITERAL.fullmatch(token)
+                       for token in tokens[1:])):
+            raise ValueError("command-template")
+        result.append(tokens)
+    if len(set(result)) != len(result):
+        raise ValueError("command-template")
+    return tuple(result)
+
+
+def denied(denies, argv):
+    return any(tuple(argv[:len(prefix)]) == prefix for prefix in denies)
+
+
+def exact_match(templates, argv):
+    """Like match, but a "..." template never counts: for commands that run outside the read sandbox (test, undo)."""
+    return any(_matches(template, argv) for template in templates if template[-1] != ELLIPSIS)
+
+
 def match(templates, argv):
     """True when argv fits one of the owner's templates exactly (literals equal, placeholders validated)."""
-    for template in templates:
-        if len(template) == len(argv) and all(
-                (_PLACEHOLDERS[token].fullmatch(word) if token in _PLACEHOLDERS else token == word)
-                for token, word in zip(template, argv)):
-            return True
-    return False
+    return any(_matches(template, argv) for template in templates)
 
 
 def resolve(program, search=SEARCH_PATH):
