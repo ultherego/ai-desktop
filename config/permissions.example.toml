@@ -41,7 +41,23 @@ deny = [
 ]
 
 [commands]
-allow = [
+share_processes = false
+host_sockets = []
+deny = []
+
+[commands.allow]
+system = [
+    "uname -a",
+    "uname -r",
+    "uptime",
+    "hostnamectl",
+    "timedatectl",
+    "localectl",
+    "nproc",
+    "free -h",
+    "vmstat 1 <int>",
+]
+systemd = [
     "systemd-analyze",
     "systemd-analyze blame",
     "systemd-analyze critical-chain",
@@ -53,12 +69,8 @@ allow = [
     "systemctl is-active <unit>",
     "systemctl is-enabled <unit>",
     "journalctl --disk-usage",
-    "uname -a",
-    "uname -r",
-    "uptime",
-    "hostnamectl",
-    "timedatectl",
-    "localectl",
+]
+hardware = [
     "lsblk",
     "lsblk -f",
     "lscpu",
@@ -66,12 +78,11 @@ allow = [
     "lspci",
     "lspci -k",
     "lsusb",
-    "free -h",
     "sensors",
     "upower -d",
     "powerprofilesctl get",
-    "vmstat 1 <int>",
-    "nproc",
+]
+packages = [
     "pacman -Qi <word>",
     "pacman -Qs <word>",
     "pacman -Qk <word>",

@@ -1,5 +1,63 @@
 # Changelog
 
+## 0.1.0-109: a web search knows the conversation
+
+- A web search now gets the latest exchanges of the conversation, like every other question, so "check online what the error above means" knows which error, also after returning with `ai-desktop -c`. Before, it got only the sentence you typed and often came back without sources. Files, task memory and Skills are still not sent, and Claude is told to keep personal details out of search queries.
+
+## 0.1.0-108: a web search without sources says why
+
+- When a web question ends without confirmed sources, the message now says which case it was: the model answered without searching, or the search ran but returned no link to cite. Before, both looked the same. Nothing more is sent or shown; only a fixed code (`web-no-search`, `web-no-links`) crosses the service boundary.
+
+## 0.1.0-107: the input grows with longer text
+
+- The input band grows upwards with what you type, like Codex and Claude Code: a long line wraps onto the next row and each new line (`\` + Enter) adds a row, up to about half the window; beyond that the text scrolls with the cursor. The conversation moves up to make room and comes back down after sending.
+
+## 0.1.0-106: a wrongly written command no longer ends the turn
+
+- Commands have no shell: each argument is one word without spaces. The model is now told this (and to use a waiting program such as `sleep infinity` to keep something running), and when it still writes a command with a script or spaces, it gets a `command-invalid` refusal and may correct it within `plan_corrections`, instead of the turn ending with `invalid plan (plan-command)`.
+
+## 0.1.0-105: type while the model works
+
+- The input stays live during a turn. Prepare the next message and press Enter to queue it: the queue is sent after the current answer, in order. `/` commands typed meanwhile are queued too, so a setting you choose takes effect only after the answer. Text you have not sent stays in the input for the next prompt. Ctrl+C clears the text, or stops the turn when the input is empty.
+- A consent question (`y/n`, `yes`) now appears in the input itself and covers your draft until you answer; only keys typed after the question appeared count. Your draft comes back afterwards.
+- The `sudo` password prompt takes the keyboard over completely, so no key typed there reaches the input.
+
+## 0.1.0-104: room between the conversation and the input
+
+- One empty row separates the conversation from the input band, so the last line of output no longer touches it. With the `/` list open, the empty row sits above the list.
+
+## 0.1.0-103: `/` commands as a list above the input
+
+- Typing `/` opens a list of matching commands with their descriptions above the input, like Codex and Claude Code; the highlighted one is marked in colour, arrows move it, Tab completes it and Enter runs it. The conversation moves up to make room, so nothing is covered, and the list closes when it no longer matches.
+
+## 0.1.0-102: the conversation is always drawn from the top
+
+- After the window changes size, the conversation is drawn again from the top (the head, then your questions and the answers at the new width) with the input at the bottom. Before, a terminal that grows pulled old lines back in and the whole conversation slid down. A resize while the model works is drawn when the input is ready again.
+
+## 0.1.0-101: the conversation starts at the top and follows the window size
+
+- Starting `ai-desktop` with a full screen no longer squeezes the conversation into the bottom rows: what was on the screen scrolls up into the terminal's history (it is not erased) and the head starts at the top of the window.
+- Making the window larger or smaller redraws the input band at once, with what you have typed, across the new width.
+
+## 0.1.0-100: the input stays at the bottom of the window
+
+- In a colour terminal an interactive conversation keeps its input at the bottom of the window, like Codex: a taller band with `Ask ai-desktop to do anything` while it is empty, the service and profile under it, then the key hint. Everything else (answers, commands, consent questions) scrolls above it. A sent message goes into the thread on the same band.
+- `/` commands are listed in the hint line while you type them. Resizing the window redraws the bottom rows.
+- Without colour, in a pipe or in a window under 12 rows the prompt stays inline as before.
+
+## 0.1.0-99: the template and documentation catch up
+
+- `config/permissions.example.toml` uses the grouped form (`[commands.allow]` with `system`, `systemd`, `hardware`, `packages`) and shows `share_processes`, `host_sockets` and `deny` with their default values. The commands themselves are unchanged. An existing `permissions.toml` is never replaced.
+- README and the threat model describe `...`, `commands.deny`, groups, the exact test and undo of a change, 32 commands per step, up to 128 per question, the full data budget and the yellow `empty` row. `docs/PERMISSIONS.md` explains `local`, `web` and `[local] port` more plainly.
+
+## 0.1.0-98: a new look for conversations
+
+- In a colour terminal the input is a band across the whole width with a different background; your sent messages keep it in the thread, and a muted hint with the keys is shown under it.
+- An interactive conversation opens with a framed head: service, profile, model and reasoning.
+- Commands appear as a tree under one head (`● Running 32 commands`, then `└ ✔ sensors · 1.4 KiB`).
+- The waiting line reads `Claude: Analyzing the question (12s · Ctrl+C to stop)`.
+- Without colour (`NO_COLOR`, `TERM=dumb`, a pipe) everything stays as before.
+
 ## 0.1.0-97: an empty result is not shown as a failure
 
 - A read command that ends with a non-zero code and prints nothing (for example `pacman -Qu` when there is nothing to update) is shown in yellow as `empty, code 1`. A non-zero code with output (for example a permission message) stays red as `failed`.

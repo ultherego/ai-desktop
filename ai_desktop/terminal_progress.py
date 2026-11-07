@@ -79,10 +79,9 @@ class WaitingIndicator:
                 return
             try:
                 elapsed = max(0, time.monotonic() - self._started)
-                dots = "." * (int(elapsed / INTERVAL) % 3 + 1)
-                text = f"{self._label}{dots:<3} {int(elapsed)} s"
                 frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
                 unicode_output = (getattr(self.stream, "encoding", None) or "").lower().replace("-", "") in ("utf8", "utf")
+                text = "%s (%ds %s Ctrl+C to stop)" % (self._label, int(elapsed), "\u00b7" if unicode_output else "-")
                 frame = frames[int(elapsed / INTERVAL) % len(frames)] if unicode_output else ""
                 try:
                     columns = os.get_terminal_size(self.stream.fileno()).columns

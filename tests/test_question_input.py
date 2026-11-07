@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import pty
+import re
 import select
 import struct
 import subprocess
@@ -312,7 +313,7 @@ if __name__ == "__main__":
 class PromptSessionTerminalTests(unittest.TestCase):
     """Shared prompt behaviour of ask/task/material/project: history, double Ctrl+C, attachments, idle hook (real PTY)."""
 
-    def run_script(self, body, keystrokes, *, columns=60, delay=0.15):
+    def run_script(self, body, keystrokes, *, columns=60, delay=0.15, env=None):
         script = (f"import json, sys, termios\nsys.path.insert(0, {str(ROOT)!r})\n"
                   "from ai_desktop.question_input import (read_question, PromptSession, QuestionInputError, paste_token)\n"
                   "import ai_desktop.question_input as q\nq._KITTY = False\n"
@@ -321,7 +322,7 @@ class PromptSessionTerminalTests(unittest.TestCase):
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, columns, 0, 0))
         process = subprocess.Popen([sys.executable, "-I", "-B", "-c", script], cwd=ROOT, stdin=slave, stdout=slave,
-                                   stderr=slave, close_fds=True)
+                                   stderr=slave, close_fds=True, env=env)
         os.close(slave)
         output = bytearray()
         try:
@@ -366,6 +367,84 @@ class PromptSessionTerminalTests(unittest.TestCase):
              "    except (KeyboardInterrupt, EOFError, QuestionInputError) as error:\n"
              "        print('R=' + json.dumps(['ERR', type(error).__name__]), flush=True)\n"
              "        break\n")
+
+    def test_in_a_colour_terminal_the_input_is_a_full_width_band_with_a_hint_that_is_cleared_on_send(self):
+        colour = {key: value for key, value in os.environ.items() if key != "NO_COLOR"}
+        colour.update(TERM="xterm-256color", COLORTERM="truecolor")
+        output = self.run_script(self.READS.format(attach=True, count=1), [b"abc", b"\r"], env=colour)
+        self.assertEqual([r[0] for r in self.results(output.replace("\x1b[J", ""))], ["abc"])
+        band = "\x1b[48;2;40;42;54m"
+        self.assertIn(band, output)
+        self.assertIn("abc\x1b[K\x1b[0m", output)                       # the band reaches the right edge, then resets
+        self.assertIn(editor.FOOTER, output)
+        self.assertRegex(output, r"\x1b\[\?2004l\r*\n\x1b\[J")              # the hint is erased when the message is sent
+        self.assertIn("RESTORED=True", output)
+        plain = self.run_script(self.READS.format(attach=True, count=1), [b"abc\r"])
+        self.assertNotIn(band, plain)
+        self.assertNotIn(editor.FOOTER, plain)
+
+    def test_a_pinned_frame_keeps_the_input_at_the_bottom_and_puts_the_sent_message_into_the_thread(self):
+        colour = {key: value for key, value in os.environ.items() if key != "NO_COLOR"}
+        colour.update(TERM="xterm-256color", COLORTERM="truecolor")
+        body = ("import ai_desktop.terminal_frame as frame\n"
+                "frame.start(sys.stdout, 'SYNTHETIC status')\n" + self.READS.format(attach=True, count=2) +
+                "frame.stop()\n")
+        output = self.run_script(body, [b"abc\r", b"/he", b"\x03", b"\x03", b"\x03"], env=colour)
+        # The frame draws without line breaks, so a result line starts after the last drawn bytes, not at a new line.
+        results = [json.loads(found) for found in re.findall(r"R=(\[.*\])\n", output)]
+        self.assertEqual(results[0][0], "abc")
+        self.assertEqual(results[1], ["ERR", "KeyboardInterrupt"])
+        self.assertIn("\x1b[1;18r", output)                       # 24 rows: the conversation scrolls in rows 1-18
+        self.assertIn("\x1b[21;1H", output)                       # the input row sits at the bottom
+        self.assertIn("Ask ai-desktop to do anything", output)
+        self.assertIn("SYNTHETIC status", output)
+        self.assertRegex(output, r"\u203a(\x1b\[0m)?\x1b\[48;2;40;42;54m abc\x1b\[K")  # the sent message, on the band, in the thread
+        self.assertIn(editor.CTRL_C_HINT, output)
+        self.assertTrue(output.rstrip().endswith("DONE"))
+        self.assertIn("\x1b[r", output)                           # the scroll region is given back at the end
+        self.assertIn("RESTORED=True", output)
+
+    def test_typing_during_a_turn_queues_messages_and_a_consent_question_is_answered_in_the_band(self):
+        colour = {key: value for key, value in os.environ.items() if key != "NO_COLOR"}
+        colour.update(TERM="xterm-256color", COLORTERM="truecolor")
+        body = ("import time\nimport ai_desktop.terminal_frame as frame, ai_desktop.terminal_input as live\n"
+                "from ai_desktop.terminal_consent import fresh_input\n"
+                "f = frame.start(sys.stdout, 'SYNTHETIC status')\n"
+                "live.start(f, sys.stdout)\n"
+                "time.sleep(1.3)\n"
+                "answer = fresh_input('Send this request? [y/n]: ')\n"
+                "print('ANSWER=' + json.dumps(answer), flush=True)\n"
+                "draft, queue = live.stop()\n"
+                "print('R=' + json.dumps([draft, queue]), flush=True)\n"
+                "frame.stop()\n")
+        output = self.run_script(body, [b"next question\r", b"draft x", b"y\r"], env=colour, delay=0.5)
+        self.assertEqual(re.findall(r'ANSWER=("[^"]*")', output), ['"y"'])          # only the key typed after the question
+        self.assertEqual([json.loads(found) for found in re.findall(r"R=(\[[^\n\x1b]*\])", output)],
+                         [["draft x", ["next question"]]])                    # the draft came back, one message queued
+        self.assertIn("1 queued", output)
+        self.assertIn("answer the question", output)
+        self.assertIn("RESTORED=True", output)
+
+    def test_a_lease_gives_the_keys_to_sudo_or_a_menu_and_none_reach_the_draft(self):
+        colour = {key: value for key, value in os.environ.items() if key != "NO_COLOR"}
+        colour.update(TERM="xterm-256color", COLORTERM="truecolor")
+        body = ("import time\nimport ai_desktop.terminal_frame as frame, ai_desktop.terminal_input as live\n"
+                "f = frame.start(sys.stdout, 'SYNTHETIC status')\n"
+                "live.start(f, sys.stdout)\n"
+                "time.sleep(0.4)\n"
+                "with live.lease():\n"
+                "    canonical = bool(termios.tcgetattr(0)[3] & termios.ICANON)\n"
+                "    line = sys.stdin.readline()\n"
+                "print('LEASE=' + json.dumps([canonical, line.strip()]), flush=True)\n"
+                "draft, queue = live.stop()\n"
+                "print('R=' + json.dumps([draft, queue]), flush=True)\n"
+                "frame.stop()\n")
+        output = self.run_script(body, [b"SYNTHETIC-SECRET\n"], env=colour, delay=1.0)
+        self.assertEqual([json.loads(found) for found in re.findall(r"LEASE=(\[[^\n\x1b]*\])", output)],
+                         [[True, "SYNTHETIC-SECRET"]])                       # a normal terminal line, read by its owner
+        self.assertEqual([json.loads(found) for found in re.findall(r"R=(\[[^\n\x1b]*\])", output)], [["", []]])
+        self.assertEqual(output.count("SYNTHETIC-SECRET"), 2)                # echoed by the terminal once, printed once
+        self.assertIn("RESTORED=True", output)
 
     def test_up_and_down_walk_the_history_of_this_command_only(self):
         output = self.run_script(self.READS.format(attach=False, count=3),

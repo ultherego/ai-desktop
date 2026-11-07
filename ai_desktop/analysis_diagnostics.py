@@ -43,6 +43,14 @@ WEB_DIAGNOSTICS = frozenset({
 })
 
 
+# Why a web question ended with no confirmed sources: the model never searched, or the searches returned no link.
+WEB_EMPTY_DIAGNOSTICS = frozenset({'web-no-search', 'web-no-links'})
+
+
+def web_empty_diagnostic(value):
+    return value if type(value) is str and value in WEB_EMPTY_DIAGNOSTICS else None
+
+
 def web_diagnostic(value):
     """Return one trusted code or None; do not stringify untrusted values."""
     return value if type(value) is str and value in WEB_DIAGNOSTICS else None
@@ -89,6 +97,8 @@ def failure_diagnostic(value, reason, *, mode, provider):
     """The exact validated request selects the only accepted code vocabulary."""
     if provider == "claude" and mode == "web" and reason == "result":
         return web_diagnostic(value)
+    if provider == "claude" and mode == "web" and reason == "web-no-results":
+        return web_empty_diagnostic(value)
     if provider == "codex" and mode in _CODEX_MODES:
         return codex_diagnostic(value, reason)
     return None

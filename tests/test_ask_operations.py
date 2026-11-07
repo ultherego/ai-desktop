@@ -74,6 +74,31 @@ class FlowTests(OperationsBase):
         self.assertEqual(self.wire[0]["access"]["commands"][0], "uname -s")           # the planner sees the owner's templates
         self.assertIn("uname -s", self.output.getvalue())                             # the exact command was shown first
 
+    def test_a_batch_of_commands_is_shown_as_a_tree_under_one_head(self):
+        batch = json.dumps({"action": "run", "commands": [["uname", "-s"], ["uname", "-r"]]})
+        self.assertEqual(self.run_flow([batch, ANSWER_PLAN]), ANSWER)
+        lines = [line for line in self.output.getvalue().splitlines() if "uname" in line or "Running" in line]
+        self.assertRegex(lines[0], r"Running 2 commands")
+        self.assertRegex(lines[1], r"^  [└`] \S uname -s ")
+        self.assertRegex(lines[2], r"^    \S uname -r ")
+
+    def test_a_command_with_a_shell_script_is_refused_and_the_model_may_correct_it(self):
+        script = json.dumps({"action": "run", "argv": ["uname", "-s; while true; do sleep 1; done"]})
+        self.assertEqual(self.run_flow([script, run("uname", "-s"), ANSWER_PLAN]), ANSWER)
+        self.assertEqual(self.executed, [["uname", "-s"]])
+        refusals = [step for step in self.steps_of(1) if step["op"] == "refusal"]
+        self.assertEqual([step["code"] for step in refusals], ["command-invalid"])
+        self.assertIn("not valid (one word per argument", self.output.getvalue())
+        self.assertIn("sleep infinity", contract.SYSTEM_PROMPT)
+
+    def test_without_corrections_left_an_invalid_command_still_ends_the_turn(self):
+        self.write_policy("plan_corrections = 0\n")
+        script = json.dumps({"action": "run", "argv": ["uname", "-s; sleep 1"]})
+        with self.assertRaises(plans.PlanError) as caught:
+            self.run_flow([script, ANSWER_PLAN])
+        self.assertEqual(caught.exception.check, "command")
+        self.assertEqual(self.executed, [])
+
     def test_a_declined_question_runs_no_command(self):
         self.confirm.side_effect = lambda action, **kwargs: False
         with self.assertRaises(flow.Declined):

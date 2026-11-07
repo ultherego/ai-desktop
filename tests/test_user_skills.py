@@ -63,7 +63,9 @@ class RepositoryContentTests(unittest.TestCase):
 
     def test_the_template_sends_no_logs_network_names_or_user_data_and_does_not_reach_host_daemons(self):
         import tomllib
-        allow = tomllib.loads((ROOT / "config/permissions.example.toml").read_text())["commands"]["allow"]
+        groups = tomllib.loads((ROOT / "config/permissions.example.toml").read_text())["commands"]["allow"]
+        self.assertIsInstance(groups, dict)                                   # the template shows the grouped form
+        allow = [template for group in groups.values() for template in group]
         programs = {template.split()[0] for template in allow}
         self.assertFalse(programs & {"nmcli", "bluetoothctl", "docker", "podman", "dmesg", "who", "last", "id", "ip", "ss",
                                      "ps", "top", "df", "findmnt", "pactl", "wpctl", "glxinfo"})

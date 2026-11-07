@@ -12,13 +12,13 @@ All `true`/`false`, default `false`.
 
 - `claude`: requests may go to Claude.
 - `codex`: requests may go to Codex.
-- `local`: requests may go to a local model on `127.0.0.1`.
+- `local`: requests may go to a model you run yourself on this computer (an OpenAI-compatible server such as llama.cpp, listening on `127.0.0.1`). Nothing leaves the computer. Choose it with `ai-desktop agent use local`.
 - `weather`: weather from Open-Meteo (sends the place name).
-- `web`: web search through Claude (sends only your question).
+- `web`: Claude may search the Internet for a question that needs current information. It is a separate request with your question and the latest exchanges of the conversation (so "the error above" is understood), without files, task memory or Skills.
 
 ## `[local]`
 
-- `port`: port of the local model, default `8080`.
+- `port`: the port of that local server on `127.0.0.1`, default `8080`. Used only when `local = true`.
 
 ## `[system]`
 

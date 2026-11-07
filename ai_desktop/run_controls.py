@@ -131,6 +131,29 @@ def label(config=execution.UNSET):
         " · read-only" if config["access"] == "read-only" else "")
 
 
+def banner(config=execution.UNSET, stream=None):
+    """The framed head of an interactive conversation in a colour terminal; the plain label elsewhere."""
+    from .terminal_style import card, enabled
+    from .analysis_contract import terminal_text
+    config = recipient_config(config)
+    if not enabled(stream):
+        return [label(config=config)]
+    name = recipient(config=config)
+    if config is None:
+        config = {"profile": "default", "model": "default", "effort": "default", "access": "changes"}
+    rows = ["service:  %s" % name,
+            "profile:  %s%s" % (config["profile"], " (read-only)" if config["access"] == "read-only" else ""),
+            "model:    %s \u00b7 reasoning: %s" % (config["model"], config["effort"]),
+            "",
+            "/settings to change \u00b7 /help for commands"]
+    import os
+    try:
+        columns = os.get_terminal_size((stream or sys.stdout).fileno()).columns
+    except (OSError, ValueError, AttributeError):
+        columns = 80
+    return card(">_ AI Desktop", [terminal_text(row) for row in rows], tone="muted", width=min(columns, 64), stream=stream)
+
+
 def require_changes():
     config = execution.current()
     if config is not None and config["access"] == "read-only":
@@ -165,13 +188,22 @@ def configured(function):
             vanilla = (config == {"provider": "claude", "model": "default", "effort": "default",
                                   "instructions": "", "profile": "default", "access": "changes"})
             with execution.using(None if vanilla else config):
-                if not vanilla:
+                if function.__module__ == "ai_desktop.ask_cli" and _conversation(remaining):
+                    from .terminal_frame import clear_view
+                    clear_view(sys.stdout)
+                    print("\n".join(banner()))
+                elif not vanilla:
                     print(label())
                 return function(remaining, **kwargs)
         except (OSError, ValueError, TypeError, KeyError):
             print("Invalid agent configuration. Check ai-desktop settings show or ai-desktop agents list.")
             return 2
     return wrapped
+
+
+def _conversation(arguments):
+    """An interactive `ask`: no question or preview on the command line, so a conversation opens in the terminal."""
+    return not any(item in ("--question", "--preview") or item.startswith("--question=") for item in arguments)
 
 
 def conversation_command(line, *, saved=False):

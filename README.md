@@ -60,9 +60,9 @@ See [agent settings, accounts and sessions](docs/AGENT_MANAGEMENT.md), [verified
 
 This is a development version, not a 1.0 release.
 
-The current candidate package is **0.1.0-97** (changes: [CHANGELOG.md](CHANGELOG.md)).
+The current candidate package is **0.1.0-109** (changes: [CHANGELOG.md](CHANGELOG.md)).
 
-Recent candidates: 82–83 run independently installed Claude and Codex clients through a reviewed, root-owned copy of your native installation, with Codex limits in the DMS widget; 84 asks once for a bounded multi-stage project analysis or a declared task test; 85 saves conversations automatically; 86 tightens Codex registration; 87 adds `ai-desktop -c` and the whole read-back thread; 88 makes task refusals say why; 89 hides daemon sockets from read commands; 90 gives them D-Bus only for reading; 91 adds command groups, `...` and `commands.deny`; 92 makes refused changes say why; 93–97 fix snapper reads, allow more commands per question and show an empty result with a non-zero code in yellow. Every candidate's evidence and open items are in [docs/ROADMAP.md](docs/ROADMAP.md). None of these checks performed a real login or model request unless stated there.
+Recent candidates: 82–83 run independently installed Claude and Codex clients through a reviewed, root-owned copy of your native installation, with Codex limits in the DMS widget; 84 asks once for a bounded multi-stage project analysis or a declared task test; 85 saves conversations automatically; 86 tightens Codex registration; 87 adds `ai-desktop -c` and the whole read-back thread; 88 makes task refusals say why; 89 hides daemon sockets from read commands; 90 gives them D-Bus only for reading; 91 adds command groups, `...` and `commands.deny`; 92 makes refused changes say why; 93–97 fix snapper reads, allow more commands per question and show an empty result with a non-zero code in yellow; 98 gives the conversation a new look (an input band, a framed head, commands as a tree); 99 brings the template and documentation up to date; 100–104 pin the input to the bottom of the window, draw the conversation from the top and list `/` commands above the input; 105 lets you type and queue messages while the model works; 106 lets the model correct a command it wrote wrongly; 107 grows the input with longer text; 108 says why a web search ended without sources; 109 gives a web search the conversation. Every candidate's evidence and open items are in [docs/ROADMAP.md](docs/ROADMAP.md). None of these checks performed a real login or model request unless stated there.
 
 `ai-desktop doctor` and `doctor --v` inspect metadata without executing a client. `doctor --clients` explicitly probes the selected cloud client offline, without login, network or a model request. A successful probe checks adapter prerequisites; it does not certify the vendor or prove that authentication and inference work.
 
@@ -167,19 +167,38 @@ The fields below are optional. Add them in the given section when you want to ch
 | `[files] command_timeout` | 20 | 60 | seconds per command |
 | `[commands] share_processes` | `false` | | `true`: commands see host processes and their command lines |
 | `[commands] host_sockets` | `[]` | 8 | extra sockets under `/run` that commands may reach, e.g. `"/run/docker.sock"` for `docker` templates |
-| `[commands] change` | none | | change templates: they run on the live system and require `yes`, a test from `allow` and an undo |
+| `[commands] allow` | none | 128 | read templates, run without asking; a list or named groups |
+| `[commands] change` | none | 128 | change templates: they run on the live system and require `yes`, a test (an exact `allow` template) and an undo |
+| `[commands] deny` | `[]` | | commands never run, as word prefixes, e.g. `"docker rm"`; wins over `allow` and `change` |
 
 `read_file_size` must not exceed `read_total_size`; the same rule applies to the two test-copy byte settings. Existing explicitly configured smaller values remain in force. The wire ceiling is 34 MiB of serialized context and 36 MiB for a complete request, including JSON escaping. These local ceilings do not guarantee that a selected model accepts that much text. Prefer content search and range reads for large files; selected excerpts carry source hashes and coverage. Up to 64 files can change in one proposal, bounded by 8 MiB per resulting file and 16 MiB combined. Anchored replacements let the model change a small part of a large file without generating its entire replacement. Test-copy-only files are never attached to the model request.
 
 ### Commands: `[commands]`
 
-By default the model runs nothing. `allow` is a list of exact templates, without a shell. `<unit>` means one systemd unit name, `<int>` a number up to 99999, and `<word>` one simple word. Templates starting with a shell, an interpreter, `sudo`, a network client or a writing program (`rm`, `tee`, `git`, `find`, `sed` and similar) are rejected when the policy is loaded.
+By default the model runs nothing. `allow` is a list of templates, without a shell. `<unit>` means one systemd unit name, `<int>` a number up to 99999, and `<word>` one simple word. A template may end with `...`: then it also accepts any further plain words, so `"docker ps ..."` allows `docker ps -a --format=json`. A path among those words must be inside `files.read` and outside `files.deny`. In `allow`, a template with a word that changes things (`run`, `rm`, `pull`, `start`, …) cannot end with `...`, and such a word is refused among the open words too; put those in `change`. Templates starting with a shell, an interpreter, `sudo`, a network client or a writing program (`rm`, `tee`, `git`, `find`, `sed` and similar) are rejected when the policy is loaded.
 
 For Docker, Btrfs and nmcli, give the complete command path before a placeholder, for example `docker container inspect <word>`. Spell out unknown subcommands and plugin arguments literally. Docker and similar daemons are reachable only after you list their socket in `host_sockets`, for example `host_sockets = ["/run/docker.sock"]`; review the operation itself before adding it to `allow`, because the Docker socket is root-equivalent.
 
 **Commands from `allow` run without asking, and their output goes to the model.** Remove from the list what you do not want to share, including any extra `journalctl`, `ps aux` or `docker ps` rules you add. `deny` does not filter command output.
 
-Commands from `allow` run in a sandbox: read-only file system, hidden `/home` and `/root`, an empty `/run` apart from plain state files, D-Bus only for reading (through `xdg-dbus-proxy`), no network and no input. Still list only commands that change nothing. Some programs will not see the host state (e.g. `ip`, `wpctl`, `glxinfo`).
+Commands from `allow` run in a sandbox: read-only file system, hidden `/home` and `/root`, an empty `/run` apart from plain state files, D-Bus only for reading (through `xdg-dbus-proxy`), no network and no input. Still list only commands that change nothing. Some programs will not see the host state (e.g. `ip`, `ss`, `wpctl`, `glxinfo`), and some need root (e.g. `snapper list`, `btrfs scrub status`).
+
+A long list can be split into named groups. They only organise the file; the program sees one list. `deny` blocks whole commands by their first words and wins over both lists:
+
+```toml
+[commands]
+host_sockets = ["/run/docker.sock"]
+deny = ["docker rm", "docker rmi"]
+
+[commands.allow]
+system = ["uptime", "free -h"]
+docker = ["docker ps ...", "docker images"]
+
+[commands.change]
+docker = ["docker run --rm ...", "docker pull ...", "docker image rm <word>"]
+```
+
+Every setting with one line on what it does is in [docs/PERMISSIONS.md](docs/PERMISSIONS.md).
 
 A placeholder must not stand where a tool's command could be. Write an option that takes a value together with it (`--output=json`) or give the command further on: `systemctl -H host restart <unit>` is valid, and `systemctl -H host <word>` is not.
 
@@ -191,7 +210,7 @@ allow = ["systemctl status <unit> --no-pager"]
 change = ["systemctl restart <unit>"]
 ```
 
-The model must give the change together with a test from the `allow` list and an undo from the `change` or `allow` list. You see all three and type the whole word `yes`. The program runs the change, then the test. When either fails, it shows the undo and again requires `yes`: it never undoes anything by itself. **The change, test and undo run on the live system, with your permissions, without a sandbox**, with a cleaned environment, no input and a time limit.
+The model must give the change together with a test and an undo. The test is a read command matching an `allow` template exactly (one ending in `...` does not count); the undo matches the `change` list or an exact `allow` template. A refusal says which of them is missing, both to you and to the model. So that `docker pull ...` can run, keep `"docker images"` in `allow` as its test and add `"docker image rm <word>"` to `change` as its undo. You see all three and type the whole word `yes`. The program runs the change, then the test. When either fails, it shows the undo and again requires `yes`: it never undoes anything by itself. **The change, test and undo run on the live system, with your permissions, without a sandbox**, with a cleaned environment, no input and a time limit.
 
 ## Daily work
 
@@ -211,7 +230,7 @@ How consents work:
 
 1. **One `Send this request to Claude? [y/n]:` per conversation.** It covers further questions, reads and commands from `allow`. The program asks again when `permissions.toml` or the chosen service or agent changes.
 2. **Reads and discovery without asking.** The model lists and searches names, then can search content and read bounded line ranges in authorized files. Paths must come from discovery or your text. Source hashes and coverage distinguish excerpts from complete files. The budgets are in the table above.
-3. **Commands from `allow` without asking**, up to 16 in one model step and 24 per question (`command_rounds`).
+3. **Commands from `allow` without asking**, up to 32 in one model step and 24 per question by default (`command_rounds`, at most 128). All their output shares `discovery_bytes`; when it fills up, no more commands run and the model answers from what it collected. A command that ends with a non-zero code and prints nothing (for example `pacman -Qu` with nothing to update) is shown in yellow as `empty`, not as a failure.
 4. **Each write separately.** An edit or a new file may follow from earlier discovery. The program checks the proposal on an isolated copy, shows the full diff and asks `[y/n]`. A project suite uses the complete permitted project copy and currently asks separately before running it. A failed or refused test blocks the write.
 5. **Deletion separately.** The program lists the files and asks `[y/n]`. Files are not erased, they go to the task trash: at most 8 files at a time, up to 16 MiB each.
 6. **Changes from the `change` list** require typing `yes`.
@@ -224,7 +243,7 @@ The check on the copy comes from a list: `python-unittest`, `pytest`, `go-test`,
 
 A conversation sends up to 64 recent exchanges within a 512 KiB history budget, with up to 32 KiB per answer, and up to 96 structured task notes within 64 KiB. The in-memory window is 128 turns; saved records keep the recent 64 and bounded notes in at most 16 MiB. This is bounded working context, not an unlimited transcript or automatic semantic compaction. A long history uses up the service limit, because it goes with every question. If you revoke access to a file, the answers that depend on it disappear from memory before the next question. Interactive terminal `ask` creates a private local record after the first completed turn or completed action and atomically checkpoints later completed turns. A declined or cancelled first turn creates nothing. One-shot `--question` and non-terminal embedded invocations are not saved implicitly. Use `--no-save` for a temporary in-memory conversation. If local storage cannot accept a checkpoint, the answer remains visible and the conversation continues in memory with a warning; only the last successfully stored checkpoint survives process or terminal failure.
 
-You turn on web search with `web = true`. It is a separate request: only your question, without files or local data. Weather (`weather = true`) reveals the place name and your IP address to the Open-Meteo service, and the result goes to the model.
+You turn on web search with `web = true`. It is a separate request with your question and the latest exchanges of the conversation, so a question about "the error above" is understood, also after `ai-desktop -c`. Files, task memory and Skills are not sent; anything the conversation already contains (for example an earlier answer quoting a log) is, and Claude is told to keep personal details out of search queries. Weather (`weather = true`) reveals the place name and your IP address to the Open-Meteo service, and the result goes to the model.
 
 During a conversation you can type a command starting with `/`. After you type `/` a list appears under the line, arrows select, Tab completes. Commands work locally, send nothing and do not erase the conversation: `/help`, `/model`, `/effort`, `/skills`, `/agent`, `/settings`, `/permissions`, `/exit`. After a change of model or Skills the program asks once more for consent to send. `/skills` works in this conversation; use `ai-desktop agents` to make it permanent. A question starting with a path, e.g. `/etc/fstab what is it?`, goes to the model normally. To send a single word starting with `/`, start with a space.
 
@@ -288,7 +307,7 @@ ai-desktop task restore  --workspace DIRECTORY --plan ID    # bring deleted file
 
 ### Which commands are in the template
 
-The `allow` list in the template is general commands that work in the sandbox on any system and do not send logs, network names or login data. They run without asking, and their output goes to the model. Deliberately not in it:
+The `allow` groups in the template (`system`, `systemd`, `hardware`, `packages`) are general commands that work in the sandbox on any system and do not send logs, network names or login data. They run without asking, and their output goes to the model. Deliberately not in it:
 
 - `journalctl` with log content, `dmesg`, `who`, `last`, `id`: logs and data about users;
 - `nmcli`, `bluetoothctl`: network and device names;

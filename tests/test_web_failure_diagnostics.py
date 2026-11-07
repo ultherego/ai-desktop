@@ -150,7 +150,18 @@ class WebDiagnosticContractTests(unittest.TestCase):
             self.refused(items, None, reason)
         items = events()
         items[2]["tool_use_result"]["results"] = [SECRET]
-        self.refused(items, None, "web-no-results")
+        self.refused(items, "web-no-links", "web-no-results")            # searched, but no link to cite
+        items = events()
+        del items[1:3]
+        self.refused(items, "web-no-search", "web-no-results")           # answered without searching
+
+    def test_an_empty_search_names_its_case_across_the_worker_packet(self):
+        from ai_desktop import analysis_contract as contract
+        for check in ("web-no-search", "web-no-links"):
+            packet = contract.result_packet("a" * 64, reason="web-no-results", mode="web", diagnostic=check)
+            with self.subTest(check=check), self.assertRaises(AnalysisDenied) as caught:
+                contract.read_result(packet, "a" * 64, mode="web")
+            self.assertEqual((caught.exception.reason, caught.exception.diagnostic), ("web-no-results", check))
 
     def test_all_codes_survive_worker_packet_and_controller_validation(self):
         for check in WEB_DIAGNOSTICS:

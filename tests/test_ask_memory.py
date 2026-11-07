@@ -147,7 +147,7 @@ class TuningScenarioTests(Harness):
         self.assertNotIn("@@MEMORY", result.out)                        # the memory line is never shown
         self.assertEqual(result.out.count("How can I help?"), 0)     # the greeting belongs to the terminal reader
 
-    def test_memory_and_history_reach_only_assistant_and_question_requests(self):
+    def test_memory_reaches_only_assistant_and_question_requests_and_a_web_search_gets_the_conversation(self):
         payload = execution_payload = None
         with execution.using_history([{"question": "q", "answer": "a"}]), \
                 execution.using_memory({"entries": [{"id": "m1.1", "turn": 1, "kind": "goal", "status": "active",
@@ -158,7 +158,8 @@ class TuningScenarioTests(Harness):
             task = contract.application_input(None, task={"instruction": "x", "files": []}) if False else None
         self.assertIn("memory", payload)
         self.assertNotIn("memory", web)
-        self.assertNotIn("conversation", web)
+        self.assertEqual(web["conversation"], [{"question": "q", "answer": "a"}])      # so it knows what "above" means
+        self.assertNotIn("knowledge", web)
 
     def test_a_different_domain_uses_the_same_mechanism(self):
         turns = [("Usługa foo.service nie startuje po aktualizacji.", "Sprawdźmy.",
