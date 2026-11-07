@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-105: type while the model works
+
+- The input stays live during a turn. Prepare the next message and press Enter to queue it: the queue is sent after the current answer, in order. `/` commands typed meanwhile are queued too, so a setting you choose takes effect only after the answer. Text you have not sent stays in the input for the next prompt. Ctrl+C clears the text, or stops the turn when the input is empty.
+- A consent question (`y/n`, `yes`) now appears in the input itself and covers your draft until you answer; only keys typed after the question appeared count. Your draft comes back afterwards.
+- The `sudo` password prompt takes the keyboard over completely, so no key typed there reaches the input.
+
 ## 0.1.0-104: room between the conversation and the input
 
 - One empty row separates the conversation from the input band, so the last line of output no longer touches it. With the `/` list open, the empty row sits above the list.

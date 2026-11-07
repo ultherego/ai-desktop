@@ -404,6 +404,48 @@ class PromptSessionTerminalTests(unittest.TestCase):
         self.assertIn("\x1b[r", output)                           # the scroll region is given back at the end
         self.assertIn("RESTORED=True", output)
 
+    def test_typing_during_a_turn_queues_messages_and_a_consent_question_is_answered_in_the_band(self):
+        colour = {key: value for key, value in os.environ.items() if key != "NO_COLOR"}
+        colour.update(TERM="xterm-256color", COLORTERM="truecolor")
+        body = ("import time\nimport ai_desktop.terminal_frame as frame, ai_desktop.terminal_input as live\n"
+                "from ai_desktop.terminal_consent import fresh_input\n"
+                "f = frame.start(sys.stdout, 'SYNTHETIC status')\n"
+                "live.start(f, sys.stdout)\n"
+                "time.sleep(1.3)\n"
+                "answer = fresh_input('Send this request? [y/n]: ')\n"
+                "print('ANSWER=' + json.dumps(answer), flush=True)\n"
+                "draft, queue = live.stop()\n"
+                "print('R=' + json.dumps([draft, queue]), flush=True)\n"
+                "frame.stop()\n")
+        output = self.run_script(body, [b"next question\r", b"draft x", b"y\r"], env=colour, delay=0.5)
+        self.assertEqual(re.findall(r'ANSWER=("[^"]*")', output), ['"y"'])          # only the key typed after the question
+        self.assertEqual([json.loads(found) for found in re.findall(r"R=(\[[^\n\x1b]*\])", output)],
+                         [["draft x", ["next question"]]])                    # the draft came back, one message queued
+        self.assertIn("1 queued", output)
+        self.assertIn("answer the question", output)
+        self.assertIn("RESTORED=True", output)
+
+    def test_a_lease_gives_the_keys_to_sudo_or_a_menu_and_none_reach_the_draft(self):
+        colour = {key: value for key, value in os.environ.items() if key != "NO_COLOR"}
+        colour.update(TERM="xterm-256color", COLORTERM="truecolor")
+        body = ("import time\nimport ai_desktop.terminal_frame as frame, ai_desktop.terminal_input as live\n"
+                "f = frame.start(sys.stdout, 'SYNTHETIC status')\n"
+                "live.start(f, sys.stdout)\n"
+                "time.sleep(0.4)\n"
+                "with live.lease():\n"
+                "    canonical = bool(termios.tcgetattr(0)[3] & termios.ICANON)\n"
+                "    line = sys.stdin.readline()\n"
+                "print('LEASE=' + json.dumps([canonical, line.strip()]), flush=True)\n"
+                "draft, queue = live.stop()\n"
+                "print('R=' + json.dumps([draft, queue]), flush=True)\n"
+                "frame.stop()\n")
+        output = self.run_script(body, [b"SYNTHETIC-SECRET\n"], env=colour, delay=1.0)
+        self.assertEqual([json.loads(found) for found in re.findall(r"LEASE=(\[[^\n\x1b]*\])", output)],
+                         [[True, "SYNTHETIC-SECRET"]])                       # a normal terminal line, read by its owner
+        self.assertEqual([json.loads(found) for found in re.findall(r"R=(\[[^\n\x1b]*\])", output)], [["", []]])
+        self.assertEqual(output.count("SYNTHETIC-SECRET"), 2)                # echoed by the terminal once, printed once
+        self.assertIn("RESTORED=True", output)
+
     def test_up_and_down_walk_the_history_of_this_command_only(self):
         output = self.run_script(self.READS.format(attach=False, count=3),
                                  [b"pierwsze\n", b"drugie\n", b"\x1b[A\x1b[A\n"])

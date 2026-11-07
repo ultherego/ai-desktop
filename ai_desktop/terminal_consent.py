@@ -51,6 +51,10 @@ def fresh_input(prompt, *, max_bytes=MAX_ANSWER_BYTES):
         raise ValueError("terminal answer limit")
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         raise ValueError("terminal required")
+    from . import terminal_input
+    owner = terminal_input.current()
+    if owner is not None:              # a turn keeps the input live: the question is asked in the band, like a prompt
+        return owner.ask(prompt, max_bytes)
     fd = sys.stdin.fileno()
     try:
         attributes = termios.tcgetattr(fd)

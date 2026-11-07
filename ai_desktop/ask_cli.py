@@ -222,7 +222,7 @@ def _report_plan_error(exc, args):
         print("ASK: REFUSED stage=plan check=" + check)
 
 
-def _read_message(session, followup):
+def _read_message(session, followup, draft=""):
     """One user message from the terminal. A multi-line or long paste (command output, a log excerpt) is accepted: it
     shows as a short marker while editing and is expanded into the message when sent. The message itself still has the
     ordinary size limit, and the user is told the exact size when a paste does not fit."""
@@ -230,7 +230,9 @@ def _read_message(session, followup):
         # A bare LF still submits (an unbracketed paste must never smuggle a following answer into the message);
         # only a bracketed paste becomes an attachment.
         try:
-            text = read_question(max_bytes=MAX_MESSAGE_BYTES, followup=followup, session=session, attach=True, lf_breaks=False)
+            text = read_question(max_bytes=MAX_MESSAGE_BYTES, followup=followup, session=session, attach=True, lf_breaks=False,
+                                 draft=draft)
+            draft = ""
         except QuestionInputError as refused:
             if refused.args != ("question paste",):
                 raise
@@ -431,8 +433,12 @@ def main(argv=None, *, reader=input):
             propose the same change again. Nothing is recorded for a turn that did nothing."""
             if interactive and getattr(sources, "actions", None):
                 remember(question, "[The model's answer did not arrive. The actions taken are recorded.]", None, sources)
+        from . import terminal_frame, terminal_input
+        pending, draft = [], ""                # messages queued and text typed while the model worked
         while True:
             finished = False
+            if reader is input:
+                terminal_input.start(terminal_frame.current(), sys.stdout)
             try:
                 with conversation_state.recording() as sources, _lenient(interactive):
                     answer = assistant_flow.run(question, args, reader,
@@ -520,9 +526,23 @@ def main(argv=None, *, reader=input):
             state["submitted"] = False
             steps = 0
             phase("input")
+            typed, queued = terminal_input.stop()
+            pending.extend(queued)
+            draft = typed or draft
             while True:
                 try:
-                    question = (_read_message(prompt_session, True) if reader is input else reader(QUESTION_PROMPT))
+                    if pending and reader is input:
+                        question = pending.pop(0)          # queued during the previous answer: sent now, in order
+                        frame = terminal_frame.current()
+                        if frame is not None:
+                            frame.enter()
+                            frame.submitted(question)
+                        else:
+                            print("> " + terminal_text(question))
+                    else:
+                        question = (_read_message(prompt_session, True, draft) if reader is input
+                                    else reader(QUESTION_PROMPT))
+                        draft = ""
                 except EOFError:
                     idle += 1
                     if idle >= 2:
@@ -593,7 +613,8 @@ def main(argv=None, *, reader=input):
         print("Could not finish the question (prepare-" + state["phase"] + ").")
         return 2
     finally:
-        from . import terminal_frame
+        from . import terminal_frame, terminal_input
+        terminal_input.stop()
         terminal_frame.stop()
         if args.presence is not None:
             args.presence.close()

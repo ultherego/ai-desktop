@@ -45,6 +45,9 @@ class Frame:
         self.repaint = None                        # prints the head and the thread again after a resize
         self.commands, self.pick = (), 0           # the `/` list shown above the band, and its highlighted row
         self.extra = 0                             # rows the `/` list takes above the band right now
+        self.cursor_at = (1, 1)                    # where the input cursor was last drawn
+        self.busy = None                           # the live input of a running turn, which redraws itself
+        self.draft = ""                            # text typed during a turn, put back into the next prompt
         self._previous_handler = None
 
     # -- region ------------------------------------------------------------------------------------------------------
@@ -91,6 +94,12 @@ class Frame:
     def _on_resize(self, *unused):
         """Redraw at once while the editor waits for a key, so the band follows the window; otherwise on the next draw."""
         self._resized = True
+        if self.busy is not None:                  # during a turn: only the band, never a full redraw
+            try:
+                self.busy.draw()
+            except (OSError, ValueError):
+                pass
+            return
         if self.editing is not None:
             try:
                 self.draw(*self.editing)
@@ -183,6 +192,7 @@ class Frame:
         self._refresh_size(typing)
         self._list_rows(len(self.commands))
         rows, (row, column) = self.layout(text, cursor)
+        self.cursor_at = (row, column)
         self.stream.write("".join("\x1b[%d;1H%s" % (number, content) for number, content in rows)
                           + "\x1b[%d;%dH" % (row, column))
         self.stream.flush()

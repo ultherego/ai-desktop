@@ -85,8 +85,10 @@ def authenticate(*, quiet=False):
     trusted_file(BOOTSTRAP)
     if not quiet:
         print("Administrator permissions are needed only to manage the separate AI Desktop session.", flush=True)
+    from .terminal_input import lease
     try:
-        result = subprocess.run(["/usr/bin/sudo", "-v"], env=ENV, check=False, close_fds=True, timeout=120)
+        with lease():                  # the password goes to sudo, never to the input of a running turn
+            result = subprocess.run(["/usr/bin/sudo", "-v"], env=ENV, check=False, close_fds=True, timeout=120)
     except (OSError, subprocess.SubprocessError):
         raise AnalysisDenied("authorization") from None
     if result.returncode != 0:

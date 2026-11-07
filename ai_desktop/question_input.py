@@ -448,7 +448,7 @@ def _styled_prompt(prompt, output):
 
 
 def read_question(*, max_bytes=MAX_QUESTION_BYTES, followup=False, prompt=None, session=None, attach=False, idle=None,
-                  lf_breaks=True):
+                  lf_breaks=True, draft=""):
     """Read a fresh bounded UTF-8 question and restore the original TTY state.
 
     With a `PromptSession`: Up/Down walk the history of this command, a first Ctrl+C clears the line (or, on an empty
@@ -495,6 +495,8 @@ def read_question(*, max_bytes=MAX_QUESTION_BYTES, followup=False, prompt=None, 
     try:
         termios.tcflush(fd, termios.TCIFLUSH)
         line = _Line(max_bytes)
+        if draft:
+            line.insert(_safe_text(draft.encode("utf-8"), newlines=True))    # typed during the previous turn
         if session is not None:
             session.reset_pastes()
             # Asked before the prompt is drawn (and only once per process) so that no typed key can be mistaken for the reply.
