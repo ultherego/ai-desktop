@@ -22,7 +22,9 @@ class SessionClientTests(unittest.TestCase):
             with patch.object(client, "installation_ready"), patch.object(client, "identity", return_value=1000), \
                     patch.object(client, "properties", return_value={"ActiveState": "inactive"}), \
                     patch.object(client, "authenticate") as authenticate, patch.object(ui.diagnose, "collect") as collect, \
-                    patch.object(ui, "send_once") as send, redirect_stdout(out):
+                    patch.object(ui, "send_once") as send, redirect_stdout(out), \
+                    patch("ai_desktop.agent_panel.permissions.load_policy", return_value=None):
+                # The owner's real permissions.toml (possibly being edited) must not decide this test.
                 self.assertEqual(cli.main(argv), 0)
             authenticate.assert_not_called()
             collect.assert_not_called()

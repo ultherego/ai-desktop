@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-90: read commands get D-Bus only for reading
+
+- Commands from `allow` reach the system D-Bus only through `xdg-dbus-proxy` (now a package dependency), which passes a fixed list of read methods: properties, introspection and listing units, sessions, network links, devices and snapshots. State changes, DNS lookups, secrets and polkit are refused. Without the proxy a command gets no D-Bus.
+- `resolvectl status` needs `"/run/systemd/resolve/io.systemd.Resolve"` in `host_sockets`; that socket also allows DNS lookups.
+
 ## 0.1.0-89: read commands no longer reach daemon sockets
 
 - Commands from `allow` see an empty `/run` apart from the system D-Bus, the resolver's query socket and plain state files that read tools need. Docker, containerd, the systemd manager's varlink sockets, polkit agents, ssh and the display manager are hidden. Before, a read-only file system still let a command connect to any of them.

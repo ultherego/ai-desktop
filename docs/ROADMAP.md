@@ -69,7 +69,7 @@ Working and merged at `dd2daec3045c41662a722f4c6a3485dea14dd196` (PR #18, packag
 
 | Task | Status |
 |---|---|
-| `allow` commands without access to the host's Unix sockets (D-Bus, Docker) | in progress — candidate 89 hides daemon sockets under `/run` (opt-in `host_sockets`); a D-Bus method filter remains |
+| `allow` commands without access to the host's Unix sockets (D-Bus, Docker) | in progress — candidate 89 (merged) hides daemon sockets under `/run`; candidate 90 gives D-Bus only through a read-method filter; maintainer acceptance pending |
 | General system call filter for the client | to do |
 | Matching `change` template limits in the policy and the contract | done |
 | Checking the template parser for option arguments | done |
@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** CachyOS acceptance of candidate 89 (hidden `/run` daemon sockets), then a D-Bus method filter for `allow` commands. S0 and S7 remain deferred.
+**Next step:** CachyOS acceptance of candidate 90 (read-only D-Bus filter), then the general system-call filter for the client (Stage 4). S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -260,6 +260,15 @@ Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaini
 ## Progress log
 
 Earlier dated entries preserve the evidence and status at that point. The latest entry supersedes historical pending/next-step statements.
+
+### 2026-11-07 — Stage 4: read-only D-Bus for `allow` commands
+
+- **READY FOR TEST**, candidate **0.1.0-90**, branch `feature/dbus-read-filter`, based on merged `main` `cd4a364` (candidate 89 accepted on CachyOS and merged as PR #27, with `docs/PERMISSIONS.md`).
+- New `ai_desktop/dbus_filter.py`: for each sandboxed read command, `xdg-dbus-proxy` (the filter Flatpak uses; now a package dependency) listens on a private socket with `--filter` and one `--call` rule per allowed method. Allowed: property reads, introspection, ping, object-manager listing, and named listing/lookup methods of systemd, logind, hostnamed, timedated, localed, networkd, NetworkManager (no `GetSecrets`), BlueZ, UPower, power-profiles, Snapper, UDisks2 and accountsd. Not allowed: every other method, `Properties.Set`, resolved lookups, polkit. The proxy socket is bound at `/run/dbus/system_bus_socket`; the real socket and the resolver's varlink socket are no longer visible. Without the proxy the command gets no D-Bus. The proxy stops when the command ends.
+- Maintainer-host checks (exit codes only, outputs discarded): 29 read commands behave as before (`systemctl` status/list/is-enabled/list-unit-files, `journalctl`, `who`, `last`, `lsblk`, `lsusb`, `findmnt`, `nmcli` general/connection/device, `timedatectl`, `hostnamectl`, `localectl`, `powerprofilesctl`, `upower`, `networkctl`, `systemd-analyze` time/blame, `bluetoothctl`, `ip`, `ss`, `sensors`); `resolvectl status` now needs the resolver socket in `host_sockets`. Refused through the proxy: an unlisted systemd method, `ResolveHostname` for a `.invalid` name, `Properties.Set` on timedated, and polkit. No proxy process or temporary directory is left after repeated commands.
+- Tests: `tests/test_dbus_filter.py` (rule shape, no state-changing or lookup methods, no wildcard, sandbox wiring, missing or foreign proxy, only sandboxed reads start it, and real-proxy checks that skip without `xdg-dbus-proxy`). Full unit suite, `verify.py --mode ci` and `--mode local` pass.
+- Not done: a read tool that needs a method outside the list fails until it is added; the list is reviewed by hand, not derived from service metadata.
+- **Next step:** CachyOS acceptance, including the maintainer's own `allow` templates.
 
 ### 2026-11-07 — Stage 4: `allow` commands no longer reach daemon sockets under `/run`
 

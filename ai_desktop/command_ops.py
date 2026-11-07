@@ -226,10 +226,10 @@ def sanitize(raw, limit):
 
 # What a read command still sees of /run, which is otherwise an empty tmpfs. A read-only bind does not stop connect() on a
 # Unix socket, so every daemon socket under /run (Docker, containerd, systemd varlink, the DNS resolver, the display manager,
-# ssh, polkit agents) would be reachable. Kept: the system D-Bus socket (polkit still guards changes), the resolver's
-# query socket for resolvectl (the same lookups are reachable through D-Bus until a D-Bus filter exists, see
-# docs/KNOWN_LIMITATIONS.md) and plain state files that read-only tools need. Missing entries are skipped.
-RUN_VISIBLE = ("/run/dbus/system_bus_socket", "/run/systemd/resolve/io.systemd.Resolve", "/run/systemd/system", "/run/systemd/sessions", "/run/systemd/seats",
+# ssh, polkit agents) would be reachable. Kept: plain state files that read-only tools need; missing entries are skipped.
+# The system D-Bus is not among them: its place is taken by a filtered proxy that passes only read methods
+# (dbus_filter), and without the proxy there is no D-Bus at all.
+RUN_VISIBLE = ("/run/systemd/system", "/run/systemd/sessions", "/run/systemd/seats",
                "/run/systemd/users", "/run/systemd/netif", "/run/systemd/timesync", "/run/log", "/run/udev/data",
                "/run/udev/tags", "/run/mount", "/run/utmp", "/run/NetworkManager")
 _HOST_SOCKET = re.compile(r"/run/(?!user/)[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+){0,3}\Z")
@@ -255,6 +255,10 @@ def sandbox_command(path, argv, *, share_processes=False, host_sockets=()):
     run = ["--tmpfs", "/run"]
     for item in (*RUN_VISIBLE, *host_sockets):
         run += ["--ro-bind-try", item, item]
+    from . import dbus_filter
+    bus = dbus_filter.current()
+    if bus is not None:
+        run += ["--ro-bind", bus, "/run/dbus/system_bus_socket"]
     return [bwrap, "--ro-bind", "/", "/", *isolation, "--dev", "/dev", "--tmpfs", "/tmp",
             "--tmpfs", "/home", "--tmpfs", "/root", *run,
             "--unshare-net", "--unshare-ipc", *([] if share_processes else ["--unshare-pid"]),
@@ -279,7 +283,17 @@ def host_command(path, argv):
 
 
 def execute(path, argv, *, output_limit, timeout, command=None, host=False, role="read"):
-    """Run one approved command. Returns the closed result step; never raises for a failing command."""
+    """Run one approved command. Returns the closed result step; never raises for a failing command. A sandboxed read
+    command gets the read-only D-Bus proxy for exactly its own run."""
+    builder = command or (host_command if host else sandbox_command)
+    if host or getattr(builder, "func", builder) is not sandbox_command:
+        return _execute(path, argv, output_limit=output_limit, timeout=timeout, command=command, host=host, role=role)
+    from . import dbus_filter
+    with dbus_filter.session():
+        return _execute(path, argv, output_limit=output_limit, timeout=timeout, command=command, host=host, role=role)
+
+
+def _execute(path, argv, *, output_limit, timeout, command=None, host=False, role="read"):
     argv_list = list(argv)
     command = command or (host_command if host else sandbox_command)
     full = command(path, argv_list)
