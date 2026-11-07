@@ -510,25 +510,45 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                                question_consent=permit, **({"discovery": carried["document"]} if carried else {}))
             permit.check()
             progress("plan")
-            plan = _plan(response, snapshot.access)
+
+            def corrected(error):
+                """A command that breaks the word rules (spaces, a shell script, too many words) is refused with
+                command-invalid; the model may correct it within the owner's correction budget. Anything else ends."""
+                if error.check != "command" or snapshot.policy is None or not ledger.correction(
+                        ask_discovery.Recoverable("command-invalid", [], None)):
+                    raise error
+                print(paint("  %s The proposed command was not valid (one word per argument, no spaces or shell); "
+                            "the model may correct it." % symbol("skip"), "muted"))
 
             def next_plan():
                 """One more planner round that carries the cumulative local observations (same single approval)."""
-                try:
-                    pending = ledger.snapshot()
-                except ValueError:
-                    _budget_stop(snapshot.policy, "discovery_bytes")
-                document = permit.bind_discovery(snapshot.policy, pending, resource_loader=skills)
-                carried["document"] = document
-                progress("plan-request")
-                reply = request(question, args, reader, access=snapshot.access, discovery=document,
-                                check=permit.check, question_consent=permit)
-                permit.check()
-                progress("plan")
-                following = _plan(reply, snapshot.access)
+                while True:
+                    try:
+                        pending = ledger.snapshot()
+                    except ValueError:
+                        _budget_stop(snapshot.policy, "discovery_bytes")
+                    document = permit.bind_discovery(snapshot.policy, pending, resource_loader=skills)
+                    carried["document"] = document
+                    progress("plan-request")
+                    reply = request(question, args, reader, access=snapshot.access, discovery=document,
+                                    check=permit.check, question_consent=permit)
+                    permit.check()
+                    progress("plan")
+                    try:
+                        following = _plan(reply, snapshot.access)
+                    except PlanError as error:
+                        corrected(error)
+                        continue
+                    break
                 if following["action"] not in ("list", "find", "run", "skill", "read", "read-range", "search-content", "answer", "edit", "delete", "project-test"):
                     raise PlanError("action")
                 return following
+
+            try:
+                plan = _plan(response, snapshot.access)
+            except PlanError as error:
+                corrected(error)
+                plan = next_plan()
 
             context = None
             skill_rounds = 0

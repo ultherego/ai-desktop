@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-106: a wrongly written command no longer ends the turn
+
+- Commands have no shell: each argument is one word without spaces. The model is now told this (and to use a waiting program such as `sleep infinity` to keep something running), and when it still writes a command with a script or spaces, it gets a `command-invalid` refusal and may correct it within `plan_corrections`, instead of the turn ending with `invalid plan (plan-command)`.
+
 ## 0.1.0-105: type while the model works
 
 - The input stays live during a turn. Prepare the next message and press Enter to queue it: the queue is sent after the current answer, in order. `/` commands typed meanwhile are queued too, so a setting you choose takes effect only after the answer. Text you have not sent stays in the input for the next prompt. Ctrl+C clears the text, or stops the turn when the input is empty.
