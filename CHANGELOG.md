@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-113: the widget heading follows the theme
+
+- The **AI Desktop** heading is styled like the DMS system-update popout: the theme's primary colour at the large size and medium weight, with the service, role and model in the theme's muted colour right under it.
+
 ## 0.1.0-112: `/` list during a turn, widget title and DMS-only widget link
 
 - While the model works, typing `/` shows the same list of commands above the input as when it waits; arrows choose, Tab completes and Enter opens the highlighted command (its menu at once, the choice after the answer). Closing a menu no longer turns off pasting in the live input.

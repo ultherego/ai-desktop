@@ -62,8 +62,11 @@ Item {
             verify(refresh && refresh.visible);
             const title = findChild(popout, "aiDesktopTitle");
             verify(title && title.visible && title.text === "AI Desktop");
-            compare(title.color, Theme.secondary, "The title uses the theme's second colour");
+            compare(title.color, Theme.primary, "The title takes the theme colour, like the system-update popout");
             compare(title.font.pixelSize, Theme.fontSizeLarge, "The title is smaller than the DMS heading");
+            const details = findChild(popout, "aiDesktopDetails");
+            compare(details.color, Theme.onSurfaceVariant);
+            compare(details.font.pixelSize, Theme.fontSizeSmall);
             compare(popout.headerText, "", "The DMS heading is not drawn in addition");
             const corner = refresh.mapToItem(popout, refresh.width, 0);
             verify(corner.x >= popout.width - 1 && corner.y < 40, "Refresh belongs in the top right corner");

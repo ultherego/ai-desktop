@@ -249,15 +249,16 @@ PluginComponent {
             property bool showAccounts: false
             readonly property real availableHeight: parentPopout?.maxBodyHeight > 0
                 ? parentPopout.maxBodyHeight : (root.parentScreen?.height || 800) * 0.8
-            readonly property real controlsHeight: header.height + details.implicitHeight + 2 * PopoutMetrics.contentPadding
-                + tabs.height + footer.height + 4 * content.spacing
+            readonly property real controlsHeight: header.height + 2 * PopoutMetrics.contentPadding
+                + tabs.height + footer.height + 3 * content.spacing
                 + (liveError.visible ? liveError.height + content.spacing : 0)
             readonly property real listLimit: Math.max(0, Math.min(432, availableHeight - controlsHeight))
 
             readonly property bool opened: parentPopout?.shouldBeVisible === true
             onOpenedChanged: if (opened) root.refresh()
 
-            // Our own heading: DMS draws headerText at a fixed large size in the plain text colour.
+            // Our own heading, styled like the DMS system-update popout: DMS draws headerText at a fixed size and
+            // colour. Title in the theme's primary colour, the status line under it in its muted variant colour.
             Column {
                 id: content
                 width: parent.width
@@ -267,17 +268,36 @@ PluginComponent {
                     id: header
                     objectName: "aiDesktopHeader"
                     width: parent.width
-                    height: Math.max(title.implicitHeight, statusRefresh.implicitHeight)
+                    height: Math.max(heading.implicitHeight, statusRefresh.implicitHeight)
 
-                    StyledText {
-                        id: title
-                        objectName: "aiDesktopTitle"
+                    Column {
+                        id: heading
                         anchors.left: parent.left
-                        anchors.leftMargin: Theme.spacingS
+                        anchors.right: statusRefresh.left
+                        anchors.rightMargin: Theme.spacingM
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "AI Desktop"
-                        font.pixelSize: Theme.fontSizeLarge
-                        color: Theme.secondary
+                        spacing: Theme.spacingXS
+
+                        StyledText {
+                            id: title
+                            objectName: "aiDesktopTitle"
+                            width: parent.width
+                            text: "AI Desktop"
+                            font.pixelSize: Theme.fontSizeLarge
+                            font.weight: Theme.fontWeightMedium
+                            color: Theme.primary
+                        }
+                        StyledText {
+                            id: details
+                            objectName: "aiDesktopDetails"
+                            width: parent.width
+                            wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                            font.pixelSize: Theme.fontSizeSmall
+                            color: Theme.onSurfaceVariant
+                            text: root.snapshot ? [Status.providerName(root.service), root.snapshot.role, root.snapshot.model].filter(Boolean).join("  \u00b7  ")
+                                                  + (root.snapshot.sessions.length ? "  \u00b7  " + root.snapshot.sessions.length + " active" : "")
+                                                : "Local status unavailable"
+                        }
                     }
                     DButton {
                         id: statusRefresh
@@ -293,19 +313,6 @@ PluginComponent {
                         Accessible.name: tooltipText
                         onClicked: root.refresh(root.codexAccount?.account)
                     }
-                }
-
-                StyledText {
-                    id: details
-                    objectName: "aiDesktopDetails"
-                    width: parent.width
-                    leftPadding: Theme.spacingS
-                    wrapMode: Text.WordWrap
-                    font.pixelSize: Theme.fontSizeMedium
-                    color: Theme.surfaceVariantText
-                    text: root.snapshot ? [Status.providerName(root.service), root.snapshot.role, root.snapshot.model].filter(Boolean).join("  \u00b7  ")
-                                          + (root.snapshot.sessions.length ? "  \u00b7  " + root.snapshot.sessions.length + " active" : "")
-                                        : "Local status unavailable"
                 }
 
                 Row {

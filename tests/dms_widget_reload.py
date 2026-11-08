@@ -58,9 +58,10 @@ def write_dms_modules(root):
             property int spacingM: 12
             property string fontFamily: "Sans Serif"
             property color primary: "blue"
-            property color secondary: "purple"
-            property int fontSizeMedium: 14
+            property int fontSizeSmall: 12
             property int fontSizeLarge: 16
+            property int fontWeightMedium: 500
+            property color onSurfaceVariant: "silver"
             property color primaryContainer: "navy"
             property color onPrimaryContainer
             Component.onCompleted: onPrimaryContainer = "lightblue"

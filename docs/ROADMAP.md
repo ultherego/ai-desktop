@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** CachyOS check of candidate 112 (the `/` list during a turn, the widget title, `ai-desktop widget install`), then the general system-call filter for the client (Stage 4). S0 and S7 remain deferred.
+**Next step:** CachyOS check of candidate 113 (the widget heading), then the general system-call filter for the client (Stage 4). S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -260,6 +260,10 @@ Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaini
 ## Progress log
 
 Earlier dated entries preserve the evidence and status at that point. The latest entry supersedes historical pending/next-step statements.
+
+### 2026-11-08 — Candidate 113: widget heading like the DMS system-update popout
+
+- The maintainer confirmed the `/` list during a turn works (candidate 112) and asked that the heading take its colour from the theme as the DMS "Up to date" popout does. That popout (`Modules/SystemUpdate/SystemUpdatePanel.qml` in DMS) uses `Theme.primary`, `Theme.fontSizeLarge` and `Theme.fontWeightMedium` for the title and `Theme.fontSizeSmall` in `Theme.onSurfaceVariant` for the line under it, `Theme.spacingXS` apart. **READY FOR TEST**, candidate **0.1.0-113**: the popout heading uses exactly those, with the service, role and model line directly under the title. The QML fixture checks both colours and sizes.
 
 ### 2026-11-08 — Candidate 112: `/` list during a turn, widget title, DMS-only widget link
 
