@@ -98,6 +98,13 @@ PluginComponent {
         });
     }
 
+    // Every minute: the local status for both services and, for a Codex account whose live limits the owner
+    // connected, a fresh reading of those limits. Claude's windows come with each Claude request, so they are as
+    // current as the last conversation; there is no separate live reading for Claude.
+    function tick() {
+        refresh(codexAccount?.live_limits_connected === true ? codexAccount.account : undefined);
+    }
+
     function validAlias(name) {
         return typeof name === "string" && name === name.trim() && /^[a-z][a-z0-9-]{0,31}$/.test(name);
     }
@@ -206,7 +213,7 @@ PluginComponent {
         running: true
         repeat: true
         triggeredOnStart: true
-        onTriggered: root.refresh()
+        onTriggered: root.tick()
     }
 
     horizontalBarPill: Component {

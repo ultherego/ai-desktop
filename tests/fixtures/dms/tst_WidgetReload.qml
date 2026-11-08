@@ -135,6 +135,12 @@ Item {
             host.shouldBeVisible = true;
             widget.refresh();
             compare(Proc.limitReads.length, 0, "Passive refresh cannot fetch a native quota");
+            // The minute timer reads the limits of a connected account, like the refresh button.
+            widget.tick();
+            tryVerify(() => Proc.limitReads.length === 1, 5000, "The minute tick reads connected live limits");
+            Proc.finishLimits("", 0);
+            tryVerify(() => !widget.fetchingLimitsFor && !widget.refreshing);
+            Proc.limitReads = [];
             const usageCard = findChild(popout, "usageCard_codex_" + account.account);
             verify(usageCard);
             verify(!findChild(usageCard, "chatgptUsageLink"), "Missing limits must not redirect to a browser");
