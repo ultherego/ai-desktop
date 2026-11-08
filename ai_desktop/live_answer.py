@@ -64,7 +64,8 @@ class LiveAnswer:
         """Print what the final answer adds. False when nothing was shown live (the caller prints the answer)."""
         if not self.started:
             return False
-        shown, final = self._text[:self._shown].lstrip("\n"), visible.lstrip("\n")
+        # Blank lines around the shown blocks are not text: the final answer is trimmed (e.g. before a memory line).
+        shown, final = self._text[:self._shown].strip("\n"), visible.lstrip("\n")
         if final.startswith(shown):
             rest = final[len(shown):].strip("\n")
             if rest.strip():

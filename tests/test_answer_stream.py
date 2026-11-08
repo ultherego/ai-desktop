@@ -105,6 +105,12 @@ class LiveAnswerTests(unittest.TestCase):
         self.assertTrue(live.finish("One.\n\nTwo.\n\nThree."))
         self.assertEqual(lines, ["\n--\n", "<One.>", "", "<Two.>", "", "<Three.>"])
 
+    def test_a_trimmed_final_answer_after_a_memory_line_matches_what_was_shown(self):
+        live, lines = self.live()
+        live.feed("One.\n\n```\npacman -V\n```\n\n@@MEMORY {\"ops\": []}")
+        self.assertTrue(live.finish("One.\n\n```\npacman -V\n```"))
+        self.assertEqual(lines, ["\n--\n", "<One.>", "", "<```\npacman -V\n```>"])
+
     def test_a_different_final_answer_is_printed_whole_with_a_note(self):
         live, lines = self.live()
         live.feed("Draft.\n\n")

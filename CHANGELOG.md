@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-127: no repeated answer
+
+- An answer shown while it was written was sometimes printed again under "The final answer differs…" although nothing differed (when the model also updated the conversation memory). It is now printed once.
+
 ## 0.1.0-126: an unchecked sign-in is not shown as signed out
 
 - In the DMS widget a service whose sign-in AI Desktop has not checked yet (for example a Claude login made before the desktop recorded it) shows only "Check sign-in…", not "Sign in…". After the check the card shows "Sign out…" or "Sign in…".
