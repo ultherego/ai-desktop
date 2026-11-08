@@ -82,7 +82,7 @@ def session(*args, **kwargs):
         yield
     exited.append(True)
 ask_cli.managed_session = session
-def send(approval):
+def send(approval, **kwargs):
     payload, digest = parse_request(approval.payload.encode('utf-8'))
     assert digest == approval.sha256
     data = json.loads(payload)
@@ -96,7 +96,7 @@ def send(approval):
         assert sent == ['assistant'] and requests == ['assistant', 'web']
     assert approvals == [terminal_consent.PROMPTS['ask-question']]
     sent.append(data['mode'])
-    return original_send(approval)
+    return original_send(approval, **kwargs)
 ask_cli.send_once = send
 def request(*values, **kwargs):
     assert values[0] == __QUESTION__
