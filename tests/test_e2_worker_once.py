@@ -97,13 +97,13 @@ class OneShotWorkerTests(unittest.TestCase):
                 client.connect(e2_worker_once._address(token))
                 # An actual peer has the current desktop UID, not the synthetic
                 # expected value. No success ACK may be emitted.
-                client.send(b"malformed")
-                client.settimeout(2)
-                # Linux may close with EOF or ECONNRESET because the worker
-                # refuses before consuming the queued packet. Neither is ACK.
+                # The worker checks the peer UID at accept and may close before this send: a broken pipe, EOF
+                # or ECONNRESET are all a refusal, and none is an ACK.
                 try:
+                    client.send(b"malformed")
+                    client.settimeout(2)
                     response = client.recv(64)
-                except ConnectionResetError:
+                except (BrokenPipeError, ConnectionResetError):
                     response = b""
                 self.assertEqual(response, b"")
             task.join(2)
