@@ -8,7 +8,7 @@ import socket
 from .analysis_contract import (SERVICE_MARGIN, request_seconds, AnalysisDenied, Approval, MAX_PACKET, REASONS,
                                 digest, parse_request, read_result, result_packet)
 from .analysis_sandbox import run_client, transport_supervisor_ready as supervisor_ready
-from .analysis_framing import PARTIAL_BYTES, send_message, receive_message
+from .analysis_framing import PARTIAL_BYTES, send_message, send_partial, receive_message
 from .answer_stream import MAX_PARTIAL_TOTAL, STATUS
 from . import activation_socket, e2_account, e2_ipc
 
@@ -141,6 +141,9 @@ def send_once(approval, *, on_partial=None, on_status=None):
         raise AnalysisDenied("endpoint") from None
 
 
+PARTIAL_TIMEOUT = 2                     # seconds a live frame may wait for room before the preview stops
+
+
 class _live_sender:
     """Forward live answer text and web progress in bounded frames. A slow or closed terminal ends the preview, never
     the request: closure is still noticed by `cancelled`."""
@@ -150,9 +153,9 @@ class _live_sender:
 
     def _send(self, body):
         try:
-            send_message(self._conn, body, kind="partial", timeout=2)
+            send_partial(self._conn, body, timeout=PARTIAL_TIMEOUT)
         except AnalysisDenied:
-            self._on = False
+            self._on = False                    # nothing of this frame was queued: the response still arrives whole
 
     def text(self, text):
         if not self._on or type(text) is not str or not text:
@@ -162,7 +165,7 @@ class _live_sender:
         if self._total > MAX_PARTIAL_TOTAL:
             self._on = False
             return
-        offset, room = 0, PARTIAL_BYTES - 1
+        offset, room = 0, PARTIAL_BYTES - 1     # the kind byte takes one
         while offset < len(body) and self._on:
             end = min(offset + room, len(body))
             while end < len(body) and (body[end] & 0xC0) == 0x80:

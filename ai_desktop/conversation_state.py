@@ -45,6 +45,16 @@ READ_FACTS = 8          # read commands listed one by one in a turn; further rea
 CHANGE_FACTS = 64       # changes, tests, undos, writes and deletions: always kept (a safety ceiling only)
 
 
+def change_room(needed=1):
+    """Whether this turn's record can still hold `needed` more change facts. A change is not run when its record would
+    be lost: a later turn or a resumed conversation must know every change that really happened. Reads are not limited."""
+    recorder = _log.get()
+    if recorder is None:
+        return True
+    used = len(recorder.actions) - min(recorder.reads, READ_FACTS) - (recorder.more is not None)
+    return used + needed <= CHANGE_FACTS
+
+
 def note_action(text, *, read=False):
     """The controller records what it actually did (a command run or refused, a change applied or not). These facts are
     written by the program, not by the model, so they stay true when the model's own notes are wrong.

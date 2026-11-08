@@ -208,6 +208,19 @@ COMMITTED_OUTPUT = 256
 _LABEL = {"read": "Command", "change": "Change", "test": "Test after change", "undo": "Undo"}
 
 
+def _record_full(needed=1):
+    """A write or deletion is not started when this turn could not remember it; says so and returns True."""
+    if conversation_state.change_room(needed):
+        return False
+    print("Not done: this turn's record of changes is full, so this change would not be remembered. "
+          "Ask for it in a new message.")
+    return True
+
+
+# A change may record up to four facts: the change, its test, its undo (or a declined undo) and a stop after it ran.
+CHANGE_RECORD = 4
+
+
 def change_problem(policy, test, undo):
     """Why a change from the `change` list cannot run with this test and undo, or "" when both fit. Test and undo run
     on the live system, so only exact templates count for them, never an open "..." read template."""
@@ -367,6 +380,9 @@ def _run_command(snapshot, ledger, plan, permit, args, reader):
     test, undo = plan.get("test"), plan.get("undo")
     # Test and undo run on the live system, so only exact templates count for them, never an open "..." read template.
     problem = change_problem(policy, test, undo)
+    if not problem and not conversation_state.change_room(CHANGE_RECORD):
+        problem = ("this turn's record of changes is full, so a further change would not be remembered; "
+                   "ask for it in a new message")
     if problem or not ledger.can_afford(3):
         # without room for change + test + undo (or without a valid test/undo) nothing is changed
         if not problem:
@@ -676,6 +692,8 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                                  question_consent=permit)
                 permit.check()
                 return answer
+            if plan["action"] in ("delete", "edit") and _record_full():
+                return None
             if plan["action"] == "delete":
                 # Local only: nothing goes to the model, and the owner's own yes comes after the list of files.
                 progress("edit-review")

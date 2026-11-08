@@ -66,6 +66,13 @@ class ClaudeStreamTests(unittest.TestCase):
         self.assertEqual(stream(delta("x") + b"not json\n"), b"not json\n")
         self.assertEqual(stream(b'{"type":"stream_event" broken\n'), b'{"type":"stream_event" broken\n')
 
+    def test_the_line_bound_follows_what_the_caller_keeps(self):
+        big = b"x" * (answer_stream.MAX_LINE + 1024)
+        stream = answer_stream.ClaudeStream(max_line=answer_stream.MAX_LINE * 2)
+        self.assertEqual(stream(big) + stream(None), big + b"\n")
+        with self.assertRaises(AnalysisDenied):
+            answer_stream.ClaudeStream(max_line=1024)(b"y" * 2048)
+
     def test_an_endless_line_is_refused_and_too_much_text_only_stops_the_preview(self):
         stream = answer_stream.ClaudeStream()
         with self.assertRaises(AnalysisDenied):
@@ -111,6 +118,12 @@ class LiveAnswerTests(unittest.TestCase):
         self.assertTrue(live.finish("One.\n\n```\npacman -V\n```"))
         self.assertEqual(lines, ["\n--\n", "<One.>", "", "<```\npacman -V\n```>"])
 
+    def test_blocks_and_a_memory_line_in_one_piece_are_shown_once(self):
+        live, lines = self.live()
+        live.feed("One.\n\nTwo.\n\n@@MEMORY {}\n\n")
+        self.assertTrue(live.finish("One.\n\nTwo."))
+        self.assertEqual(lines, ["\n--\n", "<One.>", "", "<Two.>"])
+
     def test_a_different_final_answer_is_printed_whole_with_a_note(self):
         live, lines = self.live()
         live.feed("Draft.\n\n")
@@ -154,26 +167,85 @@ class PartialFrameTests(unittest.TestCase):
 
     def test_live_frames_precede_the_response_only_when_asked_for(self):
         left, right = self.pair()
-        analysis_framing.send_message(left, "Zażół".encode(), kind="partial")
+        analysis_framing.send_partial(left, "Zażół".encode())
         analysis_framing.send_message(left, b"final", kind="response")
         seen = []
         self.assertEqual(analysis_framing.receive_message(right, kind="response", partial=seen.append), b"final")
         self.assertEqual(seen, ["Zażół".encode()])
-        analysis_framing.send_message(left, b"live", kind="partial")
+        analysis_framing.send_partial(left, b"live")
         with self.assertRaises(AnalysisDenied):
-            analysis_framing.receive_message(right, kind="response")
+            analysis_framing.receive_message(right, kind="response")           # no live frames were asked for
         with self.assertRaises(AnalysisDenied):
             analysis_framing.receive_message(right, kind="request", partial=seen.append)
+        for bad in (b"", b"x" * (analysis_framing.PARTIAL_BYTES + 1), "text"):
+            with self.subTest(bad=bad), self.assertRaises(AnalysisDenied):
+                analysis_framing.send_partial(left, bad)
         with self.assertRaises(AnalysisDenied):
-            analysis_framing.send_message(left, b"x" * (analysis_framing.PARTIAL_BYTES + 1), kind="partial")
+            analysis_framing.send_message(left, b"x", kind="partial")            # never in two records any more
+
+    def test_a_forged_or_cut_live_record_is_refused(self):
+        body = b"live"
+        header = analysis_framing.HEADER.pack(analysis_framing.MAGIC, b"P", len(body),
+                                              __import__("hashlib").sha256(body).digest())
+        for record in (header + body + b"x", header[:-1] + b"\0" + body,
+                       analysis_framing.HEADER.pack(analysis_framing.MAGIC, b"R", len(body),
+                                                    __import__("hashlib").sha256(body).digest()) + body):
+            left, right = self.pair()
+            left.send(record)
+            with self.subTest(record=record[:12]), self.assertRaises(AnalysisDenied):
+                analysis_framing.receive_message(right, kind="response", partial=lambda body: None)
 
     def test_the_number_of_live_frames_is_bounded(self):
         left, right = self.pair()
         with patch.object(analysis_framing, "MAX_PARTIALS", 2):
             for _ in range(3):
-                analysis_framing.send_message(left, b"x", kind="partial")
+                analysis_framing.send_partial(left, b"x")
             with self.assertRaises(AnalysisDenied):
                 analysis_framing.receive_message(right, kind="response", partial=lambda body: None)
+
+    def test_a_live_frame_is_one_send_so_a_timeout_never_leaves_half_of_it(self):
+        """A frame split into header and body records could time out between the two (review finding 4)."""
+        sends = []
+
+        class Channel:
+            def gettimeout(self):
+                return None
+
+            def settimeout(self, value):
+                pass
+
+            def send(self, raw):
+                sends.append(raw)
+                if len(sends) == 2:
+                    raise socket.timeout()
+                return len(raw)
+        analysis_framing.send_partial(Channel(), b"one")
+        self.assertEqual(len(sends), 1)
+        self.assertEqual(sends[0][analysis_framing.HEADER.size:], b"one")
+        with self.assertRaises(AnalysisDenied):
+            analysis_framing.send_partial(Channel(), b"two")      # this send fails as a whole: nothing was queued
+        self.assertEqual(len(sends), 2)
+
+    def test_a_stalled_terminal_ends_the_preview_and_the_response_still_arrives_whole(self):
+        """Review regression: a live frame that timed out after its header left half a frame before the response."""
+        left, right = self.pair()
+        live = analysis_service._live_sender(left)
+        with patch.object(analysis_service, "PARTIAL_TIMEOUT", 0.2):
+            for _ in range(10000):                               # the terminal reads nothing meanwhile
+                live.text("ż" * 4000)
+                if not live._on:
+                    break
+        self.assertFalse(live._on, "the socket buffer never filled")
+        live.text("never sent")
+        final = b"FINAL" * 20000                                 # several records, after the stopped preview
+        sender = __import__("threading").Thread(
+            target=analysis_framing.send_message, args=(left, final), kwargs={"kind": "response", "timeout": 10})
+        sender.start()
+        frames = []
+        self.assertEqual(analysis_framing.receive_message(right, kind="response", partial=frames.append, timeout=10), final)
+        sender.join(10)
+        self.assertTrue(frames)
+        self.assertTrue(all(frame[:1] == b"T" and frame[1:].decode() for frame in frames))
 
     def test_the_service_splits_text_on_character_boundaries_and_stops_on_failure_or_budget(self):
         left, right = self.pair()
@@ -190,21 +262,21 @@ class PartialFrameTests(unittest.TestCase):
         for frame in frames[:-1]:
             frame[1:].decode("utf-8")
         self.assertEqual(frames[-1], b"Ssearch:2")
-        with patch.object(analysis_service, "send_message", side_effect=AnalysisDenied("timeout")) as sent:
+        with patch.object(analysis_service, "send_partial", side_effect=AnalysisDenied("timeout")) as sent:
             live = analysis_service._live_sender(left)
             live.text("a")
             live.text("b")
             live.status("results", 1)
         self.assertEqual(sent.call_count, 1)
         with patch.object(analysis_service, "MAX_PARTIAL_TOTAL", 3), \
-                patch.object(analysis_service, "send_message") as sent:
+                patch.object(analysis_service, "send_partial") as sent:
             live = analysis_service._live_sender(left)
             live.text("ab")
             live.text("cd")
             live.text("e")
             live.status("search", 1)
         self.assertEqual(sent.call_count, 1)
-        with patch.object(analysis_service, "send_message") as sent:
+        with patch.object(analysis_service, "send_partial") as sent:
             live = analysis_service._live_sender(left)
             for code, number in (("other", 1), ("search", -1), ("search", 100), ("search", True)):
                 live.status(code, number)

@@ -8,7 +8,8 @@ import re
 
 from . import agent_profiles as profiles, execution, run_controls
 from .conversation_sessions import SessionError
-from .terminal_menu import MenuInputError, choose
+from .overlay_menu import choose
+from .terminal_menu import MenuInputError
 
 COMMANDS = (
     ("/help", "list commands"),

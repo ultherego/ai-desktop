@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.0-129: `/` menus above the input
+
+- Every `/` menu of a conversation (`/model`, `/effort`, `/skills`, `/agent`, `/provider`) opens in the list above the input, where the `/` commands are listed, not in the conversation. During an answer the conversation keeps scrolling normally, the menu waits for you, and a password or a consent question can still be asked meanwhile.
+
+## 0.1.0-128: fixes from an external review (not released; its `/` menu during an answer could break the next request)
+
+- A consent question no longer accepts text that was being pasted when it appeared.
+- A `/` menu left open at the end of an answer no longer leaves the terminal in the wrong mode.
+- A terminal that is slow to read no longer loses the answer and ends the conversation.
+- An answer with a memory update is never printed twice.
+- Large change proposals are not refused by the live-answer filter.
+- Two deletions at the same time can no longer fill the task trash past its limit, and `task restore` by ID always works.
+- A change is not started when this turn could no longer remember it; read commands are not limited.
+
 ## 0.1.0-127: no repeated answer
 
 - An answer shown while it was written was sometimes printed again under "The final answer differs…" although nothing differed (when the model also updated the conversation memory). It is now printed once.

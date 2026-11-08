@@ -224,6 +224,82 @@ class LiveInputTests(unittest.TestCase):
         self.type(owner, "/model\r")
         self.assertEqual(owner.queue, ["/model"])
 
+    def question(self, owner):
+        with patch.object(terminal_input.termios, "tcflush") as flushed:
+            owner._open_question("Run it? [y/n]:", 64)
+        flushed.assert_called_once()
+
+    def test_a_paste_begun_before_a_consent_question_never_becomes_its_answer(self):
+        """Review finding 1: the kernel queue was flushed, but a paste the reader had already begun was completed
+        into the new answer field."""
+        for begun in ("\x1b[200~ye", "\x1b[200~", "\x1b[20", "\x1b"):
+            with self.subTest(begun=begun):
+                owner = self.owner(None)
+                for byte in begun.encode():
+                    owner._feed(bytes([byte]))
+                self.question(owner)
+                rest = "\x1b[200~yes\x1b[201~"[len(begun):] if begun != "\x1b" else "[200~yes\x1b[201~"
+                for byte in rest.encode():
+                    owner._feed(bytes([byte]))
+                self.assertEqual(owner._answer.text, "")             # nothing of the earlier paste
+                self.assertEqual(owner.line.text, "")
+                for byte in b"yes":                                   # what is typed after the question counts
+                    owner._feed(bytes([byte]))
+                self.assertEqual(owner._answer.text, "yes")
+
+    def test_a_slow_end_of_an_earlier_paste_is_still_dropped(self):
+        owner = self.owner(None)
+        for byte in "\x1b[200~ye".encode():
+            owner._feed(bytes([byte]))
+        self.question(owner)
+        owner._feed(b"s")
+        self.assertEqual(owner._sequence[0], "stale")
+        self.assertGreater(owner._QUIET["stale"], owner._QUIET["discard"])   # a pause longer than a paste's own
+        for byte in b"more\x1b[201~":
+            owner._feed(bytes([byte]))
+        self.assertIsNone(owner._sequence)
+        self.assertEqual(owner._answer.text, "")
+
+    def test_a_cut_key_or_character_is_abandoned_and_typing_after_the_question_counts_at_once(self):
+        for begun in (b"\x1bO", "ż".encode()[:1]):
+            with self.subTest(begun=begun):
+                owner = self.owner(None)
+                for byte in begun:
+                    owner._feed(bytes([byte]))
+                self.question(owner)
+                for byte in b"n":
+                    owner._feed(bytes([byte]))
+                self.assertEqual(owner._answer.text, "n")
+        owner = self.owner(None)
+        self.question(owner)
+        for byte in "\x1b[200~y\x1b[201~".encode():                   # a paste after the question is the user's
+            owner._feed(bytes([byte]))
+        self.assertEqual(owner._answer.text, "y")
+
+    def test_the_end_of_a_turn_waits_for_a_menu_still_open_before_giving_the_terminal_back(self):
+        import threading, time
+        owner = self.owner(None)
+        menu_open = threading.Event()
+        closed = threading.Event()
+
+        def reader():                                             # a menu reading the keyboard until it is closed
+            menu_open.set()
+            closed.wait(5)
+        owner._thread = threading.Thread(target=reader, daemon=True)
+        owner._thread.start()
+        menu_open.wait(2)
+        from types import SimpleNamespace
+        owner.frame = SimpleNamespace(busy=owner, note="")
+        restored = []
+        with patch.object(owner, "_cooked", side_effect=lambda: restored.append(owner._thread.is_alive())):
+            stopper = threading.Thread(target=owner.stop, daemon=True)
+            stopper.start()
+            time.sleep(2.5)                                       # longer than the old 2-second limit
+            self.assertEqual(restored, [])                        # the terminal is not given back yet
+            closed.set()
+            stopper.join(5)
+        self.assertEqual(restored, [False])                       # given back once, after the reader ended
+
     def test_a_lease_is_refused_when_the_live_input_does_not_confirm_its_pause(self):
         owner = self.owner(None)
         owner._thread = type("Busy", (), {"is_alive": lambda self: True})()
