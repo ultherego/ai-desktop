@@ -79,6 +79,7 @@ Ordinary `doctor` and panel status only inspect metadata. Explicit `doctor --cli
 4. **Discovery and read.** Names and contents are collected by the controller through descriptors with `O_NOFOLLOW`, with checks of `deny`, owner, type, hard links and changes along the way. A read must be backed by discovery or the user's text.
 5. **Sending.** Each request has its own internal approval: an immutable payload, SHA-256, a nonce and an expiry time, single use. The window is 180 s (330 s for `xhigh`, `max`) per step and 30 minutes per question, not counting time spent waiting for the user.
 6. **Result.** The model's text is limited and cleaned of terminal sequences. Command results too.
+   **Live preview (candidates 122–127).** While Claude writes an ordinary answer, the service may send display-only text frames (`P`, kind byte `T`): only the decoded `text` of an `answer` action whose `action` comes first, at most 16 KiB per frame and 256 KiB per request, cleaned like any answer before it is printed. A command, a change or any other action is never previewed. The final, validated answer decides what is kept; a mismatch prints the whole final answer under a note. A web answer is never previewed, because its sources are checked only at the end: a web search sends only status frames (`S`) from a fixed vocabulary with a count (searches, results), never model text. A bad frame or a slow terminal ends the preview, never the request.
 7. **Write.** A proposal applies only to files marked as writable. Test on a copy, full diff, consent, re-check of the policy and file state, then journal and publication.
 
 **Fail-closed rule:** a missing sandbox, an incompatible client, an exhausted budget, a state change or an unconfirmed session stop end the operation with a refusal. No retries and no fallback.
@@ -151,6 +152,7 @@ A provider, account slot and local port, where applicable, are part of the recip
 | T28 | Consent from a conversation stays valid after permissions change | Consent bound to access, sources and service, otherwise a new question |
 | T29 | Pasted text approves a further action | Terminal buffer cleared before the question, no protection against another process on this TTY |
 | T30 | Data returns after access is revoked | Dependent answers and memory are removed before the next turn |
+| T31 | A refused answer or an unchecked action appears through the live preview | Only an `answer` action's text is previewed; web answers never; status frames carry fixed codes and counts; the validated answer decides |
 
 ## 6. Writing, undo and deletion
 
