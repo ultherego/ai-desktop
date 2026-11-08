@@ -15,6 +15,10 @@ import subprocess
 import tempfile
 
 PROXY = "/usr/bin/xdg-dbus-proxy"
+# 0.1.6 serves sd-bus clients (busctl, hostnamectl, timedatectl); 0.1.8 and 0.1.9 fix filter bypasses (broadcasts,
+# forged replies, CVE-2026-94422). The filter is a security boundary, so an older proxy means no D-Bus at all.
+MIN_VERSION = (0, 1, 9)
+_checked = {}
 SYSTEM_BUS = "unix:path=/run/dbus/system_bus_socket"
 READY_SECONDS = 5
 
@@ -93,6 +97,28 @@ SERVICES = {
 _bus = ContextVar("ai_desktop_read_bus", default=None)
 
 
+def proxy_version(path=PROXY):
+    """The installed proxy's version as a tuple, or None when it cannot be read. Asked once per process."""
+    if path not in _checked:
+        version = None
+        try:
+            text = subprocess.run([path, "--version"], stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                                  timeout=5, env={"PATH": "/usr/bin"}, check=False).stdout.strip()
+            name, _, number = text.partition(" ")
+            parts = tuple(int(part) for part in number.split("."))
+            if name == "xdg-dbus-proxy" and 2 <= len(parts) <= 4:
+                version = parts
+        except (OSError, ValueError, subprocess.SubprocessError):
+            version = None
+        _checked[path] = version
+    return _checked[path]
+
+
+def usable(path=PROXY):
+    version = proxy_version(path)
+    return version is not None and version >= MIN_VERSION
+
+
 def arguments():
     """The proxy's filter rules, one --call per allowed method on any object path."""
     rules = ["--filter"]
@@ -111,7 +137,7 @@ def current():
 def session():
     """Run the proxy for one command. Yields the socket path, or None when the proxy is missing or not ready."""
     proxy = shutil.which("xdg-dbus-proxy", path="/usr/bin")
-    if proxy != PROXY or not os.path.exists("/run/dbus/system_bus_socket"):
+    if proxy != PROXY or not os.path.exists("/run/dbus/system_bus_socket") or not usable(proxy):
         token = _bus.set(None)
         try:
             yield None

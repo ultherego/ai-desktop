@@ -10,7 +10,7 @@ from unittest.mock import patch
 from ai_desktop import command_ops, dbus_filter
 from sandbox_requirement import requires, skip_or_fail
 
-PROXY_READY = os.path.exists(dbus_filter.PROXY) and os.path.exists("/run/dbus/system_bus_socket") \
+PROXY_READY = os.path.exists(dbus_filter.PROXY) and dbus_filter.usable() and os.path.exists("/run/dbus/system_bus_socket") \
     and shutil.which("bwrap") is not None and shutil.which("busctl") is not None
 
 
@@ -66,6 +66,19 @@ class SandboxWiringTests(unittest.TestCase):
         with patch.object(dbus_filter.shutil, "which", return_value="/home/example/xdg-dbus-proxy"):
             with dbus_filter.session() as bus:
                 self.assertIsNone(bus)
+
+    def test_a_proxy_older_than_the_filter_fixes_gives_no_bus(self):
+        for output, usable in (("xdg-dbus-proxy 0.1.5\n", False), ("xdg-dbus-proxy 0.1.8\n", False),
+                               ("xdg-dbus-proxy 0.1.9\n", True), ("xdg-dbus-proxy 0.2\n", True),
+                               ("something else 9.9\n", False), ("", False)):
+            with self.subTest(output=output), patch.dict(dbus_filter._checked, clear=True), \
+                    patch.object(dbus_filter.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, output)):
+                self.assertIs(dbus_filter.usable("/usr/bin/synthetic-proxy"), usable)
+        with patch.dict(dbus_filter._checked, {dbus_filter.PROXY: (0, 1, 5)}), \
+                patch.object(dbus_filter.shutil, "which", return_value=dbus_filter.PROXY), \
+                patch.object(dbus_filter.os.path, "exists", return_value=True):
+            with dbus_filter.session() as bus:
+                self.assertIsNone(bus)                                        # never the old filter, never the raw bus
 
     def test_only_sandboxed_read_commands_start_the_proxy(self):
         calls = []
