@@ -317,3 +317,34 @@ class AnalysisSandboxTests(unittest.TestCase):
         self.assertRegex(generated, r"^ai-desktop-login-[0-9a-f]{16}\.service$")
         self.assertEqual(calls[1], ["/usr/bin/systemctl", "stop", generated])
         self.assertEqual(calls[2][:3], ["/usr/bin/systemctl", "show", generated])
+
+
+class ClaudeResultDiagnosticsTests(unittest.TestCase):
+    @staticmethod
+    def stream(events, **final):
+        lines = [json.dumps({"type": "assistant", "session_id": "s", "message": {"content": []}})] * events
+        result = {"type": "result", "subtype": "success", "is_error": False, "num_turns": 1,
+                  "permission_denials": [], "api_error_status": None, "result": "SYNTHETIC answer", "session_id": "s"}
+        result.update(final)
+        return ("\n".join(lines + [json.dumps(result)]) + "\n").encode()
+
+    def test_a_long_max_reasoning_stream_is_accepted(self):
+        self.assertEqual(str(sandbox.model_text(0, self.stream(600), mode="assistant")), "SYNTHETIC answer")
+
+    def test_each_refusing_check_names_itself(self):
+        cases = ((self.stream(sandbox.MAX_STREAM_EVENTS + 1), "claude-stream-lines"),
+                 (self.stream(3, num_turns=2), "claude-result-turns"),
+                 (self.stream(3, subtype="error_max_turns"), "claude-result-max-turns"),
+                 (self.stream(3, permission_denials=[{"tool_name": "Bash"}]), "claude-result-denials"),
+                 (self.stream(3, result=" "), "claude-result-empty"),
+                 (b"{\"type\":\"assistant\"}\nnot json\n", "claude-stream-json"))
+        for output, check in cases:
+            with self.subTest(check=check), self.assertRaises(contract.AnalysisDenied) as caught:
+                sandbox.model_text(0, output, mode="assistant")
+            self.assertEqual((caught.exception.reason, caught.exception.diagnostic), ("result", check))
+
+    def test_the_check_crosses_the_service_packet_to_the_terminal(self):
+        packet = contract.result_packet("a" * 64, reason="result", mode="assistant", diagnostic="claude-stream-lines")
+        with self.assertRaises(contract.AnalysisDenied) as caught:
+            contract.read_result(packet, "a" * 64, mode="assistant")
+        self.assertEqual(caught.exception.diagnostic, "claude-stream-lines")

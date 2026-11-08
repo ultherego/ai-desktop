@@ -303,23 +303,32 @@ def check_auth(code, output, *, connection_failed=False):
     return plan if type(plan) is str and plan in PLANS else None
 
 
+# `max` reasoning streams many thinking and progress events; the byte limit of the captured stream bounds them.
+MAX_STREAM_EVENTS = 4096
+
+
 def _answer_events(output):
     """Only the official final result and named numeric quota fields leave the captured transcript."""
     if type(output) is not bytes or not output or len(output) > 3 * MAX_PACKET_LARGE:
-        raise AnalysisDenied("result")
+        raise AnalysisDenied("result", diagnostic="claude-stream-size")
     lines = output.splitlines()
     if len(lines) == 1:
         return _json_result(0, output), {}
+    check = "claude-stream-json"
     try:
         # Legacy clients and offline fixtures may pretty-print a single result object.
         if lines[0].strip() == b"{":
             return _json_result(0, output), {}
-        if not 2 <= len(lines) <= 128:
+        check = "claude-stream-lines"
+        if not 2 <= len(lines) <= MAX_STREAM_EVENTS:
             raise ValueError()
+        check = "claude-stream-json"
         events = [json.loads(line, object_pairs_hook=_unique_pairs) for line in lines]
+        check = "claude-stream-final"
         final = events[-1]
         if type(final) is not dict or final.get("type") != "result":
             raise ValueError()
+        check = "claude-stream-session"
         session = final.get("session_id")
         if type(session) is not str or not 1 <= len(session) <= 256:
             raise ValueError()
@@ -332,7 +341,28 @@ def _answer_events(output):
                 windows.update(claude_windows(event["rate_limit_info"]))
         return final, windows
     except (ValueError, UnicodeError, TypeError, RecursionError):
-        raise AnalysisDenied("result") from None
+        raise AnalysisDenied("result", diagnostic=check) from None
+
+
+def _result_check(result, text):
+    """The first check an ordinary answer fails, as a fixed code, or None when it is a clean single-turn success."""
+    subtype = result.get("subtype")
+    if result.get("type") != "result":
+        return "claude-result-type"
+    if subtype != "success":
+        return {"error_max_turns": "claude-result-max-turns",
+                "error_during_execution": "claude-result-execution"}.get(subtype, "claude-result-subtype")
+    if result.get("is_error") is not False:
+        return "claude-result-error"
+    if type(result.get("num_turns")) is not int or result["num_turns"] != 1:
+        return "claude-result-turns"
+    if result.get("permission_denials") != []:
+        return "claude-result-denials"
+    if result.get("api_error_status") is not None:
+        return "claude-result-api"
+    if type(text) is not str or not text.strip():
+        return "claude-result-empty"
+    return None
 
 
 def model_text(code, output, *, mode="analysis"):
@@ -344,12 +374,9 @@ def model_text(code, output, *, mode="analysis"):
     if code != 0:
         raise AnalysisDenied("client")
     text = result.get("result")
-    if (result.get("type") != "result" or result.get("subtype") != "success"
-            or result.get("is_error") is not False or type(result.get("num_turns")) is not int
-            or result["num_turns"] != 1 or result.get("permission_denials") != []
-            or result.get("api_error_status") is not None
-            or type(text) is not str or not text.strip()):
-        raise AnalysisDenied("result")
+    check = _result_check(result, text)
+    if check is not None:
+        raise AnalysisDenied("result", diagnostic=check)
     try:
         if len(text.encode("utf-8")) > limit:
             raise AnalysisDenied("output-limit")

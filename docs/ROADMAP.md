@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** CachyOS check of candidate 117 (`max` asked to list everything), and a real Codex request under the client's system-call filter (candidate 114) once the maintainer's Codex limit resets. S0 and S7 remain deferred.
+**Next step:** CachyOS check of candidate 118 (`max` asked to list everything), and a real Codex request under the client's system-call filter (candidate 114) once the maintainer's Codex limit resets. S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -260,6 +260,10 @@ Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaini
 ## Progress log
 
 Earlier dated entries preserve the evidence and status at that point. The latest entry supersedes historical pending/next-step statements.
+
+### 2026-11-08 — Candidate 118: `max` stream events and named result checks
+
+- With candidate 117 the same `max` question ended with `Could not get an answer (result)`: the answer arrived, but one of the checks on the Claude client's `stream-json` output refused it, and the reason code alone did not say which. The most likely one: the stream was limited to 128 events, while long `max` thinking emits many events. **READY FOR TEST**, candidate **0.1.0-118**: up to 4096 events (`MAX_STREAM_EVENTS`; the captured stream stays bounded at 1 MiB), and every check in `_answer_events`/`model_text` raises `result` with its own fixed code (`claude-stream-size|lines|json|final|session`, `claude-result-type|max-turns|execution|subtype|error|turns|denials|api|empty`), bound to Claude non-web modes in the result packet like the web checks, so the terminal shows e.g. `(result, claude-result-turns)`. Tests: `ClaudeResultDiagnosticsTests` (600 events accepted, each check named, the code crosses the service packet).
 
 ### 2026-11-08 — Candidate 117: the `max` failure was the answer size
 

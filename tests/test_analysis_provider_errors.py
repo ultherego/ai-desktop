@@ -56,7 +56,7 @@ class ProviderErrorTests(unittest.TestCase):
         success = {"type": "result", "subtype": "success", "is_error": False,
                    "num_turns": 1, "permission_denials": [], "result": "429 authentication_error"}
         self.assertEqual(sandbox.model_text(0, json.dumps(success).encode()), success["result"])
-        with self.assertRaisesRegex(AnalysisDenied, "reason=result$"):
+        with self.assertRaisesRegex(AnalysisDenied, "reason=result check=claude-result-api$"):
             sandbox.model_text(0, json.dumps(dict(success, api_error_status=429)).encode())
         with self.assertRaisesRegex(AnalysisDenied, "reason=client$"):
             sandbox.model_text(1, json.dumps(success).encode())

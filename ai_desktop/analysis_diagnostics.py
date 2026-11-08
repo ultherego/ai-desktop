@@ -43,6 +43,19 @@ WEB_DIAGNOSTICS = frozenset({
 })
 
 
+# Which check refused an ordinary Claude answer: fixed codes, never a native value.
+CLAUDE_RESULT_DIAGNOSTICS = frozenset({
+    'claude-stream-size', 'claude-stream-lines', 'claude-stream-json', 'claude-stream-final',
+    'claude-stream-session', 'claude-result-type', 'claude-result-max-turns', 'claude-result-execution',
+    'claude-result-subtype', 'claude-result-error', 'claude-result-turns', 'claude-result-denials',
+    'claude-result-api', 'claude-result-empty',
+})
+
+
+def claude_result_diagnostic(value):
+    return value if type(value) is str and value in CLAUDE_RESULT_DIAGNOSTICS else None
+
+
 # Why a web question ended with no confirmed sources: the model never searched, or the searches returned no link.
 WEB_EMPTY_DIAGNOSTICS = frozenset({'web-no-search', 'web-no-links'})
 
@@ -99,6 +112,8 @@ def failure_diagnostic(value, reason, *, mode, provider):
         return web_diagnostic(value)
     if provider == "claude" and mode == "web" and reason == "web-no-results":
         return web_empty_diagnostic(value)
+    if provider == "claude" and mode != "web" and reason == "result":
+        return claude_result_diagnostic(value)
     if provider == "codex" and mode in _CODEX_MODES:
         return codex_diagnostic(value, reason)
     return None
