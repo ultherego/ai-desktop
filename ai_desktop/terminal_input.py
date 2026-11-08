@@ -20,12 +20,15 @@ import signal
 import sys
 import termios
 import threading
+import time
 
 from .analysis_contract import MAX_MESSAGE_BYTES
-from .question_input import QuestionInputError, _Line, _PASTE_START, _character, _escape, _paste
+from .question_input import _KEYS, _PASTE_END, _PASTE_START, QuestionInputError, _Line, _safe_text
 
 _ANSI = re.compile(r"\x1b\[[0-9;?<>]*[A-Za-z]")
 _current = None
+_EDITS = {b"[D": "left", b"OD": "left", b"[C": "right", b"OC": "right", b"[H": "home", b"OH": "home", b"[1~": "home",
+          b"[7~": "home", b"[F": "end", b"OF": "end", b"[4~": "end", b"[8~": "end", b"[3~": "delete"}
 _SLASH = "/"
 
 
@@ -118,7 +121,7 @@ class TypeAhead:
     def stop(self):
         self._stop.set()
         if self._thread is not None:
-            self._thread.join(timeout=2)
+            self._thread.join(timeout=2)           # the loop checks the flag every round and never blocks in a read
         with self.lock:
             self.frame.busy = None
             sys.stdout = self.stream
@@ -135,12 +138,16 @@ class TypeAhead:
     def lease(self):
         """The keyboard and the terminal for someone else (sudo, a menu): no key reaches the draft meanwhile."""
         self._pause.set()
-        self._paused.wait(timeout=1)
+        alive = self._thread is not None and self._thread.is_alive()
+        if alive and not self._paused.wait(timeout=2):
+            self._pause.clear()                        # never hand over a keyboard someone else still reads
+            raise OSError("the live input did not pause")
         with self.lock:
             sys.stdout = self.stream
             self.stream.write("\x1b8")
             self.stream.flush()
             self._cooked()
+            termios.tcflush(self.fd, termios.TCIFLUSH)  # the new reader starts with keys typed after the handover
         try:
             yield
         finally:
@@ -173,15 +180,24 @@ class TypeAhead:
         return answer
 
     # -- keys ----------------------------------------------------------------------------------------------------------
+    # One byte at a time, never a blocking read of "the rest": an escape sequence, a paste or a multi-byte character
+    # is collected across loop rounds, so a pause or stop is honoured within one round. Whatever is unfinished when
+    # the keyboard is handed over is dropped, never completed with keys typed for someone else.
+    _QUIET = {"escape": 0.15, "char": 0.15, "paste": 2.0, "discard": 2.0}
+
     def _run(self):
+        self._sequence, self._sequence_at = None, 0.0
         while not self._stop.is_set():
             if self._pause.is_set():
+                self._sequence = None
                 self._paused.set()
                 while self._pause.is_set() and not self._stop.is_set():
-                    self._stop.wait(0.05)
+                    self._stop.wait(0.02)
                 self._paused.clear()
                 continue
-            if not select.select([self.fd], [], [], 0.05)[0]:
+            if self._sequence is not None and time.monotonic() - self._sequence_at > self._QUIET[self._sequence[0]]:
+                self._sequence = None                  # a lone Esc, a cut character or an unfinished paste
+            if not select.select([self.fd], [], [], 0.02)[0] or self._pause.is_set() or self._stop.is_set():
                 continue
             try:
                 value = os.read(self.fd, 1)
@@ -190,10 +206,58 @@ class TypeAhead:
             if not value:
                 return
             try:
-                self._key(value)
-            except (QuestionInputError, KeyboardInterrupt, EOFError, UnicodeError):
-                pass
+                self._feed(value)
+            except (QuestionInputError, KeyboardInterrupt, EOFError, UnicodeError, ValueError):
+                self._sequence = None
             self.draw()
+
+    def _feed(self, value):
+        """One byte from the terminal."""
+        target = self._answer if self._question is not None else self.line
+        sequence = getattr(self, "_sequence", None)
+        if sequence is not None:
+            kind, buffer = sequence[0], sequence[1]
+            self._sequence_at = time.monotonic()
+            if kind == "discard":                      # an oversized paste: wait for its end, keep nothing
+                tail = (buffer + value)[-len(_PASTE_END):]
+                self._sequence = None if tail == _PASTE_END else ("discard", tail)
+                return
+            buffer.extend(value)
+            if kind == "paste":
+                if buffer.endswith(_PASTE_END):
+                    self._sequence = None
+                    raw = bytes(buffer[:-len(_PASTE_END)])
+                    if len(raw) <= MAX_MESSAGE_BYTES - len(target.text.encode("utf-8")):
+                        target.insert(_safe_text(raw, newlines=True))
+                elif len(buffer) > MAX_MESSAGE_BYTES + len(_PASTE_END):
+                    self._sequence = ("discard", bytearray(buffer[-len(_PASTE_END):]))
+                return
+            if kind == "escape":
+                key = bytes(buffer)
+                if key == _PASTE_START:
+                    self._sequence = ("paste", bytearray())
+                elif key in _KEYS:
+                    self._sequence = None
+                    edit = _EDITS.get(key)
+                    if edit:
+                        target.edit(edit)
+                elif not any(known.startswith(key) for known in (*_KEYS, _PASTE_START)):
+                    self._sequence = None
+                return
+            if kind == "char" and len(buffer) == sequence[2]:
+                self._sequence = None
+                target.insert(_safe_text(bytes(buffer)))
+            return
+        if value == b"\x1b":
+            self._sequence, self._sequence_at = ("escape", bytearray()), time.monotonic()
+            return
+        if value[0] >= 0x80:
+            number = value[0]
+            length = 2 if 0xC2 <= number <= 0xDF else 3 if 0xE0 <= number <= 0xEF else 4 if 0xF0 <= number <= 0xF4 else 0
+            if length:
+                self._sequence, self._sequence_at = ("char", bytearray(value), length), time.monotonic()
+            return
+        self._key(value)
 
     def _key(self, value):
         target = self._answer if self._question is not None else self.line
@@ -223,16 +287,8 @@ class TypeAhead:
             target.edit("backspace")
         elif value in (b"\x01", b"\x05", b"\x02", b"\x06"):
             target.edit({b"\x01": "home", b"\x05": "end", b"\x02": "left", b"\x06": "right"}[value])
-        elif value == b"\x1b":
-            key = _escape(self.fd)
-            if key == _PASTE_START:
-                target.insert(_paste(self.fd, MAX_MESSAGE_BYTES - len(target.text.encode("utf-8")), newlines=True))
-            elif key in (b"[D", b"OD", b"[C", b"OC", b"[H", b"OH", b"[F", b"OF", b"[3~"):
-                target.edit({b"[D": "left", b"OD": "left", b"[C": "right", b"OC": "right", b"[H": "home",
-                             b"OH": "home", b"[F": "end", b"OF": "end", b"[3~": "delete"}[key])
-        elif value >= b" " or value == b"\t":
-            if value != b"\t":
-                target.insert(_character(self.fd, value))
+        elif b" " <= value < b"\x7f":
+            target.insert(value.decode("ascii"))
 
 
 def _note(text):

@@ -27,6 +27,7 @@ class Recorder(list):
     def __init__(self):
         super().__init__()
         self.actions = []
+        self.reads, self.more = 0, None        # read commands listed so far, and the index of the "N more" entry
 
 
 @contextmanager
@@ -40,12 +41,33 @@ def recording():
         _log.reset(token)
 
 
-def note_action(text):
+READ_FACTS = 8          # read commands listed one by one in a turn; further reads are counted in one entry
+CHANGE_FACTS = 64       # changes, tests, undos, writes and deletions: always kept (a safety ceiling only)
+
+
+def note_action(text, *, read=False):
     """The controller records what it actually did (a command run or refused, a change applied or not). These facts are
-    written by the program, not by the model, so they stay true when the model's own notes are wrong."""
+    written by the program, not by the model, so they stay true when the model's own notes are wrong.
+
+    Reads never crowd out a change: after READ_FACTS reads, the rest are counted in one entry, while every change,
+    test, undo, write and deletion is kept, so a later turn or a resumed conversation does not propose it again."""
     recorder = _log.get()
-    if recorder is not None and type(text) is str and text.strip() and len(recorder.actions) < 8:
+    if recorder is None or type(text) is not str or not text.strip():
+        return
+    if not read:
+        if len(recorder.actions) - min(recorder.reads, READ_FACTS) - (recorder.more is not None) < CHANGE_FACTS:
+            recorder.actions.append(text)
+        return
+    recorder.reads += 1
+    if recorder.reads <= READ_FACTS:
         recorder.actions.append(text)
+        return
+    entry = "...and %d more read command%s" % (recorder.reads - READ_FACTS, "" if recorder.reads - READ_FACTS == 1 else "s")
+    if recorder.more is None:
+        recorder.more = len(recorder.actions)
+        recorder.actions.append(entry)
+    else:
+        recorder.actions[recorder.more] = entry
 
 
 def note_sources(paths):

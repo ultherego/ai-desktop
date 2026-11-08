@@ -277,7 +277,8 @@ def _run_command(snapshot, ledger, plan, permit, args, reader):
                                    "output": output, "truncated": cut, "role": role})
         outcome = _OUTCOME.get(status, "failed")
         conversation_state.note_action("%s %s: %s%s" % (_LABEL[role], " ".join(words), outcome,
-                                                       "" if code is None else ", code %d" % code))
+                                                       "" if code is None else ", code %d" % code),
+                                       read=role == "read")
         return observed
 
     def spend():

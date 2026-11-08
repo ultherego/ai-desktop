@@ -118,28 +118,44 @@ def inspect_state(workspace, operations):
 
 
 def _remove_verified(fd, name, accept):
-    """Unlink name only if it is a single-link regular file accepted by
-    accept(info, content). Returns True when retired (removed or absent)."""
+    """Remove name only if it is a single-link regular file accepted by accept(info, content). Returns True when
+    retired (removed or absent).
+
+    The entry is first moved aside atomically and the object that was actually moved is checked, so an editor that
+    publishes a newer version under `name` meanwhile keeps it: checking an open file and then unlinking the name would
+    delete whatever the name points to by then. A moved object that is not ours goes back, or stays aside when the
+    name was taken again; it is never deleted."""
+    from .fs_publish import rename_noreplace
+    aside = ".ai-desktop-retire-" + secrets.token_hex(8)
     try:
-        source = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC |
-                         os.O_NONBLOCK, dir_fd=fd)
-        try:
-            info = os.fstat(source)
-            if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or
-                    info.st_size > 4096):
-                return False
-            content = os.read(source, info.st_size + 1)
-            if not accept(info, content):
-                return False
-            os.unlink(name, dir_fd=fd)
-            return True
-        finally:
-            os.close(source)
+        rename_noreplace(fd, name, fd, aside)
     except FileNotFoundError:
-        # Already absent: retire this entry, never delete a later arrival.
-        return True
+        return True                    # already absent: retire this entry, never delete a later arrival
     except OSError:
         return False
+    keep = True
+    try:
+        source = os.open(aside, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, dir_fd=fd)
+        try:
+            info = os.fstat(source)
+            if (stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and info.st_size <= 4096
+                    and accept(info, os.read(source, info.st_size + 1))):
+                now = os.stat(aside, dir_fd=fd, follow_symlinks=False)
+                if (now.st_dev, now.st_ino) == (info.st_dev, info.st_ino):
+                    os.unlink(aside, dir_fd=fd)
+                    keep = False
+                    return True
+            return False
+        finally:
+            os.close(source)
+    except OSError:
+        return False
+    finally:
+        if keep:
+            try:
+                rename_noreplace(fd, aside, fd, name)      # not ours: back where it was, if that place is still free
+            except OSError:
+                pass
 
 
 class WorkspaceExecutor:

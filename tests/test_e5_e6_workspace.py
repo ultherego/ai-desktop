@@ -141,6 +141,27 @@ class E5E6WorkspaceTests(unittest.TestCase):
         finally:
             executor.close()
 
+    def test_rollback_never_deletes_a_newer_editor_save_published_while_it_checks(self):
+        session, approval = self.approved(self.ops)
+        executor = WorkspaceExecutor(str(self.root))
+        self.addCleanup(executor.close)
+        executor.apply(session, approval)
+        target = self.root / "notes/new.txt"
+        real = __import__("ai_desktop.workspace_executor", fromlist=["x"])._remove_verified
+
+        def editor_saves_during_the_check(fd, name, accept):
+            def accept_after_a_save(info, content):
+                fresh = target.with_name(".editor-tmp")
+                fresh.write_text("SYNTHETIC NEWER EDITOR SAVE")
+                os.replace(fresh, target)              # an editor publishes a new version atomically
+                return accept(info, content)
+            return real(fd, name, accept_after_a_save)
+
+        with patch("ai_desktop.workspace_executor._remove_verified", side_effect=editor_saves_during_the_check):
+            executor.rollback()
+        self.assertEqual(target.read_text(), "SYNTHETIC NEWER EDITOR SAVE")
+        self.assertEqual([p.name for p in target.parent.iterdir() if p.name.startswith(".ai-desktop-retire-")], [])
+
     def test_partial_rollback_retains_only_failed_entries_for_retry(self):
         ops = self.ops + [
             {"action": "create_text", "path": "notes/second.txt", "content": "SECOND"},
@@ -150,14 +171,15 @@ class E5E6WorkspaceTests(unittest.TestCase):
         self.addCleanup(executor.close)
         executor.apply(session, approval)
         held = [entry[0] for entry in executor._created]
-        unlink = os.unlink
+        from ai_desktop import fs_publish
+        move = fs_publish.rename_noreplace
 
-        def fail_one(name, **kwargs):
-            if name == "new.txt":
+        def fail_one(src_dir, src, dst_dir, dst):
+            if src == "new.txt":                       # the first step of retiring it: moving it aside
                 raise PermissionError("SYNTHETIC SECRET MUST NOT LEAK")
-            return unlink(name, **kwargs)
+            return move(src_dir, src, dst_dir, dst)
 
-        with patch("ai_desktop.workspace_executor.os.unlink", side_effect=fail_one):
+        with patch("ai_desktop.fs_publish.rename_noreplace", side_effect=fail_one):
             with self.assertRaisesRegex(ExecutionDenied, "^EXECUTOR: ROLLBACK FAILED$"):
                 executor.rollback()
         self.assertTrue((self.root / "notes/new.txt").exists())

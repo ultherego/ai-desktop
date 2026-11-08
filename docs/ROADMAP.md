@@ -14,7 +14,7 @@ Existing stage tables use **done**, **in progress** and **to do**. Follow-up ent
 
 ## Current state
 
-Independent-client migration and candidate-83 quota/widget changes were merged in [PR #20](https://github.com/ultherego/ai-desktopv2/pull/20) as `700a6093056490254b177295eaa402dafef652e8`. Candidate 84 completed the first S9 slice and was merged in [PR #21](https://github.com/ultherego/ai-desktopv2/pull/21) as `9424ce604683e56bacf183bc4ee54a94edfcc786`; its separate main/push CI completed 5/5 PASS. Candidate 85 in [PR #23](https://github.com/ultherego/ai-desktopv2/pull/23) on `feature/conversation-autosave` implements the first S1 slice: bounded private checkpoints for ordinary interactive terminal `ask`, with `--no-save`. Focused ordinary-user tests pass locally; exact-head GitHub CI and CachyOS persistence/package acceptance are still pending.
+`main` is at [`57249dc`](https://github.com/ultherego/ai-desktopv2/commit/57249dc30872f8d49d9c33ebe50a46d224c8bb09) (PR #31, package `0.1.0-109`, accepted by the maintainer on CachyOS; main/push CI 5/5). Since PR #20 (independent clients) and #21 (first S9 slice) the merged work adds autosave and `ai-desktop -c` with the whole read-back thread (#23, #25), hidden daemon sockets and a read-only D-Bus filter for `allow` commands (#27, #28), command groups, `...` and `commands.deny` (#29), larger command budgets (#30) and the Codex-like terminal with typing during a turn and web searches that know the conversation (#31). Open: [PR #32](https://github.com/ultherego/ai-desktopv2/pull/32) (`/` menus during a turn) and the review fixes stacked on it (latest progress-log entry). The detailed evidence of each candidate is in the progress log below.
 
 Working and merged at `dd2daec3045c41662a722f4c6a3485dea14dd196` (PR #18, package `0.1.0-79`; maintainer acceptance recorded below):
 
@@ -30,7 +30,7 @@ Working and merged at `dd2daec3045c41662a722f4c6a3485dea14dd196` (PR #18, packag
 
 | Task | Status |
 |---|---|
-| Undoing a change does not overwrite or delete a newer editor save, both for an edit and for a new file | done |
+| Undoing a change does not overwrite or delete a newer editor save, both for an edit and for a new file | done — `task`/`ask` rollback since PR #18; the older `ai-desktop workspace recover --rollback` path gained the same move-aside-then-verify guarantee in candidate 111 |
 | Independent-client delivery | S8 migrates package/private clients to independent system or explicitly registered native/HOME/npm installations; candidate 82 passed exact-head CachyOS upgrade and native offline acceptance for both corrected paths. PR #20 merged as `700a609`; wider lifecycle/release checks remain open. Earlier download/checksum evidence belongs to the legacy path only. |
 | Consent for a conversation covers the whole `permissions.toml` | done |
 | A long change instruction is not refused at the edit stage (`ask` accepts 128 KiB, the edit stage 2 KiB) | done |
@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** CachyOS check of candidate 110 (`/` menus opening at once during a turn, the choice applied after the answer), then the general system-call filter for the client (Stage 4). S0 and S7 remain deferred.
+**Next step:** CachyOS check of candidates 110 (`/` menus during a turn) and 111 (review fixes: keyboard handover to sudo, older rollback, `host_sockets`, recorded changes), then the general system-call filter for the client (Stage 4). S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -260,6 +260,18 @@ Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaini
 ## Progress log
 
 Earlier dated entries preserve the evidence and status at that point. The latest entry supersedes historical pending/next-step statements.
+
+### 2026-11-08 — Fixes from an external code review
+
+- An external review of `main` at `57249dc` reported two P1 and two P2 defects with synthetic reproductions, plus test and documentation gaps. Each was checked in the code before changing it; all four defects were confirmed.
+- **READY FOR TEST**, candidate **0.1.0-111**, branch `fix/review-findings`, stacked on PR #32 (candidate 110).
+- **P1, keyboard handover:** `lease()` waited at most one second and handed the terminal over even when the live-input thread had not paused; that thread could sit in a blocking read of an unfinished paste or multi-byte character, so keys typed for `sudo` could reach the draft. The thread now reads one byte per round and collects escape sequences, pastes and characters across rounds, dropping whatever is unfinished when a pause starts; `lease()` hands over only after a confirmed pause (otherwise it refuses, and `sudo -v` is then refused as authorization) and flushes pending input. Test: `test_an_unfinished_paste_or_character_never_keeps_the_keyboard_from_a_lease` (fails on the old code: the first key meant for the new reader was taken), plus refusal and byte-collection unit tests.
+- **P1, older rollback:** `workspace_executor._remove_verified` checked an open file and then unlinked the name, so an editor save published in between was deleted. It now moves the entry aside atomically (`RENAME_NOREPLACE`), checks the object actually moved and deletes only that; anything else goes back or stays aside, never deleted. Test: `test_rollback_never_deletes_a_newer_editor_save_published_while_it_checks` (fails on the old code).
+- **P2, `host_sockets`:** `/run/user` itself and directories such as `/run/systemd` were accepted and bound whole. The pattern now also refuses `/run/user` and `/run/dbus` (the system bus goes only through the read filter); the policy refuses an existing path that is not a socket, and the sandbox binds an entry only if it is a socket at that moment (`lstat`, so never a link or directory).
+- **P2, recorded actions:** at most eight facts were kept per turn, reads included, so a change after eight reads could be lost and proposed again later. Reads now take at most eight entries plus one "...and N more" counter; changes, tests, undos, writes and deletions are always kept. Test: `test_a_change_is_recorded_even_after_many_reads_in_the_same_turn`.
+- **Tests and CI:** the Snapper check in `test_dbus_filter.py` ran a host program while the module was imported; it now runs inside the test with a timeout. The real-sandbox and D-Bus filter tests were skipped in every CI job; the Bubblewrap jobs now install `xdg-dbus-proxy` and run them with `AI_DESKTOP_REQUIRE_SANDBOX_TESTS=1`, where a missing prerequisite fails instead of skipping (`tests/sandbox_requirement.py`).
+- **Documentation:** `SECURITY.md` describes web searches with the conversation; `KNOWN_LIMITATIONS.md` no longer says `-c` is missing; this roadmap's current state, the release checklist's candidate-85 items and the CLI's material size were brought up to date.
+- Not changed: the old acceptance scripts pinned to candidates 14–17 remain a Stage 6 item; the review's notes on credentials, the proxy and the syscall filter restate documented trust assumptions.
 
 ### 2026-11-08 — `/` commands during a turn
 

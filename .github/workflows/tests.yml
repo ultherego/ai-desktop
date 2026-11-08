@@ -154,6 +154,16 @@ jobs:
           }
           PROFILE
           sudo apparmor_parser -r "$RUNNER_TEMP/ai-desktop-bwrap.apparmor"
+      - name: Read-command sandbox and D-Bus read filter (real bwrap and xdg-dbus-proxy; skipping is a failure)
+        env:
+          AI_DESKTOP_REQUIRE_SANDBOX_TESTS: '1'
+        run: |
+          sudo apt-get install -y xdg-dbus-proxy
+          python -m pip install 'rich>=13.7,<15' 'cryptography>=44'
+          test -S /run/dbus/system_bus_socket
+          for module in test_command_ops test_command_sockets test_dbus_filter test_ask_operations; do
+            python -B -m unittest discover -s tests -p "$module.py" -v
+          done
       - name: User native registration with actual root-owned copies (synthetic ELF, no execution)
         id: client_registration
         run: python -B tests/ci_client_registration.py --allow-disposable-client-registration-test

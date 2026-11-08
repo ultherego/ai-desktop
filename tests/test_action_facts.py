@@ -30,10 +30,16 @@ class MemoryFactTests(unittest.TestCase):
         cs.note_action("outside a turn")                                          # no recorder: silently nothing
         with cs.recording() as recorder:
             for index in range(20):
-                cs.note_action("action %d" % index)
+                cs.note_action("read %d" % index, read=True)
             cs.note_action("")
             cs.note_action(None)
-        self.assertEqual(len(recorder.actions), 8)
+            for index in range(cs.CHANGE_FACTS + 5):
+                cs.note_action("change %d" % index)
+        reads = [fact for fact in recorder.actions if fact.startswith("read ")]
+        changes = [fact for fact in recorder.actions if fact.startswith("change ")]
+        self.assertEqual(len(reads), cs.READ_FACTS)                          # the first reads, one by one
+        self.assertIn("...and 12 more read commands", recorder.actions)      # the rest counted, not dropped silently
+        self.assertEqual(len(changes), cs.CHANGE_FACTS)                      # changes are never crowded out by reads
         self.assertEqual(list(recorder), [])                                 # the list itself stays the file sources
 
 

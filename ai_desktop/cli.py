@@ -23,7 +23,7 @@ def build_parser():
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("ask", help="Ask a question; optionally attach chosen context", add_help=False)
-    commands.add_parser("material", help="Work with one local text file up to 5 MiB", add_help=False)
+    commands.add_parser("material", help="Work with one local text file (up to 32 MiB by default)", add_help=False)
     commands.add_parser("project", help="Work with a project directory: read-only analysis, changes and deletions only after approval", add_help=False)
     commands.add_parser("settings", help="Service, agent, model, reasoning and Skills", add_help=False)
     commands.add_parser("claude", help="Compatibility: older Claude settings; use settings", add_help=False)
@@ -122,7 +122,7 @@ SHORT_HELP = """AI Desktop: controlled tools for CachyOS
 
 Run ai-desktop in a terminal to start a conversation; ai-desktop -c continues the last one.
   ask        Ask a question; optionally attach chosen context
-  material   Analyze one local text file (up to 5 MiB)
+  material   Analyze one local text file (up to 32 MiB by default)
   project    Work with a project directory: read-only analysis; changes and deletions only after your approval
   task       Change chosen files with a test and a full diff; undo and restore
   status     Agent, permissions and live conversations (--json for widgets)

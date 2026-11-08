@@ -221,3 +221,26 @@ class LiveInputTests(unittest.TestCase):
         owner = self.owner(resolver)
         self.type(owner, "/model\r")
         self.assertEqual(owner.queue, ["/model"])
+
+    def test_a_lease_is_refused_when_the_live_input_does_not_confirm_its_pause(self):
+        owner = self.owner(None)
+        owner._thread = type("Busy", (), {"is_alive": lambda self: True})()
+        owner._paused.wait = lambda timeout=None: False                        # the reader never confirms
+        with patch.object(terminal_input.termios, "tcsetattr") as mode, self.assertRaises(OSError):
+            with owner.lease():
+                self.fail("the keyboard was handed over")
+        mode.assert_not_called()
+        self.assertFalse(owner._pause.is_set())
+
+    def test_sequences_are_collected_byte_by_byte_and_an_unfinished_one_is_dropped(self):
+        owner = self.owner(None)
+        owner._sequence = None
+        for byte in "\x1b[200~ab\x1b[201~".encode() + "ż".encode() + b"c":
+            owner._feed(bytes([byte]))
+        self.assertEqual(owner.line.text, "abżc")
+        owner._feed(b"\x1b")
+        owner._feed(b"[")
+        owner._feed(b"2")                                                      # an unfinished escape sequence ...
+        owner._sequence = None                                                 # ... dropped when a lease begins
+        owner._feed(b"x")
+        self.assertEqual(owner.line.text, "abżcx")

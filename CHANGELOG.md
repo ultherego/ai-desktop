@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-111: fixes from a code review
+
+- The keyboard is handed to `sudo` only after the live input has really stopped reading; an unfinished paste or character can no longer make keys typed for `sudo` land in your draft.
+- `ai-desktop workspace recover --rollback` no longer deletes a newer editor save published while it checks a file.
+- `host_sockets` accepts only sockets: `/run/user`, `/run/dbus` and directories are refused.
+- A change made after many reads in one turn is always remembered, so it is not proposed again later.
+- CI now runs the real sandbox and D-Bus filter tests instead of skipping them.
+
 ## 0.1.0-110: `/` menus open at once during a turn
 
 - While the model works, `/help`, `/settings` and `/permissions` show at once; `/model`, `/effort`, `/agent` and `/skills` open their menu at once and your choice is applied after the answer, so a setting never changes halfway through a question. `/provider`, `/test` and `/exit` still wait for the answer.
