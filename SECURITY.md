@@ -143,7 +143,7 @@ Data that was sent cannot be withdrawn.
 
 - **Protection against another process of the same user**, root, a compromised kernel or a malicious system.
 - **Protection of the client token against the client itself.** The official client has access to its own login profile. A compromised client could send it to an allowed
-  host. The proxy does not see TLS content and does not filter paths or data. There is no general system call filter for the client.
+  host. The proxy does not see TLS content and does not filter paths or data. On top of SUID/SGID blocking, a system-call filter refuses kernel interfaces a chat client never needs (mounting, namespaces, modules, `ptrace` and reading other processes' memory, `bpf`, kernel keys, `userfaultfd`, clock and reboot calls; `io_uring` reports as unavailable). It is a deny list modelled on systemd's `SystemCallFilter` groups, not an allow list of every call.
 - **Safety of the `allow` list.** The sandbox hides daemon sockets under `/run` unless you list them in `host_sockets` and gives D-Bus only through a filter of read methods, but a command able to change state through a socket you opted in, such as Docker's, is not stopped,
   and it runs without asking. List only read-only commands here.
 - **Recognition of secrets.** In `version = 2` there is no hidden name filter or private key scanner. A secret in an allowed tree without `deny` can go to the provider.

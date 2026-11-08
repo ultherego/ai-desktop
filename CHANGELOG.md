@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-114: a system-call filter for the client
+
+- The Claude and Codex clients now run with a filter that refuses kernel interfaces a chat client never needs: mounting and namespaces, kernel modules, `ptrace` and reading other processes' memory, `bpf`, kernel keys, `userfaultfd`, clock, reboot and swap calls (`io_uring` reports as unavailable). Ordinary file, network and process calls are unaffected.
+
 ## 0.1.0-113: the widget heading follows the theme
 
 - The **AI Desktop** heading is styled like the DMS system-update popout: the theme's primary colour at the large size and medium weight, with the service, role and model in the theme's muted colour right under it.
