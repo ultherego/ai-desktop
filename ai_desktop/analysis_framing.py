@@ -18,7 +18,8 @@ MAGIC = b"AIDFRM2\0"
 HEADER = struct.Struct("!8scI32s")
 PARTIAL_BYTES = 16384
 MAX_PARTIALS = 4096                 # live-text frames before one response; their text is bounded again by the caller
-_KINDS = {"request": (b"Q", MAX_PACKET_LARGE), "response": (b"R", MAX_RESPONSE_BYTES), "partial": (b"P", PARTIAL_BYTES)}
+_KINDS = {"request": (b"Q", MAX_PACKET_LARGE), "response": (b"R", MAX_RESPONSE_BYTES)}
+PARTIAL_TAG = b"P"
 
 
 def _settings(kind, timeout):
@@ -69,6 +70,33 @@ def send_message(channel, body, *, kind, timeout=5, clock=time.monotonic):
         channel.settimeout(previous)
 
 
+def send_partial(channel, body, *, timeout=2, clock=time.monotonic):
+    """One live-text frame as ONE record: header and body together. A SOCK_SEQPACKET send queues a whole record or
+    nothing, so a timeout never leaves half a frame in front of the response that follows."""
+    if type(body) is not bytes or not 0 < len(body) <= PARTIAL_BYTES:
+        raise AnalysisDenied("input")
+    record = HEADER.pack(MAGIC, PARTIAL_TAG, len(body), hashlib.sha256(body).digest()) + body
+    deadline, previous = clock() + timeout, channel.gettimeout()
+    try:
+        _send_record(channel, record, deadline, clock)
+    except socket.timeout:
+        raise AnalysisDenied("timeout") from None
+    except OSError:
+        raise AnalysisDenied("endpoint") from None
+    finally:
+        channel.settimeout(previous)
+
+
+def _partial_record(raw):
+    """The body of a one-record live-text frame, or AnalysisDenied for anything else."""
+    magic, tag, length, expected = HEADER.unpack(raw[:HEADER.size])
+    body = raw[HEADER.size:]
+    if (magic != MAGIC or tag != PARTIAL_TAG or length != len(body) or not 0 < length <= PARTIAL_BYTES
+            or not hmac.compare_digest(hashlib.sha256(body).digest(), expected)):
+        raise AnalysisDenied("input")
+    return body
+
+
 def receive_message(channel, *, kind, timeout=5, clock=time.monotonic, partial=None):
     """One message of `kind`. With `partial`, a response may be preceded by live-text frames, each handed over as
     bytes; the whole exchange keeps one deadline and a fixed frame count."""
@@ -78,19 +106,28 @@ def receive_message(channel, *, kind, timeout=5, clock=time.monotonic, partial=N
     deadline, previous = clock() + timeout, channel.gettimeout()
     try:
         for _ in range(MAX_PARTIALS + 1):
-            raw = _receive_record(channel, HEADER.size, deadline, clock)
+            if partial is None:
+                raw = _receive_record(channel, HEADER.size, deadline, clock)
+            else:
+                # A header record, or one whole live-text frame (header and body in a single record).
+                _remaining(channel, deadline, clock)
+                raw, ancillary, flags, _ = channel.recvmsg(HEADER.size + PARTIAL_BYTES + 1, 0)
+                _remaining(channel, deadline, clock)
+                if (ancillary or flags & (socket.MSG_TRUNC | socket.MSG_CTRUNC)
+                        or not HEADER.size <= len(raw) <= HEADER.size + PARTIAL_BYTES):
+                    raise AnalysisDenied("input")
+                if len(raw) > HEADER.size:
+                    partial(_partial_record(raw))
+                    continue
             magic, actual_tag, length, expected = HEADER.unpack(raw)
-            live = partial is not None and actual_tag == b"P"
-            if magic != MAGIC or (actual_tag != tag and not live) or not 0 < length <= (PARTIAL_BYTES if live else limit):
+            if magic != MAGIC or actual_tag != tag or not 0 < length <= limit:
                 raise AnalysisDenied("input")
             body = bytearray()
             while len(body) < length:
                 body.extend(_receive_record(channel, min(CHUNK_BYTES, length - len(body)), deadline, clock))
             if not hmac.compare_digest(hashlib.sha256(body).digest(), expected):
                 raise AnalysisDenied("input")
-            if not live:
-                return bytes(body)
-            partial(bytes(body))
+            return bytes(body)
         raise AnalysisDenied("input")
     except socket.timeout:
         raise AnalysisDenied("timeout") from None
