@@ -97,7 +97,7 @@ Working and merged at `dd2daec3045c41662a722f4c6a3485dea14dd196` (PR #18, packag
 | Codex login/logout false error after a successful operation | done — not reproduced on candidate 121: `ai-desktop codex logout --allow-chatgpt-logout --v` and `codex login --allow-chatgpt-login --v` both ended `success` with exit 0 and the matching status line. Reopen with the full `--v` output if it returns |
 | Keep current documentation aligned with code and archive obsolete acceptance instructions | IN PROGRESS — candidate 120: README points to the CHANGELOG instead of a per-candidate list, the release checklist no longer repeats candidate 82–85 evidence, and KNOWN_LIMITATIONS states what is still unchecked instead of the history of candidates 81–84 |
 | `task prune` with a list of entries and consent | done — candidate 119: `ai-desktop task prune --workspace DIR` lists only finished entries (saved with no stage left, undone, settled conflict, unlinked history, fully restored deletion), takes numbers or `all` and a separate consent, and re-checks each entry under the lock against the hash shown; unfinished saves, conflicts with stages left and deletions still in the trash always stay |
-| One client session per conversation, streaming answers | IN PROGRESS — candidate 122 streams Claude answers in ordinary conversation (finished Markdown blocks while the model writes; the final validated answer decides). Remaining: Codex deltas, `web` mode, then one native session per conversation (lifecycle, revocation, the per-request sandbox and grants) |
+| One client session per conversation, streaming answers | IN PROGRESS — candidate 122 streams Claude answers in ordinary conversation (finished Markdown blocks while the model writes; the final validated answer decides); candidate 123 shows web search progress (fixed labels with counts), while a web answer itself still appears only after its sources pass. Remaining: Codex deltas, then one native session per conversation (lifecycle, revocation, the per-request sandbox and grants) |
 
 ## Agreed follow-up scope — 2026-11-06
 
@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** CachyOS check of candidate 122 (a long `ask` answer should appear block by block), then Codex deltas, then the S9 task flow with fewer approvals and task continuity, and a real Codex request under the client's system-call filter (candidate 114) once the maintainer's Codex limit resets. S0 and S7 remain deferred.
+**Next step:** CachyOS check of candidate 123 (web search progress on the waiting line), then Codex deltas, then the S9 task flow with fewer approvals and task continuity, and a real Codex request under the client's system-call filter (candidate 114) once the maintainer's Codex limit resets. S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -260,6 +260,13 @@ Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaini
 ## Progress log
 
 Earlier dated entries preserve the evidence and status at that point. The latest entry supersedes historical pending/next-step statements.
+
+### 2026-11-08 — Candidate 123: web search progress (S2)
+
+- Candidate 122 was merged as PR #41 after CachyOS acceptance. Its first CI run failed in the real-systemd web stage: the web acceptance stand-in for `send_once` did not accept the new keyword; the stand-in was fixed, the program was not changed.
+- Decision: a web answer is **not** previewed. `web_text` releases an answer only after a completed WebSearch and sources that the search really returned; a forged source, a foreign tool or no search is refused and must never reach the screen (the CI web stage checks this). Showing its text early would release exactly that evidence before the check.
+- **READY FOR TEST**, candidate **0.1.0-123**: the web command also runs with `--include-partial-messages`; `ClaudeStream` drops the partial events before `web_text` (unfiltered they are outside its contract, now tested) and reports progress from the kept events: `search` (WebSearch calls), `results` (tool results) and `writing` (the first text after a result), as counts only. Frames now carry a kind byte: `T` text, `S` a status from that fixed vocabulary with a count of at most 99; anything else ends the preview. The waiting line shows "Searching the web (n)", "Reading search results (n)" and "Writing the answer".
+- The CI fixture's web transcript now includes partial text events, so the refusal scenarios also prove that the refused answer does not leak through them.
 
 ### 2026-11-08 — Candidate 122: the answer while it is written (S2, first part)
 

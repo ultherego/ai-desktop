@@ -14,6 +14,7 @@ MAX_LINE = 4 * 1024 * 1024          # one stream-json line; a partial-message ev
 MAX_RAW_TEXT = 512 * 1024           # model text gathered for the preview; beyond it the preview just stops
 MAX_PARTIAL_TOTAL = 256 * 1024      # live text sent to the terminal in one request
 INTERVAL = 0.15                     # seconds between live updates
+STATUS = ("search", "results", "writing")   # web progress: a fixed vocabulary with a count, never model text
 
 
 def _string_prefix(raw, start):
@@ -159,11 +160,12 @@ class ClaudeStream:
     """A `stdout_filter` for the client's output: keeps every line except partial-message events, whose text deltas
     build the live preview. `json_answer` selects the answer-action contract; otherwise the text is shown as written."""
 
-    def __init__(self, on_text=None, *, json_answer=True, clock=time.monotonic):
+    def __init__(self, on_text=None, *, json_answer=True, on_status=None, clock=time.monotonic):
         self._on_text, self._json, self._clock = on_text, json_answer, clock
         self._pending = bytearray()
         self._parts, self._size, self._sent, self._last = [], 0, 0, None
         self._stopped = on_text is None
+        self._on_status, self._searches, self._results, self._writing = on_status, 0, 0, False
 
     def __call__(self, block):
         if block is None:                       # end of output: the last line may lack its newline
@@ -185,8 +187,35 @@ class ClaudeStream:
         self._emit()
         return bytes(kept)
 
+    def _status(self, code, number=0):
+        if self._on_status is not None:
+            self._on_status(code, min(number, 99))
+
+    def _observe(self, line):
+        """Progress of a web search from the kept events: counts only, never their content."""
+        if self._on_status is None or (b'"tool_use"' not in line and b'"tool_result"' not in line):
+            return
+        try:
+            value = json.loads(line)
+            content = value.get("message", {}).get("content") if type(value) is dict else None
+        except (ValueError, UnicodeError, RecursionError, AttributeError):
+            return
+        if type(content) is not list:
+            return
+        blocks = [block for block in content if type(block) is dict]
+        if value.get("type") == "assistant":
+            calls = sum(1 for block in blocks if block.get("type") == "tool_use" and block.get("name") == "WebSearch")
+            if calls:
+                self._searches += calls
+                self._status("search", self._searches)
+        elif value.get("type") == "user" and any(block.get("type") == "tool_result" for block in blocks):
+            self._results += 1
+            self._writing = False
+            self._status("results", self._results)
+
     def _line(self, line):
         if b'"stream_event"' not in line:
+            self._observe(line)
             return line + b"\n"
         try:
             value = json.loads(line)
@@ -197,6 +226,9 @@ class ClaudeStream:
         event = value.get("event")
         delta = event.get("delta") if type(event) is dict and event.get("type") == "content_block_delta" else None
         if type(delta) is dict and delta.get("type") == "text_delta" and type(delta.get("text")) is str:
+            if self._results and not self._writing:
+                self._writing = True
+                self._status("writing")
             self._add(delta["text"])
         return b""
 

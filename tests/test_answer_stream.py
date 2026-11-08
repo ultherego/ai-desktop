@@ -171,45 +171,120 @@ class PartialFrameTests(unittest.TestCase):
 
     def test_the_service_splits_text_on_character_boundaries_and_stops_on_failure_or_budget(self):
         left, right = self.pair()
-        send = analysis_service._live_sender(left)
+        live = analysis_service._live_sender(left)
         text = "ż" * analysis_framing.PARTIAL_BYTES
-        send(text)
+        live.text(text)
+        live.status("search", 2)
         analysis_framing.send_message(left, b"end", kind="response")
-        pieces = []
-        analysis_framing.receive_message(right, kind="response", partial=pieces.append)
-        self.assertGreater(len(pieces), 1)
-        self.assertEqual(b"".join(pieces).decode(), text)
-        for piece in pieces:
-            piece.decode("utf-8")
+        frames = []
+        analysis_framing.receive_message(right, kind="response", partial=frames.append)
+        self.assertGreater(len(frames), 2)
+        self.assertTrue(all(frame[:1] == b"T" for frame in frames[:-1]))
+        self.assertEqual(b"".join(frame[1:] for frame in frames[:-1]).decode(), text)
+        for frame in frames[:-1]:
+            frame[1:].decode("utf-8")
+        self.assertEqual(frames[-1], b"Ssearch:2")
         with patch.object(analysis_service, "send_message", side_effect=AnalysisDenied("timeout")) as sent:
-            send = analysis_service._live_sender(left)
-            send("a")
-            send("b")
+            live = analysis_service._live_sender(left)
+            live.text("a")
+            live.text("b")
+            live.status("results", 1)
         self.assertEqual(sent.call_count, 1)
         with patch.object(analysis_service, "MAX_PARTIAL_TOTAL", 3), \
                 patch.object(analysis_service, "send_message") as sent:
-            send = analysis_service._live_sender(left)
-            send("ab")
-            send("cd")
-            send("e")
+            live = analysis_service._live_sender(left)
+            live.text("ab")
+            live.text("cd")
+            live.text("e")
+            live.status("search", 1)
         self.assertEqual(sent.call_count, 1)
+        with patch.object(analysis_service, "send_message") as sent:
+            live = analysis_service._live_sender(left)
+            for code, number in (("other", 1), ("search", -1), ("search", 100), ("search", True)):
+                live.status(code, number)
+        self.assertEqual(sent.call_count, 0)
 
     def test_the_terminal_side_never_loses_the_answer_to_the_preview(self):
-        analysis_service._live_text(None)(b"read and dropped")
-        shown = []
-        receive = analysis_service._live_text(shown.append)
-        receive("ok".encode())
-        receive(b"\xff")
-        receive(b"later")
-        self.assertEqual(shown, ["ok"])
-        boom = analysis_service._live_text(lambda text: 1 / 0)
-        boom(b"x")
+        analysis_service._live_text(None)(b"Tread and dropped")
+        shown, steps = [], []
+        receive = analysis_service._live_text(shown.append, lambda code, number: steps.append((code, number)))
+        receive(b"Tok")
+        receive(b"Sresults:3")
+        receive(b"T\xff")
+        receive(b"Tlater")
+        self.assertEqual((shown, steps), (["ok"], [("results", 3)]))
+        for bad in (b"Sother:1", b"Ssearch:x", b"Ssearch:123", b"Xabc", b""):
+            with self.subTest(bad=bad):
+                shown, steps = [], []
+                receive = analysis_service._live_text(shown.append, lambda code, number: steps.append(code))
+                receive(bad)
+                receive(b"Tafter")
+                self.assertEqual((shown, steps), ([], []))
+        analysis_service._live_text(lambda text: 1 / 0)(b"Tx")
+
+
+class WebProgressTests(unittest.TestCase):
+    def test_searches_results_and_writing_are_counted_without_their_content(self):
+        steps = []
+        stream = answer_stream.ClaudeStream(on_status=lambda code, number: steps.append((code, number)))
+        search = {"type": "assistant", "session_id": "s", "message": {"content": [
+            {"type": "text", "text": "secret query text"},
+            {"type": "tool_use", "id": "a", "name": "WebSearch", "input": {"query": "q"}}]}}
+        result = {"type": "user", "session_id": "s", "message": {"content": [{"type": "tool_result", "tool_use_id": "a"}]}}
+        kept = stream(json.dumps(search).encode() + b"\n" + delta("early") + json.dumps(result).encode() + b"\n")
+        kept += stream(delta('{"answer":"x') + delta("y"))
+        kept += stream(None)
+        self.assertEqual(steps, [("search", 1), ("results", 1), ("writing", 0)])
+        self.assertEqual(kept.count(b"\n"), 2)                  # both kept events stay for the final checks
+        self.assertEqual(answer_stream.STATUS, ("search", "results", "writing"))
+
+    def test_a_web_transcript_with_partial_events_passes_its_checks_only_after_the_filter(self):
+        from test_web_search_result import stream as web_stream, web_events
+        from ai_desktop.web_search_result import web_text
+        events = web_events()
+        answer = events[-1]["result"]
+        deltas = [{"type": "stream_event", "session_id": events[0]["session_id"], "event": {
+            "type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": answer[i:i + 7]}}}
+            for i in range(0, len(answer), 7)]
+        raw = web_stream(events[:-2] + deltas + events[-2:])
+        with self.assertRaises(AnalysisDenied):
+            web_text(raw)                                        # unfiltered, the events are not part of the contract
+        steps, shown = [], []
+        stream = answer_stream.ClaudeStream(on_status=lambda code, number: steps.append(code))
+        kept = stream(raw) + stream(None)
+        self.assertIn("Python to język programowania", str(web_text(kept)))
+        self.assertEqual(steps, ["search", "results", "writing"])
+
+    def test_malformed_or_other_events_report_nothing(self):
+        steps = []
+        stream = answer_stream.ClaudeStream(on_status=lambda code, number: steps.append(code))
+        stream(b'{"type":"assistant","message":{"content":"tool_use"}}\n'
+               b'{"type":"tool_result" broken\n'
+               b'{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash"}]}}\n')
+        stream(None)
+        self.assertEqual(steps, [])
+
+    def test_the_waiting_indicator_shows_fixed_labels(self):
+        from ai_desktop import terminal_progress
+        indicator = terminal_progress.WaitingIndicator()
+        with self.assertRaises(ValueError):
+            indicator.status("free text")
+        with self.assertRaises(ValueError):
+            indicator.status("search", 100)
+        indicator.status("search", 1)                            # not drawing: ignored
+        indicator._enabled, indicator._started = True, 0.0
+        with patch.object(indicator, "_paint") as paint:
+            indicator.status("search", 2)
+            self.assertIn("Searching the web (2)", indicator._label)
+            indicator.status("writing")
+            self.assertTrue(indicator._label.endswith("Writing the answer"))
+        self.assertEqual(paint.call_count, 2)
 
 
 class ClaudeCommandTests(unittest.TestCase):
-    def test_ordinary_analysis_asks_for_partial_messages_and_web_does_not(self):
+    def test_analysis_and_web_ask_for_partial_messages(self):
         self.assertIn("--include-partial-messages", analysis_sandbox.client_command("analyze"))
-        self.assertNotIn("--include-partial-messages", analysis_sandbox.client_command("web"))
+        self.assertIn("--include-partial-messages", analysis_sandbox.client_command("web"))
         self.assertEqual(analysis_sandbox.LIVE_MODES, {"assistant": True, "question": False})
 
 

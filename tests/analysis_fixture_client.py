@@ -60,9 +60,15 @@ def web_events(mode="success"):
          "tool_use_result": {"query": "Python stable release", "durationSeconds": 0.1, "searchCount": 1,
              "results": [] if mode == "web-no-results" else [
                  {"tool_use_id": "backend-web", "content": [{"title": "Python downloads", "url": url}]}]}},
-        {"type": "result", "session_id": "web-ci", "subtype": "success", "is_error": False,
-         "num_turns": 2, "permission_denials": [], "result": json.dumps(result)},
     ]
+    # `--include-partial-messages`: the answer arrives in text deltas too. The supervisor drops them, and a web answer is
+    # never previewed, so a refused transcript (forged source, foreign tool) must not reach the terminal through them.
+    text = json.dumps(result)
+    for start in range(0, len(text), 16):
+        records.append({"type": "stream_event", "session_id": "web-ci", "parent_tool_use_id": None, "event": {
+            "type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": text[start:start + 16]}}})
+    records.append({"type": "result", "session_id": "web-ci", "subtype": "success", "is_error": False,
+                    "num_turns": 2, "permission_denials": [], "result": text})
     return records
 
 

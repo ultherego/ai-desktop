@@ -2,7 +2,8 @@
 
 The caller starts it only AFTER managed_session has finished authorization.
 It is stopped before returning to another prompt or rendering an answer.
-It reports the request phase, not tool events, token progress or completion %.
+It reports the request phase and, for a web search, fixed progress labels with a count; never model text,
+token progress or completion %.
 """
 import os
 import sys
@@ -21,6 +22,9 @@ LABELS = {
     "cleanup": "Ending the session",
     "task": "Claude is working",
 }
+# Web search progress reported by the service: fixed labels and a count, never model text.
+STATUS_LABELS = {"search": "Searching the web (%d)", "results": "Reading search results (%d)",
+                 "writing": "Writing the answer"}
 INTERVAL = 0.3
 CLEAR_LINE = "\r\x1b[2K"
 
@@ -33,6 +37,7 @@ class WaitingIndicator:
         # ContextVars are not inherited by the animation thread. Capture the
         # controller's validated task recipient before creating any thread.
         name = recipient(config=config)
+        self._name = name
         self._labels = {phase: (name + " is working" if phase == "task" else name + ": " + text)
                         for phase, text in LABELS.items()}
         self._enabled = False
@@ -72,6 +77,17 @@ class WaitingIndicator:
                 self._stop.set()
             else:
                 self._thread = thread
+
+    def status(self, code, number=0):
+        """Replace the phase label with web search progress; ignored before a phase starts or after stop."""
+        if code not in STATUS_LABELS or type(number) is not int or not 0 <= number <= 99:
+            raise ValueError("unknown status")
+        if not self._enabled or self._closed or self._started is None:
+            return
+        text = STATUS_LABELS[code] % number if "%d" in STATUS_LABELS[code] else STATUS_LABELS[code]
+        with self._lock:
+            self._label = self._name + ": " + text
+        self._paint()
 
     def _paint(self):
         with self._lock:

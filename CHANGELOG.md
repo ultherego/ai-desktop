@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-123: web search progress
+
+- While Claude searches the web, the waiting line shows what it is doing: "Searching the web (1)", "Reading search results (1)", "Writing the answer". The answer itself still appears only after its sources are checked, so an answer with sources the search did not return is never shown.
+
 ## 0.1.0-122: the answer while it is written
 
 - In a conversation with Claude the answer appears paragraph by paragraph while it is being written, instead of all at once at the end. The checked final answer still decides; if it differs from what was shown, the program says so and prints it whole.
