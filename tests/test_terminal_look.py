@@ -247,6 +247,19 @@ class LiveInputTests(unittest.TestCase):
                     owner._feed(bytes([byte]))
                 self.assertEqual(owner._answer.text, "yes")
 
+    def test_a_slow_end_of_an_earlier_paste_is_still_dropped(self):
+        owner = self.owner(None)
+        for byte in "\x1b[200~ye".encode():
+            owner._feed(bytes([byte]))
+        self.question(owner)
+        owner._feed(b"s")
+        self.assertEqual(owner._sequence[0], "stale")
+        self.assertGreater(owner._QUIET["stale"], owner._QUIET["discard"])   # a pause longer than a paste's own
+        for byte in b"more\x1b[201~":
+            owner._feed(bytes([byte]))
+        self.assertIsNone(owner._sequence)
+        self.assertEqual(owner._answer.text, "")
+
     def test_a_cut_key_or_character_is_abandoned_and_typing_after_the_question_counts_at_once(self):
         for begun in (b"\x1bO", "ż".encode()[:1]):
             with self.subTest(begun=begun):

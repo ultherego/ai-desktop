@@ -109,7 +109,9 @@ class HostSocketPolicyTests(ChangeBase):
             if expected is None:
                 self.assertIsNone(views[0])
             else:
-                with patch.object(command_ops.shutil, "which", return_value="/usr/bin/bwrap"):
+                # Whatever this machine has under /run: the socket is a stand-in here.
+                with patch.object(command_ops.shutil, "which", return_value="/usr/bin/bwrap"), \
+                        patch.object(command_ops, "is_socket", return_value=True):
                     self.assertEqual(bound(views[0]("/usr/bin/uname", ["uname", "-s"]))[-1], expected[0])
 
 

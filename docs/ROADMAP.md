@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** CachyOS check of candidate 127 (an ordinary answer is never printed twice; web searches answer with their sources), then Codex deltas, then Codex deltas, then the S9 task flow with fewer approvals and task continuity, and a real Codex request under the client's system-call filter (candidate 114) once the maintainer's Codex limit resets. S0 and S7 remain deferred.
+**Next step:** CachyOS check of candidate 128 (consent questions, a `/` menu left open at the end of an answer, live answers, trash), then the legacy executor finding 2, then Codex answers while they are written (test after the maintainer's Codex limit resets around 2026-11-12, together with the real Codex request under the client's system-call filter from candidate 114), then one native client session per conversation (S2), then the S9 task flow. S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -260,6 +260,21 @@ Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaini
 ## Progress log
 
 Earlier dated entries preserve the evidence and status at that point. The latest entry supersedes historical pending/next-step statements.
+
+### 2026-11-08 — Candidate 128: external review findings
+
+An external review of `main` at `7c77ff9` (candidate 127) reported five release blockers and two smaller regressions. Each was checked in the code before any change; all were confirmed, three of them (4, 6a, 6b) as regressions of the live-answer work. The reviewer then checked the repair plan and added four refinements and two factual corrections, applied below. Fixed in this order, each with a regression test that fails on the old code where a test can show it:
+
+- **6a** `live_answer.feed` stopped at a `@@MEMORY` line before counting the blocks it had just shown, so `finish` printed them again; each shown block is now counted as it is shown.
+- **6b** the stream filter bounded one line at 4 MiB, below what the workspace result path keeps. The bound is now the caller's limit for the whole kept output in encoded bytes (1 MiB, 512 KiB for web, 108 MiB for a workspace task), so a JSON-escaped result record near the decoded result limit is never refused by the filter before the result checks.
+- **3** the trash room was checked before the workspace lock only; two deletions could make 129 journals and the whole recovery list unreadable. It is rechecked under the lock. The `task restore` pre-check added in `8166aec` (candidate 119) read the whole list; it now looks up the one journal name (`workspace_trash.known`).
+- **5** a turn records at most 64 change facts and silently dropped more, while up to 128 command rounds are allowed. A change (4 facts), write or deletion is no longer started when the record could not hold it; reads are unaffected.
+- **1b** `TypeAhead.stop` gave the terminal back after 2 s even when a `/` menu opened during the turn was still reading; the menu then restored raw mode over the next prompt. `stop` now gives the terminal back only after the reader has ended. The reviewer suggested interrupting the menu instead; it is kept open on purpose, because the maintainer decided that a `/` menu opened during a turn stays usable and its choice applies after the answer. The answer is printed before `stop`, so the user sees it and closes the menu.
+- **7** the installer test linked the real DMS widget on a machine with DMS; the socket policy test and the read-command socket test depended on host sockets (the reviewer showed the latter failing without `/run/docker.sock`). All are isolated.
+- **4** a live-text frame was a header record plus a body record; a timeout between them left half a frame in front of the response, which failed as `input` and ended the conversation (reproduced by the reviewer with a delayed receiver). A live frame is now one `SOCK_SEQPACKET` record (`send_partial`), queued whole or not at all; the receiver accepts a one-record live frame or a response header and no longer accepts a two-record live frame. A deterministic test checks one send per frame; a stalled-socket test checks that the response still arrives whole after the preview stops.
+- **1a** a consent question flushed the kernel input queue, but a paste the reader had already begun was completed into the answer field (reproduced on the old code: the field read `yes`). A question now starts a new input generation; a paste begun earlier, or an escape that may still become one, is dropped up to its end marker with a 30 s quiet limit instead of 2 s, so a slow end of that paste is not read as the answer; a cut key or character is abandoned.
+- Not changed yet: **2**, the legacy `ai-desktop workspace` executor can leave a file under `.ai-desktop-retire-*` if the process dies between two system calls; a repair (not a withdrawal of the command) follows separately.
+- **READY FOR TEST**, candidate **0.1.0-128**.
 
 ### 2026-11-08 — Candidate 123: web search progress (S2)
 

@@ -206,7 +206,9 @@ class TypeAhead:
     # One byte at a time, never a blocking read of "the rest": an escape sequence, a paste or a multi-byte character
     # is collected across loop rounds, so a pause or stop is honoured within one round. Whatever is unfinished when
     # the keyboard is handed over is dropped, never completed with keys typed for someone else.
-    _QUIET = {"escape": 0.15, "char": 0.15, "paste": 2.0, "discard": 2.0}
+    # "stale" is a paste begun before a consent question: it ends only at its end marker or after a long quiet, so a
+    # slow end of that paste is never read as the answer.
+    _QUIET = {"escape": 0.15, "char": 0.15, "paste": 2.0, "discard": 2.0, "stale": 30.0}
 
     def _run(self):
         self._sequence, self._sequence_at = None, 0.0
@@ -241,16 +243,16 @@ class TypeAhead:
         if sequence is not None and self._sequence_epoch != self._epoch:
             # Begun before a consent question appeared: never completed into the answer. A paste (or an escape that
             # may still become one) is dropped up to its end marker; a cut key or character is just abandoned.
-            pasting = sequence[0] in ("paste", "discard") or (
+            pasting = sequence[0] in ("paste", "discard", "stale") or (
                 sequence[0] == "escape" and _PASTE_START.startswith(bytes(sequence[1])))
-            sequence = self._sequence = ("discard", bytearray()) if pasting else None
+            sequence = self._sequence = ("stale", bytearray()) if pasting else None
             self._sequence_epoch = self._epoch
         if sequence is not None:
             kind, buffer = sequence[0], sequence[1]
             self._sequence_at = time.monotonic()
-            if kind == "discard":                      # an oversized paste: wait for its end, keep nothing
+            if kind in ("discard", "stale"):          # an oversized or an earlier paste: wait for its end, keep nothing
                 tail = (buffer + value)[-len(_PASTE_END):]
-                self._sequence = None if tail == _PASTE_END else ("discard", tail)
+                self._sequence = None if tail == _PASTE_END else (kind, tail)
                 return
             buffer.extend(value)
             if kind == "paste":
