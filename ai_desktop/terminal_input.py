@@ -73,6 +73,7 @@ class TypeAhead:
         # Input generation: a consent question starts a new one. A key sequence (an escape, a paste, a multi-byte
         # character) begun in an earlier generation is never completed into the answer.
         self._epoch, self._sequence_epoch = 0, 0
+        self._picker = None                        # a `/` menu open in the list above the band
         self._thread = None
         self._output = None
 
@@ -107,10 +108,14 @@ class TypeAhead:
                 cursor = len(self._question) + 1 + self._answer.cursor
             else:
                 text, cursor = self.line.text, self.line.cursor
-            found = self._matches() if self._question is None else ()
-            self.pick = min(self.pick, max(0, len(found) - 1))
-            self.frame.show_commands(found, self.pick)
-            self.frame.note = self._note()
+            if self._picker is not None and self._question is None:
+                self.frame.show_commands(self._picker.rows(), self._picker.pick)
+                self.frame.note = self._picker.note()
+            else:
+                found = self._matches() if self._question is None else ()
+                self.pick = min(self.pick, max(0, len(found) - 1))
+                self.frame.show_commands(found, self.pick)
+                self.frame.note = self._note()
             self.frame.draw(text, cursor, typing=False)
 
     def _matches(self):
@@ -152,9 +157,48 @@ class TypeAhead:
             self.stream.flush()
         return self.line.text, list(self.queue)
 
+    def run_picker(self, picker):
+        """A `/` menu in the list above the band, driven by this reader (called from it through the resolver). It
+        yields the keyboard like the reader itself: to a lease (sudo) and to a consent question in the band, and comes
+        back afterwards. The end of the turn waits for it (the owner decided an open menu stays usable)."""
+        with self.lock:
+            self._picker = picker
+        self.draw()
+        try:
+            while True:
+                if self._pause.is_set():
+                    self._paused.set()
+                    while self._pause.is_set():
+                        self._stop.wait(0.02)
+                    self._paused.clear()
+                    self.draw()
+                    continue
+                if not select.select([self.fd], [], [], 0.02)[0] or self._pause.is_set():
+                    continue
+                value = os.read(self.fd, 1)
+                if not value:
+                    return None
+                if self._question is not None:         # the answer to a consent question goes to the band
+                    try:
+                        self._feed(value)
+                    except (QuestionInputError, KeyboardInterrupt, EOFError, UnicodeError, ValueError):
+                        self._sequence = None
+                    self.draw()
+                    continue
+                from .overlay_menu import key_of
+                finished, answer = picker.key(key_of(self.fd, value))
+                if finished:
+                    return answer
+                self.draw()
+        finally:
+            with self.lock:
+                self._picker = None
+            self.draw()
+
     @contextmanager
     def lease(self):
-        """The keyboard and the terminal for someone else (sudo, a menu): no key reaches the draft meanwhile."""
+        """The keyboard and the terminal for someone else (sudo, a menu): no key reaches the draft meanwhile.
+        An open `/` menu pauses too and comes back after it."""
         self._pause.set()
         alive = self._thread is not None and self._thread.is_alive()
         if alive and not self._paused.wait(timeout=2):
@@ -322,10 +366,9 @@ class TypeAhead:
                 items = [text]
                 if self.resolver is not None and text[:1] == "/":
                     try:
-                        items = self.resolver(text)  # a menu opens now; its choice, or the whole command, waits
+                        items = self.resolver(text)  # a menu opens above the band; its choice, or the command, waits
                     except Exception:           # a failing menu must not lose what was typed
                         items = [text]
-                    sys.stdout.write("\x1b[?2004h")    # a menu turns bracketed paste off when it closes
                     for item in items:
                         print(_note("%s \u00b7 after the answer" % getattr(item, "label", item)))
                 self.queue.extend(items)
@@ -341,6 +384,11 @@ class TypeAhead:
 def _note(text):
     from .terminal_style import paint
     return paint("  \u203a " + text, "muted")
+
+
+def current():
+    """The live input of the running turn, or None."""
+    return _current
 
 
 def start(frame, stream, resolver=None, commands=()):
