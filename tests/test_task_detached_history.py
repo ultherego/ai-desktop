@@ -107,6 +107,16 @@ class DetachedHistoryTests(unittest.TestCase):
             call.assert_not_called()
         self.assertEqual(self.preserved(), before)
 
+    def test_detached_finished_history_can_be_pruned_without_touching_the_file(self):
+        self.detach()
+        record = w.recovery_records(str(self.root))[0]
+        self.assertTrue(record['prunable'])
+        content = self.target.read_bytes()
+        self.assertEqual(w.prune(str(self.root), {self.plan.sha256: record['journal_sha256']}), 1)
+        self.assertFalse(self.journal.exists())
+        self.assertEqual(self.target.read_bytes(), content)
+        self.assertEqual(w.recovery_records(str(self.root)), [])
+
     def test_unfinished_records_block_even_with_device_only_difference(self):
         for state in ('prepared', 'conflict'):
             self.detach(status=state)

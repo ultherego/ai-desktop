@@ -147,7 +147,7 @@ class TaskWorkspaceTests(unittest.TestCase):
         expected = {"plan": plan.sha256, "status": "applied",
                     "files": [{"path": "calc.py", "action": "restore"},
                               {"path": "new.txt", "action": "remove"}],
-                    "journal_sha256": workspace.sha(canonical(json.loads(raw)).encode("utf-8"))}
+                    "journal_sha256": workspace.sha(canonical(json.loads(raw)).encode("utf-8")), "prunable": True}
         records = workspace.recovery_records(str(self.root))
         self.assertAlmostEqual(records[0].pop("modified"), modified / 1e9, places=3)   # float rounding differs per platform
         self.assertEqual(records, [expected])

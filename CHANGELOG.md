@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-119: `task prune`
+
+- `ai-desktop task prune --workspace DIRECTORY` removes finished history entries you choose from a list: saved and undone tasks, finished conflicts, unlinked history and fully restored deletions. It asks separately and never changes project files. Unfinished saves and deletions still in the trash always stay. Before, at the limit of 128 entries per directory the history had to be cleaned by hand.
+- At that limit the message now names this command. `task status` showed an internal error there instead.
+
 ## 0.1.0-118: `max` reasoning's long event stream
 
 - The Claude client's event stream may now hold up to 4096 events (it was 128). With `max`, long thinking produces many events, and the finished answer was refused as `result`. The stream stays limited to 1 MiB.

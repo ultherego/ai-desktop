@@ -96,7 +96,7 @@ Working and merged at `dd2daec3045c41662a722f4c6a3485dea14dd196` (PR #18, packag
 | Merging the duplicated `material` and `project` flows, shared text validation and smaller orchestration functions | TODO — preserve the complete task flow and refusal behavior |
 | Codex login/logout false error after a successful operation | TODO — reproduce and distinguish native exit status from verified account state |
 | Keep current documentation aligned with code and archive obsolete acceptance instructions | IN PROGRESS — candidate 82 documents the client runtime, registration, diagnosed failures and successful offline host acceptance in the sole roadmap |
-| `task prune` with a list of entries and consent | to do |
+| `task prune` with a list of entries and consent | done — candidate 119: `ai-desktop task prune --workspace DIR` lists only finished entries (saved with no stage left, undone, settled conflict, unlinked history, fully restored deletion), takes numbers or `all` and a separate consent, and re-checks each entry under the lock against the hash shown; unfinished saves, conflicts with stages left and deletions still in the trash always stay |
 | One client session per conversation, streaming answers | to do — follow-up S2; lifecycle and revocation checks required |
 
 ## Agreed follow-up scope — 2026-11-06
@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** CachyOS check of candidate 118 (`max` asked to list everything), and a real Codex request under the client's system-call filter (candidate 114) once the maintainer's Codex limit resets. S0 and S7 remain deferred.
+**Next step:** CachyOS check of candidate 119 (`task prune` on a real project directory), then merging the duplicated `material` and `project` flows (Stage 6), and a real Codex request under the client's system-call filter (candidate 114) once the maintainer's Codex limit resets. S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -260,6 +260,11 @@ Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaini
 ## Progress log
 
 Earlier dated entries preserve the evidence and status at that point. The latest entry supersedes historical pending/next-step statements.
+
+### 2026-11-08 — Candidate 119: `task prune`
+
+- Candidate 118 passed on CachyOS: the same `max` question that listed everything after 55 commands now returns the full answer.
+- **READY FOR TEST**, candidate **0.1.0-119**: `ai-desktop task prune --workspace DIR` (Stage 6). Before, the limit of 128 saved tasks or deletions per directory could only be cleared by hand. The command lists only finished entries; an entry is finished when nothing is left to recover: a saved task with every file published and no stage left, an undone task, a conflict with no stage left, unlinked (detached) history, or a deletion whose files are all restored and whose stash is gone. The owner picks numbers or `all`, sees that a removed saved task can no longer be undone and that project files are not changed, and confirms separately; the choice expires after 180 s. Under the directory lock each record is re-read, must match the SHA-256 shown and still be finished, or nothing is removed. A record is moved aside to a `.pending-` name, its identity compared, and only then unlinked; a replaced record goes back. Unfinished saves, conflicts with stages left and deletions still in the trash are never removed: pruning never deletes user files. The limit messages of `task`, `project` and `ask` now name the command. Tests: `tests/test_task_prune.py` (engine and terminal flow) and the detached-history case in `test_task_detached_history`. Fixed on the way: `task status` with a full history failed with `UnboundLocalError` instead of the limit message, because of a local import.
 
 ### 2026-11-08 — Candidate 118: `max` stream events and named result checks
 
