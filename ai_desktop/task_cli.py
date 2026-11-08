@@ -305,7 +305,7 @@ def show_record(record, number=None, *, details=False):
 def restore_deleted(args, reader):
     """Undo one deletion made by `ai-desktop project`: files return only to free names, never over newer files."""
     from . import workspace_trash
-    if not any(record["plan"] == args.plan for record in workspace_trash.recovery_records(args.workspace)):
+    if not workspace_trash.known(args.workspace, args.plan):
         raise ValueError("unknown plan")
     print("Restoring files deleted in: " + json.dumps(args.workspace, ensure_ascii=False))
     print("Files go back only where the name is free; nothing will be overwritten.")

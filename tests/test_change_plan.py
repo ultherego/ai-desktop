@@ -1,4 +1,6 @@
 """A change on the live system: strong consent for the exact change, its test and its undo; undo only after a second yes."""
+import contextlib
+import io
 import os as _os
 _os.environ.setdefault("AI_DESKTOP_MODEL_CATALOG", "off")
 import json
@@ -201,6 +203,31 @@ class ChangeFlowTests(ChangeBase):
         self.facts([change(["systemctl", "stop", "foo.service"], STATUS, REVERT), ANSWER_PLAN])
         self.assertEqual(self.calls, [])
         self.assertEqual(self.steps()[0]["status"], "not-allowed")
+
+    def test_a_change_is_not_run_when_this_turns_record_could_not_hold_it(self):
+        with cs.recording() as recorder:
+            for index in range(cs.CHANGE_FACTS - 2):
+                cs.note_action("Change earlier-%d: ok, code 0" % index)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.run_flow([change(RESTART, STATUS, REVERT), ANSWER_PLAN])
+        self.assertEqual(self.calls, [])                          # nothing ran on the host
+        self.assertIn("record of changes is full", out.getvalue())
+        self.assertEqual(len(recorder.actions), cs.CHANGE_FACTS - 2 + 1)    # the refusal itself is recorded
+        with cs.recording():
+            self.assertTrue(cs.change_room(cs.CHANGE_FACTS))
+            self.assertFalse(cs.change_room(cs.CHANGE_FACTS + 1))
+            for _ in range(20):
+                cs.note_action("Command ls: ok", read=True)
+            self.assertTrue(cs.change_room(cs.CHANGE_FACTS))          # reads never take a change's place
+        self.assertTrue(cs.change_room(10 ** 6))                      # outside a turn there is no record to fill
+        from ai_desktop import assistant_flow
+        with cs.recording(), contextlib.redirect_stdout(io.StringIO()) as said:
+            self.assertFalse(assistant_flow._record_full())
+            for index in range(cs.CHANGE_FACTS):
+                cs.note_action("Change earlier-%d: ok, code 0" % index)
+            self.assertTrue(assistant_flow._record_full())        # a write or deletion is not started
+        self.assertIn("record of changes is full", said.getvalue())
 
     def test_there_must_be_room_for_change_test_and_undo_before_anything_is_changed(self):
         self.write_policy("command_rounds = 2\n")

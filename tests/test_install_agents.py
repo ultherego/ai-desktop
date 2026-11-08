@@ -55,6 +55,9 @@ class SystemInstallTests(unittest.TestCase):
         self.run.assert_not_called()
 
     def install_context(self):
+        # The widget link is the owner's real DMS configuration: never touched by a test.
+        from ai_desktop import desktop_widget
+        self.widget = self.enterContext(patch.object(desktop_widget, "install", return_value="no-dms"))
         self.enterContext(patch.object(install.sys.stdin, "isatty", return_value=True))
         self.enterContext(patch.object(self.stdout, "isatty", return_value=True))
         self.enterContext(patch.object(Path, "is_file", return_value=True))
@@ -85,6 +88,7 @@ class SystemInstallTests(unittest.TestCase):
         self.run.assert_called_once()
         self.assertIn("ai-desktop clients register claude", self.stdout.getvalue())
         self.assertIn("explicit registration is required", self.stdout.getvalue())
+        self.widget.assert_called_once_with()                     # the link step runs, but against a stand-in
 
     def test_app_only_installation_never_uses_or_rechecks_provider_payload(self):
         self.install_context()

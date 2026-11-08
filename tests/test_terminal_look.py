@@ -224,6 +224,30 @@ class LiveInputTests(unittest.TestCase):
         self.type(owner, "/model\r")
         self.assertEqual(owner.queue, ["/model"])
 
+    def test_the_end_of_a_turn_waits_for_a_menu_still_open_before_giving_the_terminal_back(self):
+        import threading, time
+        owner = self.owner(None)
+        menu_open = threading.Event()
+        closed = threading.Event()
+
+        def reader():                                             # a menu reading the keyboard until it is closed
+            menu_open.set()
+            closed.wait(5)
+        owner._thread = threading.Thread(target=reader, daemon=True)
+        owner._thread.start()
+        menu_open.wait(2)
+        from types import SimpleNamespace
+        owner.frame = SimpleNamespace(busy=owner, note="")
+        restored = []
+        with patch.object(owner, "_cooked", side_effect=lambda: restored.append(owner._thread.is_alive())):
+            stopper = threading.Thread(target=owner.stop, daemon=True)
+            stopper.start()
+            time.sleep(2.5)                                       # longer than the old 2-second limit
+            self.assertEqual(restored, [])                        # the terminal is not given back yet
+            closed.set()
+            stopper.join(5)
+        self.assertEqual(restored, [False])                       # given back once, after the reader ended
+
     def test_a_lease_is_refused_when_the_live_input_does_not_confirm_its_pause(self):
         owner = self.owner(None)
         owner._thread = type("Busy", (), {"is_alive": lambda self: True})()

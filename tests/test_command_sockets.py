@@ -70,6 +70,8 @@ class SandboxRunTests(unittest.TestCase):
 
 class HostSocketPolicyTests(ChangeBase):
     def test_the_option_is_empty_by_default_and_lists_only_run_paths(self):
+        # Independent of what exists on this machine: a missing path is allowed, so pretend these do not exist.
+        self.enterContext(patch.object(permissions.os.path, "lexists", return_value=False))
         self.write_policy()
         self.assertEqual(permissions.load_policy().host_sockets(), ())
         self.share_line = 'host_sockets = ["/run/docker.sock", "/run/example-daemon.sock"]\n'

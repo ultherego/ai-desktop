@@ -593,10 +593,12 @@ def run_client(action, report=b"", *, cancelled=None, mode="analysis", partial=N
                     from .answer_stream import ClaudeStream
                     if action == "analyze":
                         live = partial if mode in LIVE_MODES else None
-                        options.update(stdout_filter=ClaudeStream(live, json_answer=LIVE_MODES.get(mode, True)),
+                        options.update(stdout_filter=ClaudeStream(live, json_answer=LIVE_MODES.get(mode, True),
+                                                                  max_line=kept),
                                        raw_limit=max(STREAM_RAW_LIMIT, kept))
                     else:
-                        options.update(stdout_filter=ClaudeStream(on_status=status), raw_limit=max(STREAM_RAW_LIMIT, kept))
+                        options.update(stdout_filter=ClaudeStream(on_status=status, max_line=kept),
+                                       raw_limit=max(STREAM_RAW_LIMIT, kept))
                     code, out, errors = _bound_run(bound, action, directory, online=True, **options,
                                                        input_bytes=report, timeout=request_seconds(request_effort(report)),
                                                        limit=kept, input_limit=MAX_PACKET_LARGE, cancelled=cancelled)

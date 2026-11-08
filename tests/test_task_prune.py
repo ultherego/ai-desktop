@@ -132,6 +132,24 @@ class PruneEngineTests(unittest.TestCase):
         self.assertEqual(trash.recovery_records(self.ws), [])
         self.assertEqual((self.root / "gone.txt").read_text(), "keep me\n")
 
+    def test_restore_by_id_does_not_read_the_whole_history_and_room_is_rechecked_under_the_lock(self):
+        (self.root / "one.txt").write_text("one\n")
+        prepared = trash.prepare(self.ws, ["one.txt"])
+        deletion = trash.execute(prepared, prepared.authorize())
+        with patch.object(trash, "recovery_records", side_effect=ValueError("trash journal count")):
+            self.assertTrue(trash.known(self.ws, deletion))       # one name only, not the list
+        self.assertFalse(trash.known(self.ws, "f" * 32))
+        self.assertFalse(trash.known(self.ws, "not an id"))
+        (self.root / "two.txt").write_text("two\n")
+        prepared = trash.prepare(self.ws, ["two.txt"])            # room at the first check
+        full = [{}] * tw.MAX_JOURNALS
+        with patch.object(trash, "recovery_records", side_effect=[[], full]) as listed, \
+                self.assertRaises(trash.TrashFull):
+            trash.execute(prepared, prepared.authorize())          # another deletion took the last entry meanwhile
+        self.assertEqual(listed.call_count, 2)                     # the second look is the one under the lock
+        self.assertEqual((self.root / "two.txt").read_text(), "two\n")
+        self.assertEqual(len(trash.recovery_records(self.ws)), 1)
+
     def test_trash_prune_refuses_a_task_plan_id(self):
         with self.assertRaisesRegex(ValueError, "prune approval"):
             trash.prune(self.ws, {"a" * 64: "b" * 64})
@@ -194,7 +212,7 @@ class PruneCliTests(unittest.TestCase):
 
     def test_restore_of_an_unknown_id_is_refused_before_the_consent(self):
         args = SimpleNamespace(workspace="/tmp/project", plan="a" * 32, details=False)
-        with patch.object(trash, "recovery_records", return_value=[{"plan": "b" * 32}]), \
+        with patch.object(trash, "known", return_value=False), \
                 patch.object(cli, "confirm") as confirm, patch.object(trash, "restore") as restore, \
                 contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(ValueError, "unknown plan"):
             cli.restore_deleted(args, lambda prompt: "y")

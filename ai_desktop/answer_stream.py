@@ -160,8 +160,11 @@ class ClaudeStream:
     """A `stdout_filter` for the client's output: keeps every line except partial-message events, whose text deltas
     build the live preview. `json_answer` selects the answer-action contract; otherwise the text is shown as written."""
 
-    def __init__(self, on_text=None, *, json_answer=True, on_status=None, clock=time.monotonic):
+    def __init__(self, on_text=None, *, json_answer=True, on_status=None, clock=time.monotonic, max_line=MAX_LINE):
+        """`max_line` bounds one unfinished line; callers pass the limit of what they keep, so this filter never refuses
+        a result the following checks would accept."""
         self._on_text, self._json, self._clock = on_text, json_answer, clock
+        self._max_line = max_line
         self._pending = bytearray()
         self._parts, self._size, self._sent, self._last = [], 0, 0, None
         self._stopped = on_text is None
@@ -182,7 +185,7 @@ class ClaudeStream:
             line = bytes(self._pending[:end])
             del self._pending[:end + 1]
             kept.extend(self._line(line))
-        if len(self._pending) > MAX_LINE:
+        if len(self._pending) > self._max_line:
             raise AnalysisDenied("result", diagnostic="claude-stream-size")
         self._emit()
         return bytes(kept)
@@ -253,10 +256,10 @@ class ClaudeStream:
             self._on_text(piece)
 
 
-def complete_blocks(text):
-    """Split live text into Markdown blocks that are finished (followed by a blank line, outside a code fence).
-    Returns (blocks, consumed): the blocks and how many characters of `text` they cover."""
-    blocks, start, position, fence = [], 0, 0, None
+def block_ends(text):
+    """Finished Markdown blocks (followed by a blank line, outside a code fence) with the offset just after each, so a
+    caller can count exactly what it showed. The last, unfinished piece is never included."""
+    found, start, position, fence = [], 0, 0, None
     for line in text.split("\n")[:-1]:                 # the last piece may still grow
         stripped = line.strip()
         if fence is None and stripped[:3] in ("```", "~~~"):
@@ -267,6 +270,23 @@ def complete_blocks(text):
         if fence is None and stripped == "":
             block = text[start:position].strip("\n")
             if block.strip():
-                blocks.append(block)
+                found.append((block, position))
             start = position
-    return blocks, start
+    return found
+
+
+def complete_blocks(text):
+    """Split live text into Markdown blocks that are finished. Returns (blocks, consumed): the blocks and how many
+    characters of `text` they cover (blank lines between them included)."""
+    found = block_ends(text)
+    consumed, start, position, fence = 0, 0, 0, None
+    for line in text.split("\n")[:-1]:
+        stripped = line.strip()
+        if fence is None and stripped[:3] in ("```", "~~~"):
+            fence = stripped[:3]
+        elif fence is not None and stripped.startswith(fence):
+            fence = None
+        position += len(line) + 1
+        if fence is None and stripped == "":
+            consumed = position
+    return [block for block, _ in found], consumed

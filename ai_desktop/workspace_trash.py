@@ -209,6 +209,9 @@ def execute(prepared, authorization):
         fcntl.flock(root, fcntl.LOCK_EX | fcntl.LOCK_NB)
         if tw.identity(os.fstat(root)) != before["root"]:
             raise ValueError("changed root")
+        # Again under the lock: another deletion may have taken the last free entry since the first check, and a
+        # 129th journal would make the whole recovery list unreadable.
+        _require_room(workspace)
         # Check all versions under the task lock BEFORE creating recovery state.
         if _inspect(root, [e["path"] for e in before["entries"]]) != before["entries"]:
             raise ValueError("changed approved files")
@@ -431,6 +434,29 @@ def prune(workspace, approved):
                 tw.retire(state, name, held)
             os.fsync(state)
             return len(checked)
+        finally:
+            os.close(state)
+    finally:
+        os.close(root)
+
+
+def known(workspace, plan):
+    """Whether this deletion ID has a journal here; reads that one name only, never the whole list, so a restore by ID
+    keeps working whatever the state of other entries."""
+    if type(plan) is not str or not _PLAN.match(plan):
+        return False
+    root = tw._root(workspace)
+    try:
+        try:
+            state = tw._state_dir(root)
+        except FileNotFoundError:
+            return False
+        try:
+            try:
+                os.stat(_journal_name(plan), dir_fd=state, follow_symlinks=False)
+            except FileNotFoundError:
+                return False
+            return True
         finally:
             os.close(state)
     finally:

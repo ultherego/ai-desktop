@@ -132,7 +132,11 @@ class TypeAhead:
     def stop(self):
         self._stop.set()
         if self._thread is not None:
-            self._thread.join(timeout=2)           # the loop checks the flag every round and never blocks in a read
+            # The loop checks the flag every round, but a `/` menu opened during the turn reads the keyboard itself
+            # until it is closed. The terminal is given back only after the reader has ended: a menu that closes
+            # later would otherwise restore its own (raw) mode over the next prompt and read keys meant for it.
+            while self._thread.is_alive():
+                self._thread.join(timeout=0.1)
         with self.lock:
             self.frame.busy = None
             sys.stdout = self.stream

@@ -6,7 +6,7 @@ already shown, the terminal says so and prints the whole final answer. A memory 
 from contextlib import contextmanager
 from contextvars import ContextVar
 
-from .answer_stream import complete_blocks
+from .answer_stream import block_ends
 from .conversation_memory import MARKER
 
 _CURRENT = ContextVar("ai_desktop_live_answer", default=None)
@@ -42,13 +42,13 @@ class LiveAnswer:
         if self._blocked or type(piece) is not str or not piece:
             return
         self._text += piece
-        blocks, consumed = complete_blocks(self._text[self._shown:])
-        for block in blocks:
+        base = self._shown
+        for block, end in block_ends(self._text[base:]):
             if any(line.startswith(MARKER.rstrip()) for line in block.split("\n")):
                 self._blocked = True             # the memory line comes last: nothing after it is shown live
                 return
             self._show(block)
-        self._shown += consumed
+            self._shown = base + end             # counted per block, so stopping later never shows it twice
 
     def _show(self, block):
         if not self.started:

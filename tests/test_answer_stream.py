@@ -66,6 +66,13 @@ class ClaudeStreamTests(unittest.TestCase):
         self.assertEqual(stream(delta("x") + b"not json\n"), b"not json\n")
         self.assertEqual(stream(b'{"type":"stream_event" broken\n'), b'{"type":"stream_event" broken\n')
 
+    def test_the_line_bound_follows_what_the_caller_keeps(self):
+        big = b"x" * (answer_stream.MAX_LINE + 1024)
+        stream = answer_stream.ClaudeStream(max_line=answer_stream.MAX_LINE * 2)
+        self.assertEqual(stream(big) + stream(None), big + b"\n")
+        with self.assertRaises(AnalysisDenied):
+            answer_stream.ClaudeStream(max_line=1024)(b"y" * 2048)
+
     def test_an_endless_line_is_refused_and_too_much_text_only_stops_the_preview(self):
         stream = answer_stream.ClaudeStream()
         with self.assertRaises(AnalysisDenied):
@@ -110,6 +117,12 @@ class LiveAnswerTests(unittest.TestCase):
         live.feed("One.\n\n```\npacman -V\n```\n\n@@MEMORY {\"ops\": []}")
         self.assertTrue(live.finish("One.\n\n```\npacman -V\n```"))
         self.assertEqual(lines, ["\n--\n", "<One.>", "", "<```\npacman -V\n```>"])
+
+    def test_blocks_and_a_memory_line_in_one_piece_are_shown_once(self):
+        live, lines = self.live()
+        live.feed("One.\n\nTwo.\n\n@@MEMORY {}\n\n")
+        self.assertTrue(live.finish("One.\n\nTwo."))
+        self.assertEqual(lines, ["\n--\n", "<One.>", "", "<Two.>"])
 
     def test_a_different_final_answer_is_printed_whole_with_a_note(self):
         live, lines = self.live()
