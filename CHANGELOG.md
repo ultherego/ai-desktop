@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-125: fewer refused web answers
+
+- A web answer is no longer refused (`web-answer-references`) only because one of its listed sources is not cited in the text. The source still has to come from the search; a reference to a missing source, an answer without references or an address in the text is still refused (the last now as `web-answer-url`).
+
 ## 0.1.0-124: web search progress
 
 - Candidate 123 refused web answers (`web-event-type`); this one keeps the web search as before and only shows its progress.

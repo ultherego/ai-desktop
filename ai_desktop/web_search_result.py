@@ -266,10 +266,14 @@ def _answer(raw, observed):
         check = "web-answer-provenance"
         if any(type(url) is not str or url not in observed for url in sources) or len(set(sources)) != len(sources):
             raise ValueError("invented source")
+        check = "web-answer-url"
+        if re.search(r"(?i)[a-z][a-z0-9+.-]*://|www\.|\]\(|\[[0-9]+\]:", answer):
+            raise ValueError("references")
         check = "web-answer-references"
+        # Every reference must name a listed source and at least one must be cited. A listed source the text does
+        # not cite stays in the list: its address was already proven to come from this search.
         references = {int(number) for number in re.findall(r"\[([0-9]+)\]", answer)}
-        if (references != set(range(1, len(sources) + 1))
-                or re.search(r"(?i)[a-z][a-z0-9+.-]*://|www\.|\]\(|\[[0-9]+\]:", answer)):
+        if not references or not references <= set(range(1, len(sources) + 1)):
             raise ValueError("references")
         check = "web-answer-render"
         lines = [answer, "", "Sources:"]
