@@ -15,7 +15,8 @@ import unicodedata
 
 from .report_policy import serialize_report
 from .e2_ipc import _unique_pairs
-from .analysis_diagnostics import web_diagnostic, web_empty_diagnostic, codex_diagnostic, failure_diagnostic
+from .analysis_diagnostics import (web_diagnostic, web_empty_diagnostic, claude_result_diagnostic, codex_diagnostic,
+                                   failure_diagnostic)
 from .execution import DEFAULT_LOCAL_PORT, PROVIDERS, UNSET, current as current_execution, validate as validate_execution
 from .execution import current_history, current_memory, using_history, using_memory, validate_history
 
@@ -33,6 +34,8 @@ RESPONSE_STYLE = (
     "and only when they make the answer easier to follow. Expand only on explicit request or when "
     "explaining a significant risk requires it. Do not truncate commands, code or diffs, "
     "and do not leave out necessary uncertainty or security effects. "
+    "One answer may be at most 96 KiB (about 45,000 characters with Polish letters); a longer one is refused whole. "
+    "Even when asked to list everything, put the most important first and stay well within that. "
     "These rules also apply to answer.text in an assistant plan. The summary of a workspace "
     "proposal must briefly describe the proposed change, without claiming it was saved."
 )
@@ -326,11 +329,13 @@ MAX_PACKET_LARGE = MAX_PACKET
 # smaller ceiling even when the resulting local files are much larger.
 MAX_PROPOSAL_TEXT = 4 * 1024 * 1024 + 256 * 1024
 MAX_RESPONSE_BYTES = 2 * MAX_PROPOSAL_TEXT + 65536
-MAX_ANSWER_PACKET = 128 * 1024
-# One model call. Slow reasoning (xhigh / max) gets a longer budget; every layer derives its limit from this one table:
-# the client waits REQUEST + SERVICE_MARGIN, the per-request unit and the session helper outlive that (see packaging).
+MAX_ANSWER_PACKET = 256 * 1024   # the answer packet: MAX_TEXT with JSON escaping and metadata
+# One model call. Slower reasoning gets a longer budget; every layer derives its limit from this one table: the client
+# waits REQUEST + SERVICE_MARGIN, the per-request unit and the session helper outlive the longest (see packaging).
 REQUEST_SECONDS = 110
-REQUEST_SECONDS_LONG = 900     # high reasoning can legitimately think for many minutes
+REQUEST_SECONDS_HIGH = 300     # `high` over a large discovery (dozens of command outputs) can pass two minutes
+REQUEST_SECONDS_LONG = 900     # xhigh / max can legitimately think for many minutes
+HIGH_EFFORTS = frozenset(("high",))
 LONG_EFFORTS = frozenset(("xhigh", "max"))
 SERVICE_MARGIN = 40
 # The privileged session helper stays open while the client holds the pipe, i.e. for a whole request: the longest
@@ -339,7 +344,9 @@ SESSION_SECONDS = REQUEST_SECONDS_LONG + SERVICE_MARGIN + 80
 
 
 def request_seconds(effort):
-    return REQUEST_SECONDS_LONG if effort in LONG_EFFORTS else REQUEST_SECONDS
+    if effort in LONG_EFFORTS:
+        return REQUEST_SECONDS_LONG
+    return REQUEST_SECONDS_HIGH if effort in HIGH_EFFORTS else REQUEST_SECONDS
 
 
 def request_effort(raw):
@@ -351,7 +358,7 @@ def request_effort(raw):
         return effort if type(effort) is str else None
     except (ValueError, TypeError, RecursionError):
         return None
-MAX_TEXT = 32768
+MAX_TEXT = 96 * 1024          # one answer; `max` asked to list everything can pass 32 KiB in Polish (2-byte letters)
 MAX_QUESTION_BYTES = 2048       # a one-shot or material/project question
 MAX_MESSAGE_BYTES = 128 * 1024  # one `ask` message with what was pasted into it; it travels on stdin, not in argv
 def consent_seconds(effort):
@@ -379,6 +386,7 @@ class AnalysisDenied(RuntimeError):
         # packet construction/parsing additionally bind provider/mode/reason.
         self.stage = stage if type(stage) is str and stage in STAGES else "internal"
         self.diagnostic = ((web_diagnostic(diagnostic) if self.reason == "result" else None)
+                           or (claude_result_diagnostic(diagnostic) if self.reason == "result" else None)
                            or (web_empty_diagnostic(diagnostic) if self.reason == "web-no-results" else None)
                            or codex_diagnostic(diagnostic, self.reason))
         suffix = " check=" + self.diagnostic if self.diagnostic is not None else ""

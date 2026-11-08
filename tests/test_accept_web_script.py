@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 import unittest
 
-from test_accept_candidate_script import tree_snapshot
+from accept_script_support import tree_snapshot
 
 SCRIPT = Path(__file__).resolve().parent.parent / "scripts/accept_web_candidate.fish"
 FISH = shutil.which("fish")

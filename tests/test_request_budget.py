@@ -12,11 +12,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class BudgetTests(unittest.TestCase):
-    def test_only_xhigh_and_max_get_the_long_budget(self):
-        for effort in ("default", "low", "medium", "high", None, "bogus"):
+    def test_the_budget_grows_with_the_reasoning_level(self):
+        for effort in ("default", "low", "medium", None, "bogus"):
             self.assertEqual(contract.request_seconds(effort), contract.REQUEST_SECONDS, effort)
+        self.assertEqual(contract.request_seconds("high"), contract.REQUEST_SECONDS_HIGH)
         for effort in ("xhigh", "max"):
             self.assertEqual(contract.request_seconds(effort), contract.REQUEST_SECONDS_LONG, effort)
+        self.assertLess(contract.REQUEST_SECONDS, contract.REQUEST_SECONDS_HIGH, contract.REQUEST_SECONDS_LONG)
+        self.assertLess(contract.REQUEST_SECONDS_HIGH, contract.REQUEST_SECONDS_LONG)   # every layer still outlives 900 s
 
     def test_the_effort_is_read_from_a_request_and_unreadable_input_means_the_short_budget(self):
         body = json.dumps({"mode": "assistant", "execution": {"effort": "max"}})

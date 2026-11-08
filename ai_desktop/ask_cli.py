@@ -213,7 +213,9 @@ def _explain_denied(exc, args, state):
         else:
             print("No confirmed search results came back. The question ended without an answer.")
     else:
-        print(failure_hint(exc.reason, HINTS.get(exc.reason, "Could not get an answer. Check ai-desktop status."),
+        # The reason and check are fixed codes from closed lists, safe to show, and the only clue to an unusual failure.
+        code = exc.reason + (", " + exc.diagnostic if exc.diagnostic else "")
+        print(failure_hint(exc.reason, HINTS.get(exc.reason, "Could not get an answer (%s). Check ai-desktop status." % code),
                            config=state["execution"],
                            **({"diagnostic": exc.diagnostic} if exc.diagnostic is not None else {})))
         if exc.reason == "timeout" and "sent_at" in state:
@@ -227,6 +229,14 @@ def _report_plan_error(exc, args):
     print("The model returned an invalid plan (plan-" + check + "). This plan was not carried out.")
     if args.details:
         print("ASK: REFUSED stage=plan check=" + check)
+
+
+def _refresh_status():
+    """The service, profile, model and reasoning line under the pinned input follows the current settings."""
+    from . import run_controls, terminal_frame
+    frame = terminal_frame.current()
+    if frame is not None:
+        frame.status = run_controls.label()
 
 
 def _read_message(session, followup, draft=""):
@@ -406,6 +416,7 @@ def main(argv=None, *, reader=input):
                 greeted = True
                 validate_question(question, MAX_MESSAGE_BYTES)
                 local = control(question)
+                _refresh_status()
                 if local == ask_commands.EXIT:
                     return 0
                 if local:
@@ -445,6 +456,7 @@ def main(argv=None, *, reader=input):
         while True:
             finished = False
             if reader is input:
+                _refresh_status()
                 terminal_input.start(terminal_frame.current(), sys.stdout, resolver=controls.during_turn,
                                      commands=ask_commands.COMMANDS)
             try:
@@ -541,6 +553,7 @@ def main(argv=None, *, reader=input):
                 try:
                     if pending and reader is input and isinstance(pending[0], ask_commands.Deferred):
                         pending.pop(0).run(conversation)   # a choice made in a menu during the answer, applied now
+                        _refresh_status()
                         continue
                     if pending and reader is input:
                         question = pending.pop(0)          # queued during the previous answer: sent now, in order
@@ -567,6 +580,7 @@ def main(argv=None, *, reader=input):
                 idle = 0
                 validate_question(question, MAX_MESSAGE_BYTES)
                 local = control(question)
+                _refresh_status()
                 if local == ask_commands.EXIT:
                     return code
                 if local:

@@ -29,7 +29,7 @@ The service is shared by all agents. After a service change, an agent returns to
 | Claude | `default`, `best`, `fable`, `opus`, `sonnet`, `haiku`, `opusplan` | `default`, `low`, `medium`, `high`, `xhigh`, `max` |
 | Codex | `default` or an identifier of the form `[a-z][a-z0-9._-]{0,95}` | `default`, `low`, `medium`, `high`, `xhigh` |
 
-`default` means the client's choice. Model availability depends on the account and the client: there is no automatic switch to another model or service. For `xhigh` and `max` the wait for an answer is 900 s instead of 110 s.
+`default` means the client's choice. Model availability depends on the account and the client: there is no automatic switch to another model or service. The wait for one answer is 110 s, 300 s for `high` and 900 s for `xhigh` and `max`.
 
 ## Agents
 

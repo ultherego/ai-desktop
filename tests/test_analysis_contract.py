@@ -255,3 +255,14 @@ class WebConversationTests(unittest.TestCase):
         self.assertEqual((data["mode"], data["conversation"]), ("web", history))
         self.assertNotIn("memory", data)
         self.assertIn("never put host names", contract.WEB_SYSTEM_PROMPT)
+
+
+class AnswerSizeTests(unittest.TestCase):
+    def test_a_long_answer_fits_its_packet_and_the_model_is_told_the_limit(self):
+        text = ("ąę \"x\"\n" * (contract.MAX_TEXT // 10))[:contract.MAX_TEXT // 2]   # escapes and 2-byte letters
+        while len(text.encode("utf-8")) + 2 <= contract.MAX_TEXT:
+            text += "ą"
+        packet = contract.result_packet("a" * 64, text=text, mode="assistant")
+        self.assertLessEqual(len(packet), contract.MAX_ANSWER_PACKET)
+        self.assertGreater(contract.MAX_TEXT, 32768)                         # `max` listing everything fits
+        self.assertIn("at most 96 KiB", contract.SYSTEM_PROMPT)

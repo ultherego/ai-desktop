@@ -32,6 +32,23 @@ def options(**kwargs):
                                    "preview": False, "details": False}, **kwargs))
 
 
+def gather(args, reader):
+    """What the live path does for explicit --systemd/--weather: the same collectors, then the same preview."""
+    context = []
+    if args.systemd:
+        context.extend(ask_context._systemd(args.systemd, args.systemd_state or "installed", args, reader))
+    if args.weather:
+        try:
+            item = ask_context._weather(args.weather, args, reader)
+        except ask_context.weather_context.WeatherError as exc:
+            print(ask_context.WEATHER_HINTS[exc.reason])        # as assistant_flow.collect does, before refusing
+            raise AnalysisDenied("input") from None
+        if item is not None:
+            context.append(item)
+    ask_context.preview_context(context, details=args.details)
+    return context
+
+
 def inventory(scope="system", view="enabled"):
     unit_file = view in ("enabled", "installed")
     state = {"installed": "disabled", "all": "inactive"}.get(view, view)
@@ -242,32 +259,20 @@ class AskContextTests(unittest.TestCase):
         self.confirm.assert_not_called()
         self.reader.assert_not_called()
 
-    def test_general_and_conceptual_questions_do_not_read_host_or_network(self):
-        for question in ("Wyjaśnij listy w Pythonie", "Co to pogoda?", "Jak działa temperatura?",
-                         "Jak działa systemd?", "Co to aktywne usługi systemd?",
-                         "Co oznacza enabled w systemd?", "Jakie są stany jednostek systemd?",
-                         "Jak temperatura wpływa na procesor?", "Jakie są rodzaje usług systemd?",
-                         "Czy temperatura wpływa na pogodę?"):
-            with self.subTest(question=question):
-                self.assertEqual(ask_context.prepare(question, options(), reader=self.reader), [])
-        self.assert_no_collectors()
-        self.confirm.assert_not_called()
-        self.reader.assert_not_called()
-
     def test_systemd_question_collects_requested_scope_and_state_only(self):
         self.collect.side_effect = lambda **kwargs: inventory(**kwargs)
-        cases = (("Wypisz włączone usługi systemd", [call(scope="system", view="enabled")]),
-                 ("Pokaż aktywne usługi użytkownika", [call(scope="user", view="active")]),
-                 ("Pokaż nieaktywne usługi systemd", [call(scope="system", view="inactive")]),
-                 ("Wypisz enabled usługi systemowe i użytkownika",
+        cases = ((dict(systemd="system", systemd_state="enabled"), [call(scope="system", view="enabled")]),
+                 (dict(systemd="user", systemd_state="active"), [call(scope="user", view="active")]),
+                 (dict(systemd="system", systemd_state="inactive"), [call(scope="system", view="inactive")]),
+                 (dict(systemd="both", systemd_state="enabled"),
                   [call(scope="system", view="enabled"), call(scope="user", view="enabled")]))
-        for question, expected in cases:
+        for selected, expected in cases:
             self.collect.reset_mock()
             self.confirm.reset_mock()
             self.output.seek(0)
             self.output.truncate(0)
-            with self.subTest(question=question):
-                context = ask_context.prepare(question, options(details=True), reader=self.reader)
+            with self.subTest(selected=selected):
+                context = gather(options(details=True, **selected), self.reader)
                 self.confirm.assert_called_once_with("systemd-read", reader=self.reader)
                 self.assertEqual(self.collect.call_args_list, expected)
                 self.assertEqual(len(context), len(expected))
@@ -289,11 +294,10 @@ class AskContextTests(unittest.TestCase):
             return True
         self.confirm.side_effect = consent
         self.collect.side_effect = lambda **kwargs: events.append(("collect", kwargs)) or inventory(**kwargs)
-        for question, opts in (("Pokaż aktywne usługi użytkownika", options()),
-                               ("Pytanie", options(systemd="user", systemd_state="active"))):
+        for opts in (options(systemd="user", systemd_state="active"),):
             events.clear()
             self.collect.reset_mock()
-            result = ask_context.prepare(question, opts, reader=self.reader)
+            result = gather(opts, self.reader)
             self.assertEqual(result, [inventory(scope="user", view="active")])
             self.assertEqual(events, ["consent", ("collect", {"scope": "user", "view": "active"})])
             self.assertIn("scope: user; view: active (units)", self.output.getvalue())
@@ -305,10 +309,10 @@ class AskContextTests(unittest.TestCase):
             self.confirm.side_effect = failure if isinstance(failure, BaseException) else None
             self.confirm.return_value = failure
             expected = type(failure) if isinstance(failure, BaseException) else AnalysisDenied
-            for question, opts in (("Wypisz włączone usługi systemd", options()),
-                                   ("Pytanie", options(systemd="both", weather="Example City"))):
+            for opts in (options(systemd="system", systemd_state="enabled"),
+                         options(systemd="both", weather="Example City")):
                 with self.subTest(failure=failure, opts=opts), self.assertRaises(expected):
-                    ask_context.prepare(question, opts, reader=self.reader)
+                    gather(opts, self.reader)
                 self.assert_no_collectors()
 
     def test_unknown_local_read_answers_repeat_before_any_collection(self):
@@ -321,8 +325,7 @@ class AskContextTests(unittest.TestCase):
         self.collect.return_value = inventory()
         with patch.object(terminal_consent.sys.stdin, "isatty", return_value=True), \
                 patch.object(terminal_consent.sys.stdout, "isatty", return_value=True):
-            self.assertEqual(ask_context.prepare("Pytanie", options(systemd="system", systemd_state="enabled"),
-                                                reader=reader), [inventory()])
+            self.assertEqual(gather(options(systemd="system", systemd_state="enabled"), reader), [inventory()])
         self.collect.assert_called_once_with(scope="system", view="enabled")
         self.assertEqual(self.output.getvalue().count("Type y or n."), 1)     # Enter alone only repeats the prompt
 
@@ -366,19 +369,8 @@ class AskContextTests(unittest.TestCase):
         self.confirm.assert_not_called()
         self.reader.assert_called_once_with(terminal_consent.PROMPTS["ask-question"])
 
-    def test_no_context_suppresses_inferred_io_and_refuses_conflicting_options(self):
-        self.assertEqual(ask_context.prepare("Pogoda w Example City i aktywne usługi systemd",
-                                            options(no_context=True), reader=self.reader), [])
-        for selected in ({"weather": "Example City"}, {"systemd": "user"}, {"systemd_state": "failed"}):
-            with self.subTest(selected=selected), self.assertRaises(ValueError):
-                ask_context.prepare("Pytanie", options(no_context=True, **selected), reader=self.reader)
-        self.assert_no_collectors()
-        self.confirm.assert_not_called()
-        self.reader.assert_not_called()
-
     def test_weather_preview_is_offline_and_does_not_request_consent(self):
-        result = ask_context.prepare("Jaka dzisiaj pogoda w Example City?",
-                                     options(preview=True), reader=self.reader)
+        result = gather(options(weather="Example City", preview=True), self.reader)
         self.assertEqual(result, [])
         self.assertIn("Example City", self.output.getvalue())
         self.assertIn("no connection", self.output.getvalue())
@@ -389,7 +381,7 @@ class AskContextTests(unittest.TestCase):
     def test_weather_refusal_prevents_even_geocoding(self):
         self.confirm.return_value = False
         with self.assertRaises(AnalysisDenied) as error:
-            ask_context.prepare("Jaka pogoda w Example City?", options(), reader=self.reader)
+            gather(options(weather="Example City"), self.reader)
         self.assertEqual(error.exception.reason, "consent")
         self.confirm.assert_called_once_with("weather", reader=self.reader)
         self.assert_no_collectors()
@@ -400,7 +392,7 @@ class AskContextTests(unittest.TestCase):
         self.geocode.return_value = [LOCATION, OTHER]
         reader = Mock(side_effect=["", "0", "3", "1.0", "n"])
         with self.assertRaises(AnalysisDenied) as error:
-            ask_context.prepare("Pytanie", options(weather="Example City"), reader=reader)
+            gather(options(weather="Example City"), reader)
         self.assertEqual(error.exception.reason, "consent")
         self.assertEqual(reader.call_count, 5)
         self.geocode.assert_called_once_with("Example City")
@@ -413,7 +405,7 @@ class AskContextTests(unittest.TestCase):
         context["location"] = OTHER
         self.current.return_value = context
         reader = Mock(side_effect=["?", "2"])
-        result = ask_context.prepare("Jaka pogoda?", options(weather="Other City", details=True), reader=reader)
+        result = gather(options(weather="Other City", details=True), reader)
         self.geocode.assert_called_once_with("Other City")
         self.current.assert_called_once_with(OTHER)
         self.assertEqual(result, [context])
@@ -433,8 +425,7 @@ class AskContextTests(unittest.TestCase):
         self.collect.return_value = systemd
         self.geocode.return_value = [LOCATION]
         self.current.return_value = WEATHER
-        result = ask_context.prepare("Pytanie", options(systemd="system", systemd_state="enabled",
-                                                        weather="Example City"), reader=self.reader)
+        result = gather(options(systemd="system", systemd_state="enabled", weather="Example City"), self.reader)
         self.assertEqual(result, [systemd, WEATHER])
         output = self.output.getvalue()
         self.assertIn("Systemd: system", output)
@@ -448,13 +439,12 @@ class AskContextTests(unittest.TestCase):
             with self.subTest(hidden=hidden):
                 self.assertNotIn(hidden, output)
 
-    def test_city_inference_and_consent_precede_provider_queries(self):
+    def test_consent_precedes_provider_queries(self):
         events = []
         self.confirm.side_effect = lambda *a, **k: events.append("consent") or True
         self.geocode.side_effect = lambda city: events.append(("geocode", city)) or [LOCATION]
         self.current.side_effect = lambda location: events.append(("current", location)) or WEATHER
-        self.assertEqual(ask_context.prepare("Jaka dzisiaj pogoda w Example City?",
-                                            options(), reader=self.reader), [WEATHER])
+        self.assertEqual(gather(options(weather="Example City"), self.reader), [WEATHER])
         self.assertEqual(events, ["consent", ("geocode", "Example City"), ("current", LOCATION)])
         self.reader.assert_not_called()
         self.collect.assert_not_called()
@@ -462,7 +452,7 @@ class AskContextTests(unittest.TestCase):
     def test_invalid_city_refuses_before_terminal_interpolation_or_io(self):
         for city in ("\x1b[2J", "Example City\nSECRET", "\u202eExample City", "x" * 121):
             with self.subTest(city=repr(city)), self.assertRaises(AnalysisDenied):
-                ask_context.prepare("Pytanie", options(weather=city), reader=self.reader)
+                gather(options(weather=city), self.reader)
         self.assert_no_collectors()
         self.confirm.assert_not_called()
         self.assertNotIn("SECRET", self.output.getvalue())
@@ -526,7 +516,7 @@ class AskContextTests(unittest.TestCase):
         failed.update(status="unavailable", total=None, items=[])
         self.collect.side_effect = [inventory(), failed]
         with self.assertRaises(AnalysisDenied) as error:
-            ask_context.prepare("Pytanie", options(systemd="both", systemd_state="enabled"), reader=self.reader)
+            gather(options(systemd="both", systemd_state="enabled"), self.reader)
         self.assertEqual(error.exception.reason, "input")
         self.assertEqual(self.collect.call_args_list,
                          [call(scope="system", view="enabled"), call(scope="user", view="enabled")])
@@ -537,7 +527,7 @@ class AskContextTests(unittest.TestCase):
         self.geocode.return_value = [LOCATION, OTHER]
         for exception in (EOFError, KeyboardInterrupt):
             with self.subTest(exception=exception), self.assertRaises(exception):
-                ask_context.prepare("Pytanie", options(weather="Other City"), reader=Mock(side_effect=exception))
+                gather(options(weather="Other City"), Mock(side_effect=exception))
         self.current.assert_not_called()
         self.collect.assert_not_called()
 

@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.0-118: `max` reasoning's long event stream
+
+- The Claude client's event stream may now hold up to 4096 events (it was 128). With `max`, long thinking produces many events, and the finished answer was refused as `result`. The stream stays limited to 1 MiB.
+- A refused Claude answer names the exact check, for example `Could not get an answer (result, claude-result-turns)`.
+
+## 0.1.0-117: longer answers
+
+- One answer may now be up to 96 KiB (about 45,000 characters with Polish letters; it was 32 KiB). With `max`, asking to "list everything" after dozens of commands produced a longer answer, and the whole answer was refused as `output-limit` after many minutes. The model is now told the limit and asked to put the most important first.
+
+## 0.1.0-116: a current status line and a named failure reason
+
+- The line under the input (service, profile, model, reasoning) follows the settings: it changes after a `/` command and when a queued setting is applied. Before, it kept the value from the start of the conversation.
+- When a question fails for an unusual reason, the message names its fixed code, for example `Could not get an answer (result)`, instead of only `Could not get an answer`.
+
+## 0.1.0-115: a longer wait for `high`, and cleanup
+
+- With reasoning `high` the program waits up to 5 minutes for one answer (it was 110 s, as for the default); `xhigh` and `max` keep 15 minutes.
+- Removed code that guessed a weather or systemd source from the question text; no path used it any more. Removed four acceptance scripts that only worked with packages 0.1.0-14 to -17.
+
 ## 0.1.0-114: a system-call filter for the client
 
 - The Claude and Codex clients now run with a filter that refuses kernel interfaces a chat client never needs: mounting and namespaces, kernel modules, `ptrace` and reading other processes' memory, `bpf`, kernel keys, `userfaultfd`, clock, reboot and swap calls (`io_uring` reports as unavailable). Ordinary file, network and process calls are unaffected.
