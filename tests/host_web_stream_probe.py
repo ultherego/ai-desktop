@@ -281,8 +281,10 @@ def inside():
 
 def installed_matches():
     """Compare source code only, never inspect an OAuth profile."""
+    from package_files import development_only_absent, packaged_modules
     installed = Path("/usr/lib/ai-desktop/ai_desktop")
-    paths = sorted((ROOT / "ai_desktop").glob("*.py"))
+    development_only_absent(installed)
+    paths = packaged_modules(ROOT)
     if not paths:
         raise ValueError("source")
     for source in paths:

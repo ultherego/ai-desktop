@@ -264,7 +264,7 @@ Earlier dated entries preserve the evidence and status at that point. The latest
 ### 2026-11-08 — Candidate 121: boundary probe out of the package
 
 - Candidate 120 was checked by the maintainer with `material` and `project` and merged as PR #39.
-- **READY FOR TEST**, candidate **0.1.0-121**: `PKGBUILD` skips `e2_boundary.py` and `e2_probe.py`; `test_development_only_boundary_probe_is_not_installed_and_no_runtime_module_imports_it` stages the package and checks both the file list and that no installed module names them. An upgrade removes the two files.
+- **READY FOR TEST**, candidate **0.1.0-121**: `PKGBUILD` skips `e2_boundary.py` and `e2_probe.py`; `test_development_only_boundary_probe_is_not_installed_and_no_runtime_module_imports_it` stages the package and checks both the file list and that no installed module names them. An upgrade removes the two files. The first CachyOS run installed the package but failed its own acceptance with `reason=preflight`, because the installed-file checks compared every repository module; `tests/package_files.py` now holds the one list of development-only modules for those checks (`host_analysis_acceptance`, `host_web_stream_probe`), which also refuse a development-only module left installed. After the fix the offline client acceptance passed against the installed candidate (Claude 2.1.319 and Codex 0.167.0, compatible-untested).
 - Codex login/logout false error: reading `codex_cli` → `codex-auth.py` → `codex_admin.main` → worker → `_account_action` did not show the cause. The maintainer is signed in to Codex (limit used up, which does not affect sign-in); the next step is a reproduction with `--v` and the exit status.
 
 ### 2026-11-08 — Candidate 120: Stage 6 cleanup

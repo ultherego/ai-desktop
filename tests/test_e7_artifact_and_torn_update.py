@@ -87,9 +87,21 @@ class PublicArtifactTests(unittest.TestCase):
         self.assertNotIn("e2_boundary.py", installed)
         self.assertNotIn("e2_probe.py", installed)
         self.assertIn("e2_subscription_boundary.py", installed)
+        from package_files import DEVELOPMENT_ONLY, packaged_modules
+        self.assertEqual(installed, {path.name for path in packaged_modules(self.tree)})
+        self.assertTrue(DEVELOPMENT_ONLY <= {path.name for path in (self.tree / "ai_desktop").glob("*.py")})
         for name in installed:
             text = (self.tree / "ai_desktop" / name).read_text()
             self.assertNotRegex(text, r"\be2_(boundary|probe)\b", name)
+
+    def test_a_development_only_module_left_installed_is_an_extra_file(self):
+        from package_files import development_only_absent
+        installed = self.temp / "installed"
+        installed.mkdir()
+        development_only_absent(installed)
+        (installed / "e2_probe.py").write_text("left behind\n")
+        with self.assertRaisesRegex(ValueError, "installed-extra"):
+            development_only_absent(installed)
 
     def test_legacy_symlinks_and_special_files_are_never_followed_or_opened(self):
         startdir = self.tree / "packaging/arch"
