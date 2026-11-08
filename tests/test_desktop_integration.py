@@ -56,5 +56,5 @@ class DesktopIntegrationTests(unittest.TestCase):
             self.assertTrue((DESKTOP / (name + ".desktop")).is_file())
         self.assertNotIn("Qt.openUrlExternally(", widget)
         self.assertNotIn("https://chatgpt.com/settings/usage", widget)
-        self.assertIn('onClicked: root.fetchLiveLimits(usageCard.account.account)', widget)
+        self.assertNotIn('Refresh limits', widget)                       # the refresh icon and the minute timer read
         self.assertIn('onClicked: root.manageLiveLimits(usageCard.account.account, false)', widget)

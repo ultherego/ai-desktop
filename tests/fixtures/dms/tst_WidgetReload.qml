@@ -144,19 +144,19 @@ Item {
             const usageCard = findChild(popout, "usageCard_codex_" + account.account);
             verify(usageCard);
             verify(!findChild(usageCard, "chatgptUsageLink"), "Missing limits must not redirect to a browser");
-            verifyButtonInside(usageCard, "Refresh limits");
-            compare(findChild(usageCard, "emptyUsage").text, "Read limits to show usage and reset times here.");
+            verify(!visibleButton(usageCard, "Refresh limits"), "The card has no separate refresh: the icon and the minute timer read");
+            compare(findChild(usageCard, "emptyUsage").text, "Limits are read every minute; the refresh icon reads them now.");
             widget.fetchLiveLimits("--help");
             widget.manageLiveLimits("spare", true);
             compare(Proc.limitReads.length, 0);
             compare(SessionService.lastLaunched, "ai-desktop-codex-limits.desktop");
 
-            clickButton(usageCard, "Refresh limits");
+            mouseClick(refresh);
+            tryVerify(() => Proc.limitReads.length === 1);
             compare(JSON.stringify(Proc.limitReads), JSON.stringify([
                 ["/usr/bin/ai-desktop", "usage", "--refresh", "--provider", "codex", "--account", account.account, "--json"]
             ]));
             verify(!refresh.enabled);
-            verify(visibleButton(usageCard, "Reading limits…"));
             compare(findChild(usageCard, "emptyUsage").text, "Reading usage and reset times…");
             widget.fetchLiveLimits(account.account);
             compare(Proc.limitReads.length, 1, "In-flight refresh cannot be duplicated");

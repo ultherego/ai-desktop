@@ -322,8 +322,6 @@ PluginComponent {
                         readonly property bool selectedCodex: account.provider === "codex" && account.selected === true && account.status !== "retired"
                         readonly property bool showConnect: selectedCodex && account.auth_state === "signed_in" &&
                             !account.live_limits_connected && root.codexAvailable
-                        readonly property bool showRefresh: selectedCodex && account.auth_state === "signed_in" &&
-                            account.live_limits_connected === true && root.codexAvailable
                         readonly property bool showSignIn: selectedCodex && !hasUsage &&
                             account.auth_state !== "signed_in" && root.codexAvailable
                         objectName: "usageCard_" + account.provider + "_" + account.account
@@ -364,20 +362,9 @@ PluginComponent {
                             anchors.bottom: parent.bottom
                             anchors.bottomMargin: usageCard.inset
                             width: parent.width - 2 * usageCard.inset
-                            visible: usageCard.showConnect || usageCard.showRefresh || usageCard.showSignIn
+                            visible: usageCard.showConnect || usageCard.showSignIn
                             spacing: Theme.spacingS
 
-                            ChoiceButton {
-                                objectName: "refreshUsage_" + usageCard.account.account
-                                visible: usageCard.showRefresh
-                                enabled: !root.switching && !root.fetchingLimitsFor
-                                busy: root.fetchingLimitsFor === usageCard.account.account
-                                maximumWidth: parent.width
-                                text: busy ? "Reading limits…" : "Refresh limits"
-                                iconName: "refresh"
-                                tooltipText: "Read this account's usage and reset times"
-                                onClicked: root.fetchLiveLimits(usageCard.account.account)
-                            }
                             ChoiceButton {
                                 id: connectLimits
                                 visible: usageCard.showConnect

@@ -85,7 +85,7 @@ assert.equal(widget.emptyUsageText(emptyCodex), "Connect this account's limits t
 assert.equal(widget.emptyUsageText({...emptyCodex, native_limits_cleanup_pending: true}),
              "Reconnect this account's limits to show usage and reset times here.");
 assert.equal(widget.emptyUsageText({...emptyCodex, live_limits_connected: true}),
-             "Read limits to show usage and reset times here.");
+             "Limits are read every minute; the refresh icon reads them now.");
 assert.equal(widget.emptyUsageText({...emptyCodex, live_limits_connected: true, quota_source: "codex_native", observed_at: now}),
              "Codex did not report a 5-hour or 7-day window.");
 assert.equal(widget.emptyUsageText({...emptyCodex, auth_state: "unknown"}),

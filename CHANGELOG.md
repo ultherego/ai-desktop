@@ -7,7 +7,7 @@
 - `host_sockets` accepts only sockets: `/run/user`, `/run/dbus` and directories are refused.
 - A change made after many reads in one turn is always remembered, so it is not proposed again later.
 - CI now runs the real sandbox and D-Bus filter tests instead of skipping them.
-- The DankBar widget refreshes both services every minute; a Codex account with connected live limits is read live once a minute, like the refresh button. Claude usage still changes only after a Claude request: there is no live reading for Claude.
+- The DankBar widget refreshes both services every minute; a Codex account with connected live limits is read live once a minute, like the refresh button. Claude usage still changes only after a Claude request: there is no live reading for Claude. The separate **Refresh limits** button in the Codex card is gone; the refresh icon and the minute timer do the same.
 - The read-only D-Bus filter needs `xdg-dbus-proxy` 0.1.9 or newer (older versions cannot serve systemd's tools and have known filter bypasses); with an older proxy, `allow` commands get no D-Bus at all. CachyOS ships 0.1.9.
 
 ## 0.1.0-110: `/` menus open at once during a turn
