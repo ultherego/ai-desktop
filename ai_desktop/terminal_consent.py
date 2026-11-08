@@ -35,6 +35,7 @@ PROMPTS = {
     "project-edit": "Send these files to Claude and prepare a diff? [y/n]: ",
     "write": "Save the changes shown? [y/n]: ",
     "rollback": "Undo the changes shown? [y/n]: ",
+    "prune": "Remove these history entries for good? [y/n]: ",
 }
 MAX_ANSWER_BYTES = 64
 

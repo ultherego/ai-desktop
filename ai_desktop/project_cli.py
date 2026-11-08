@@ -575,7 +575,7 @@ class ProjectSession(Session):
         try:
             task_workspace._can_apply(workspace)
         except task_workspace.JournalLimit:
-            return "Reached the limit of saved tasks in the write scope directory. Check: ai-desktop task status --workspace DIRECTORY."
+            return "Reached the limit of saved tasks in the write scope directory. Remove finished entries with: ai-desktop task prune --workspace DIRECTORY."
         except ValueError as exc:
             if str(exc) == "recovery required":
                 return ("An earlier file change task is unfinished or in conflict. "

@@ -46,7 +46,9 @@ def build_parser():
     restore = commands.add_parser("restore", help="Restore files deleted in project mode (task trash)")
     restore.add_argument("--workspace", required=True)
     restore.add_argument("--plan", required=True, help="Deletion ID from the message shown after the deletion")
-    for command in (run, status, undo, restore):
+    prune = commands.add_parser("prune", help="Remove finished history entries you choose from a list")
+    prune.add_argument("--workspace", required=True)
+    for command in (run, status, undo, restore, prune):
         command.add_argument("--v", "--verbose", "-v", "--details", dest="details", action="store_true",
                              help="Show full data, IDs and diagnostics")
     return parser
@@ -303,6 +305,8 @@ def show_record(record, number=None, *, details=False):
 def restore_deleted(args, reader):
     """Undo one deletion made by `ai-desktop project`: files return only to free names, never over newer files."""
     from . import workspace_trash
+    if not any(record["plan"] == args.plan for record in workspace_trash.recovery_records(args.workspace)):
+        raise ValueError("unknown plan")
     print("Restoring files deleted in: " + json.dumps(args.workspace, ensure_ascii=False))
     print("Files go back only where the name is free; nothing will be overwritten.")
     if not confirm("restore", reader=reader):
@@ -363,6 +367,66 @@ def rollback_task(args, records, reader):
     return 0 if ok else 2
 
 
+def _chosen(answer, count):
+    """'all' or task numbers separated by spaces or commas; None when the answer is not exactly that."""
+    if answer.casefold() in ("a", "all"):
+        return list(range(count))
+    words = answer.replace(",", " ").split()
+    if not words or any(word not in {str(index) for index in range(1, count + 1)} for word in words):
+        return None
+    return sorted({int(word) - 1 for word in words})
+
+
+def prune_history(args, records, reader):
+    """Remove finished history entries the owner picks. Project files are never changed; a saved task removed here
+    can no longer be undone, so the list says so before the separate consent."""
+    from . import workspace_trash
+    candidates = [record for record in records if record.get("prunable")]
+    kept = len(records) - len(candidates)
+    if not candidates:
+        print("Nothing to remove: no finished entries in this directory." +
+              (" Files still in the trash and unfinished tasks stay; see task status." if kept else ""))
+        return 0
+    expires = time.monotonic() + 180
+    print("Finished entries that can be removed:")
+    for index, record in enumerate(candidates, 1):
+        show_record(record, index, details=args.details)
+    if kept:
+        print(str(kept) + " other entr" + ("y stays" if kept == 1 else "ies stay") +
+              ": files still in the trash, or a task that is not finished. See task status.")
+    select_reader = fresh_input if reader is input else reader
+    while True:
+        answer = select_reader("Choose numbers (for example 1 3), all, or n/no to cancel: ").strip()
+        if time.monotonic() > expires:
+            raise ValueError("expired consent")
+        if answer.casefold() in ("n", "no"):
+            print("Cancelled. Nothing was removed.")
+            return 2
+        picked = _chosen(answer, len(candidates))
+        if picked is not None:
+            break
+        print("Enter numbers from 1 to " + str(len(candidates)) + ", all, or n/no.")
+    chosen = [candidates[index] for index in picked]
+    print("Remove from: " + json.dumps(args.workspace, ensure_ascii=False))
+    for record in chosen:
+        show_record(record, details=args.details)
+    if any(record["status"] == "applied" for record in chosen):
+        print("A removed saved task can no longer be undone with task rollback.")
+    print("Only the history entries are removed; files in the project are not changed.")
+    if not confirm("prune", reader=reader):
+        print("Cancelled. Nothing was removed.")
+        return 2
+    if time.monotonic() > expires:
+        raise ValueError("expired consent")
+    tasks = {record["plan"]: record["journal_sha256"] for record in chosen if record.get("kind") != "trash"}
+    deleted = {record["plan"]: record["journal_sha256"] for record in chosen if record.get("kind") == "trash"}
+    removed = (workspace.prune(args.workspace, tasks) if tasks else 0) + \
+        (workspace_trash.prune(args.workspace, deleted) if deleted else 0)
+    print(("TASK PRUNE: PASS removed=" + str(removed)) if args.details
+          else "Removed " + str(removed) + " entr" + ("y." if removed == 1 else "ies."))
+    return 0
+
+
 from .run_controls import configured
 
 
@@ -373,7 +437,7 @@ def main(argv=None, *, reader=input):
     try:
         if os.geteuid() == 0 or os.getuid() != os.geteuid():
             raise ValueError("identity")
-        if (args.action in ("rollback", "restore") or (args.action == "run" and not args.preview)) and not (sys.stdin.isatty() and sys.stdout.isatty()):
+        if (args.action in ("rollback", "restore", "prune") or (args.action == "run" and not args.preview)) and not (sys.stdin.isatty() and sys.stdout.isatty()):
             raise ValueError("tty")
         if os.path.exists(args.workspace) and not os.path.isdir(args.workspace):
             print("TASK: REFUSED; workspace-not-directory" if args.details
@@ -384,9 +448,11 @@ def main(argv=None, *, reader=input):
         if args.action == "restore":
             return restore_deleted(args, reader)
         records = workspace.recovery_records(args.workspace)
+        if args.action == "prune":
+            from . import workspace_trash
+            return prune_history(args, newest_first(records + workspace_trash.recovery_records(args.workspace)), reader)
         if args.action == "status":
             from . import workspace_trash
-            import shlex
             records.extend(workspace_trash.recovery_records(args.workspace))
             records = newest_first(records)
             for index, record in enumerate(records, 1):
@@ -401,7 +467,8 @@ def main(argv=None, *, reader=input):
             return 0
         return rollback_task(args, newest_first(records), reader)
     except workspace.JournalLimit:
-        print("The limit of 128 saved tasks was reached. Nothing new was saved; history and undo are still available.")
+        print("The limit of 128 saved tasks was reached. Nothing new was saved; history and undo are still available. "
+              "Remove finished entries with: " + shlex.join(["ai-desktop", "task", "prune", "--workspace", args.workspace]))
     except AnalysisDenied as exc:
         if args.details:
             print(str(exc))
@@ -438,6 +505,9 @@ _REFUSALS = {
     "consent": "The save was not approved. Nothing was saved.",
     "text": "A file is not plain UTF-8 text, or it mixes line endings, so it cannot be changed safely.",
     "file policy": "A file is a link, has several hard links, is too large or is writable by others, so it is not changed.",
+    "journal changed": "The task history changed after it was shown, so nothing was removed. Run the command again.",
+    "journal unfinished": "An entry is no longer finished, so nothing was removed. Check ai-desktop task status.",
+    "BlockingIOError": "Another ai-desktop task is using this directory right now. Wait for it to finish, then try again.",
 }
 
 

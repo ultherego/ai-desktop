@@ -39,7 +39,7 @@ class NewTargetExists(ValueError):
 
 
 class JournalLimit(ValueError):
-    """Finite refusal: preserve existing undo history instead of pruning it."""
+    """Finite refusal: existing undo history is never pruned automatically; `task prune` removes chosen entries."""
 
 
 def _root(workspace):
@@ -443,8 +443,78 @@ def recovery_records(workspace):
                     record["rebound"] = True
                 if record["status"] == "conflict":
                     record["settled"] = _conflict_settled(root, value, rebound=binding == "rebound")
+                record["prunable"] = detached or _finished(root, value, binding)
                 result.append(record)
             return result
+        finally:
+            os.close(fd)
+    finally:
+        os.close(root)
+
+
+def _finished(root, value, binding):
+    """Nothing is left to recover: an undone task, a finished conflict, or a fully saved task with no stage left.
+    Only these may be pruned. An unfinished save and a conflict with stages left always stay."""
+    if value["status"] not in ("applied", "rolled-back", "conflict"):
+        return False
+    if value["status"] == "applied" and any(not entry["published"] or entry["undo"] is not None
+                                            for entry in value["entries"]):
+        return False
+    return _conflict_settled(root, value, rebound=binding == "rebound")
+
+
+def retire(fd, name, held):
+    """Unlink one private record only if the object moved aside is the one checked: a replaced file goes back."""
+    temp = ".pending-" + secrets.token_hex(12)
+    rename_noreplace(fd, name, fd, temp)
+    moved = os.stat(temp, dir_fd=fd, follow_symlinks=False)
+    if (moved.st_dev, moved.st_ino, moved.st_size, moved.st_mtime_ns) != (held.st_dev, held.st_ino, held.st_size,
+                                                                          held.st_mtime_ns):
+        rename_noreplace(fd, temp, fd, name)
+        raise ValueError("journal changed")
+    os.unlink(temp, dir_fd=fd)
+
+
+def approved_records(approved):
+    """{plan: journal_sha256} chosen by the owner from the listing; anything else is refused before a lookup."""
+    if (type(approved) is not dict or not 1 <= len(approved) <= MAX_JOURNALS
+            or any(type(plan) is not str or type(digest) is not str or not re.fullmatch(r"[a-f0-9]{32}|[a-f0-9]{64}", plan)
+                   or not re.fullmatch(r"[a-f0-9]{64}", digest) for plan, digest in approved.items())):
+        raise ValueError("prune approval")
+    return sorted(approved.items())
+
+
+def prune(workspace, approved):
+    """Remove the chosen finished task records. Every one is re-read under the lock and must still match the hash
+    the owner saw and still be finished; one mismatch refuses all before anything is removed. Project files are
+    never touched. Returns the number removed."""
+    chosen = approved_records(approved)
+    if any(len(plan) != 64 for plan, _ in chosen):
+        raise ValueError("prune approval")
+    root = _root(workspace)
+    try:
+        fcntl.flock(root, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fd = _state_dir(root)
+        try:
+            checked = []
+            for plan, expected in chosen:
+                name = plan + ".json"
+                held = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                value = _load(fd, name)
+                if value["before"]["workspace"] != workspace:
+                    raise ValueError("journal root")
+                if sha(canonical(value).encode("utf-8")) != expected:
+                    raise ValueError("journal changed")
+                binding = _binding(root, value)
+                if binding == "detached":
+                    _detached_completed(root, value)
+                elif not _finished(root, value, binding):
+                    raise ValueError("journal unfinished")
+                checked.append((name, held))
+            for name, held in checked:
+                retire(fd, name, held)
+            os.fsync(fd)
+            return len(checked)
         finally:
             os.close(fd)
     finally:
