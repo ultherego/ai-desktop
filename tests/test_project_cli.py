@@ -366,6 +366,18 @@ class QuestionTests(Base):
         self.assertRegex(self.output, r"Format\s+Claude answered in plain text instead of the agreed action")
         self.assertNotIn("is not in the required format", self.output)
 
+    def test_prose_keeps_the_project_answer_shape(self):
+        seen = []
+        real = pcli.ProjectSession._answer
+        def record(session, text, loop, decision):
+            seen.append(decision)
+            return real(session, text, loop, decision)
+        with patch.object(pcli.ProjectSession, "_answer", record):
+            self.ask("Zwykły tekst bez akcji.")
+        self.assertEqual(seen[0]["progress"], "")
+        self.assertIs(seen[0]["continue"], False)
+        self.assertEqual(seen[0]["sources"], [])
+
     def test_a_cut_search_hit_does_not_count_as_a_received_line(self):
         (self.proj / "docs/long.txt").write_text("a" * 400 + " LONGNEEDLE\n")
         self.ask({"action": "search", "needle": "LONGNEEDLE", "continue": False},
