@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-116: a current status line and a named failure reason
+
+- The line under the input (service, profile, model, reasoning) follows the settings: it changes after a `/` command and when a queued setting is applied. Before, it kept the value from the start of the conversation.
+- When a question fails for an unusual reason, the message names its fixed code, for example `Could not get an answer (result)`, instead of only `Could not get an answer`.
+
 ## 0.1.0-115: a longer wait for `high`, and cleanup
 
 - With reasoning `high` the program waits up to 5 minutes for one answer (it was 110 s, as for the default); `xhigh` and `max` keep 15 minutes.

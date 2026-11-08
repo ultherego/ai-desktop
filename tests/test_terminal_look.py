@@ -260,3 +260,27 @@ class LiveInputTests(unittest.TestCase):
         self.assertEqual(owner.line.text, "/help")                            # Tab completes it
         self.type(owner, " x")
         self.assertEqual(owner._matches(), ())                                 # a space ends the list, as when idle
+
+
+class StatusLineTests(unittest.TestCase):
+    def test_the_line_under_the_input_follows_a_changed_setting(self):
+        from ai_desktop import ask_cli, execution
+        frame = type("Frame", (), {"status": "Claude · profile: diagnostic · model: default · reasoning: high"})()
+        selected = {"provider": "claude", "model": "default", "effort": "max", "instructions": "",
+                    "profile": "diagnostic", "access": "changes"}
+        with patch.object(terminal_frame, "_current", frame), execution.using(selected):
+            ask_cli._refresh_status()
+        self.assertIn("reasoning: max", frame.status)
+        with patch.object(terminal_frame, "_current", None):
+            ask_cli._refresh_status()                                           # no pinned input: nothing to update
+
+
+class FailureMessageTests(unittest.TestCase):
+    def test_an_unusual_failure_names_its_fixed_reason_code(self):
+        from types import SimpleNamespace
+        from ai_desktop import ask_cli
+        from ai_desktop.analysis_contract import AnalysisDenied
+        output = io.StringIO()
+        with patch("sys.stdout", output):
+            ask_cli._explain_denied(AnalysisDenied("result"), SimpleNamespace(details=False), {"execution": None})
+        self.assertIn("Could not get an answer (result).", output.getvalue())

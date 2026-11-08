@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** CachyOS check of candidate 115 (stages 5 and 6), and a real Codex request under the client's system-call filter (candidate 114) once the maintainer's Codex limit resets. S0 and S7 remain deferred.
+**Next step:** CachyOS check of candidate 116 (`max` with many commands, the status line), and a real Codex request under the client's system-call filter (candidate 114) once the maintainer's Codex limit resets. S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -260,6 +260,12 @@ Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaini
 ## Progress log
 
 Earlier dated entries preserve the evidence and status at that point. The latest entry supersedes historical pending/next-step statements.
+
+### 2026-11-08 — Candidate 116: status line and the reason of an unusual failure
+
+- Testing candidate 115 with `max`, the maintainer saw the line under the input still say `reasoning: high`: `Frame.status` was set once when the conversation started. It is now refreshed after every local `/` command, after a queued setting is applied and at the start of each turn (`ask_cli._refresh_status`, from the main thread where the execution settings live).
+- The same test ended with `Could not get an answer` after two command batches. The service log shows the last model call ran 11 minutes (within the 15-minute `max` budget) and ended normally, so the client's result was refused afterwards for a reason the message did not show. The fallback message now names the fixed reason and check codes (closed lists, safe to print). The cause itself is open until the maintainer reproduces it with this candidate. The `sudo` password prompt on the next question is expected: the 11-minute call outlived sudo's default 5-minute timestamp.
+- Tests: `StatusLineTests`, `FailureMessageTests` in `tests/test_terminal_look.py`.
 
 ### 2026-11-08 — Stages 5 and 6: `high` time limit, dead code and old scripts
 
