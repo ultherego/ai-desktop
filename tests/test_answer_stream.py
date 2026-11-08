@@ -224,7 +224,7 @@ class PartialFrameTests(unittest.TestCase):
 
 
 class WebProgressTests(unittest.TestCase):
-    def test_searches_results_and_writing_are_counted_without_their_content(self):
+    def test_searches_and_results_are_counted_without_their_content(self):
         steps = []
         stream = answer_stream.ClaudeStream(on_status=lambda code, number: steps.append((code, number)))
         search = {"type": "assistant", "session_id": "s", "message": {"content": [
@@ -234,9 +234,9 @@ class WebProgressTests(unittest.TestCase):
         kept = stream(json.dumps(search).encode() + b"\n" + delta("early") + json.dumps(result).encode() + b"\n")
         kept += stream(delta('{"answer":"x') + delta("y"))
         kept += stream(None)
-        self.assertEqual(steps, [("search", 1), ("results", 1), ("writing", 0)])
+        self.assertEqual(steps, [("search", 1), ("results", 1)])
         self.assertEqual(kept.count(b"\n"), 2)                  # both kept events stay for the final checks
-        self.assertEqual(answer_stream.STATUS, ("search", "results", "writing"))
+        self.assertEqual(answer_stream.STATUS, ("search", "results"))
 
     def test_a_web_transcript_with_partial_events_passes_its_checks_only_after_the_filter(self):
         from test_web_search_result import stream as web_stream, web_events
@@ -253,7 +253,7 @@ class WebProgressTests(unittest.TestCase):
         stream = answer_stream.ClaudeStream(on_status=lambda code, number: steps.append(code))
         kept = stream(raw) + stream(None)
         self.assertIn("Python to język programowania", str(web_text(kept)))
-        self.assertEqual(steps, ["search", "results", "writing"])
+        self.assertEqual(steps, ["search", "results"])
 
     def test_malformed_or_other_events_report_nothing(self):
         steps = []
@@ -276,15 +276,17 @@ class WebProgressTests(unittest.TestCase):
         with patch.object(indicator, "_paint") as paint:
             indicator.status("search", 2)
             self.assertIn("Searching the web (2)", indicator._label)
+            indicator.status("results", 1)
+            self.assertTrue(indicator._label.endswith("Reading search results (1)"))
+        with self.assertRaises(ValueError):
             indicator.status("writing")
-            self.assertTrue(indicator._label.endswith("Writing the answer"))
         self.assertEqual(paint.call_count, 2)
 
 
 class ClaudeCommandTests(unittest.TestCase):
-    def test_analysis_and_web_ask_for_partial_messages(self):
+    def test_ordinary_analysis_asks_for_partial_messages_and_web_does_not(self):
         self.assertIn("--include-partial-messages", analysis_sandbox.client_command("analyze"))
-        self.assertIn("--include-partial-messages", analysis_sandbox.client_command("web"))
+        self.assertNotIn("--include-partial-messages", analysis_sandbox.client_command("web"))
         self.assertEqual(analysis_sandbox.LIVE_MODES, {"assistant": True, "question": False})
 
 

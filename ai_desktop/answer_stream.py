@@ -14,7 +14,7 @@ MAX_LINE = 4 * 1024 * 1024          # one stream-json line; a partial-message ev
 MAX_RAW_TEXT = 512 * 1024           # model text gathered for the preview; beyond it the preview just stops
 MAX_PARTIAL_TOTAL = 256 * 1024      # live text sent to the terminal in one request
 INTERVAL = 0.15                     # seconds between live updates
-STATUS = ("search", "results", "writing")   # web progress: a fixed vocabulary with a count, never model text
+STATUS = ("search", "results")     # web progress: a fixed vocabulary with a count, never model text
 
 
 def _string_prefix(raw, start):
@@ -165,7 +165,7 @@ class ClaudeStream:
         self._pending = bytearray()
         self._parts, self._size, self._sent, self._last = [], 0, 0, None
         self._stopped = on_text is None
-        self._on_status, self._searches, self._results, self._writing = on_status, 0, 0, False
+        self._on_status, self._searches, self._results = on_status, 0, 0
 
     def __call__(self, block):
         if block is None:                       # end of output: the last line may lack its newline
@@ -210,7 +210,6 @@ class ClaudeStream:
                 self._status("search", self._searches)
         elif value.get("type") == "user" and any(block.get("type") == "tool_result" for block in blocks):
             self._results += 1
-            self._writing = False
             self._status("results", self._results)
 
     def _line(self, line):
@@ -226,9 +225,6 @@ class ClaudeStream:
         event = value.get("event")
         delta = event.get("delta") if type(event) is dict and event.get("type") == "content_block_delta" else None
         if type(delta) is dict and delta.get("type") == "text_delta" and type(delta.get("text")) is str:
-            if self._results and not self._writing:
-                self._writing = True
-                self._status("writing")
             self._add(delta["text"])
         return b""
 

@@ -23,8 +23,7 @@ LABELS = {
     "task": "Claude is working",
 }
 # Web search progress reported by the service: fixed labels and a count, never model text.
-STATUS_LABELS = {"search": "Searching the web (%d)", "results": "Reading search results (%d)",
-                 "writing": "Writing the answer"}
+STATUS_LABELS = {"search": "Searching the web (%d)", "results": "Reading search results (%d)"}
 INTERVAL = 0.3
 CLEAR_LINE = "\r\x1b[2K"
 
@@ -84,9 +83,8 @@ class WaitingIndicator:
             raise ValueError("unknown status")
         if not self._enabled or self._closed or self._started is None:
             return
-        text = STATUS_LABELS[code] % number if "%d" in STATUS_LABELS[code] else STATUS_LABELS[code]
         with self._lock:
-            self._label = self._name + ": " + text
+            self._label = self._name + ": " + STATUS_LABELS[code] % number
         self._paint()
 
     def _paint(self):

@@ -227,7 +227,8 @@ def client_command(action, execution=None):
     if action == "offline-logout":
         return common + ["auth", "logout"]
     if action == "web":
-        return common + ["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
+        # No partial messages here: the strict web transcript check accepts only the documented one-shot events.
+        return common + ["-p", "--output-format", "stream-json", "--verbose",
                          "--tools", "WebSearch", "--allowedTools", "WebSearch",
                          "--disallowedTools", "EndConversation", "mcp__*",
                          "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',

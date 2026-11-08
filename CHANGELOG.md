@@ -1,8 +1,12 @@
 # Changelog
 
-## 0.1.0-123: web search progress
+## 0.1.0-124: web search progress
 
-- While Claude searches the web, the waiting line shows what it is doing: "Searching the web (1)", "Reading search results (1)", "Writing the answer". The answer itself still appears only after its sources are checked, so an answer with sources the search did not return is never shown.
+- Candidate 123 refused web answers (`web-event-type`); this one keeps the web search as before and only shows its progress.
+
+## 0.1.0-123: web search progress (withdrawn)
+
+- While Claude searches the web, the waiting line shows what it is doing: "Searching the web (1)", "Reading search results (1)". The answer itself still appears only after its sources are checked, so an answer with sources the search did not return is never shown.
 
 ## 0.1.0-122: the answer while it is written
 
