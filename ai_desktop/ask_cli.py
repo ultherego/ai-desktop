@@ -112,8 +112,12 @@ def request(question, args, reader, *, context=None, access=None, task=None, wri
                 state["limit"] = request_seconds((selected or {}).get("effort")) + SERVICE_MARGIN
             mode = "web" if web else "workspace" if task is not None else "assistant" if access is not None else "question"
             progress.phase(mode)
+            from . import live_answer
+            live = live_answer.current()
+            if live is not None:
+                live.attach(progress.stop)
             try:
-                answer = send_once(approval)
+                answer = send_once(approval, **({"on_partial": live.feed} if live is not None else {}))
             finally:
                 progress.phase("cleanup")
     if question_consent is not None:
@@ -459,8 +463,11 @@ def main(argv=None, *, reader=input):
                 _refresh_status()
                 terminal_input.start(terminal_frame.current(), sys.stdout, resolver=controls.during_turn,
                                      commands=ask_commands.COMMANDS)
+            from . import live_answer
+            showing = (live_answer.turn(render=lambda text: render_answer(text, output_format=args.format), rule=rule)
+                       if reader is input and args.format == "auto" and sys.stdout.isatty() else nullcontext(None))
             try:
-                with conversation_state.recording() as sources, _lenient(interactive):
+                with showing as live, conversation_state.recording() as sources, _lenient(interactive):
                     answer = assistant_flow.run(question, args, reader,
                         lambda *values, **kwargs: request(*values, **kwargs, state=state), phase=phase,
                         conversation_consent=consent, skills=controls.load_skill,
@@ -531,9 +538,10 @@ def main(argv=None, *, reader=input):
                     visible, raw = conversation_memory.split_marker(answer)
                     ops = conversation_memory.parse_ops(raw) if raw is not None else None
                     phase("display")
-                    print("\n" + rule() + "\n")
-                    if visible.strip():
-                        print(render_answer(visible, output_format=args.format))
+                    if live is None or not live.finish(visible):
+                        print("\n" + rule() + "\n")
+                        if visible.strip():
+                            print(render_answer(visible, output_format=args.format))
                     print("\n" + rule() + "\n")
                     remember(question, visible, ops, sources)
                     if not interactive:
