@@ -70,7 +70,7 @@ Working and merged at `dd2daec3045c41662a722f4c6a3485dea14dd196` (PR #18, packag
 | Task | Status |
 |---|---|
 | `allow` commands without access to the host's Unix sockets (D-Bus, Docker) | done — candidate 89 hides daemon sockets under `/run` (opt-in `host_sockets`), candidate 90 gives D-Bus only through a read-method filter (Snapper read methods added in 93); accepted by the maintainer on CachyOS and merged in PRs #27, #28 and #30 |
-| General system call filter for the client | in progress — candidate 114: a deny list of syscall groups (systemd `SystemCallFilter` style) in `analysis_seccomp`, real-kernel test; maintainer acceptance with real Claude and Codex requests pending |
+| General system call filter for the client | done — candidate 114 (PR #34): a deny list of syscall groups (systemd `SystemCallFilter` style) in `analysis_seccomp`, real-kernel test, both clients start offline under it; a real Codex request remains to be checked |
 | Matching `change` template limits in the policy and the contract | done |
 | Checking the template parser for option arguments | done |
 | Commands with real Bubblewrap also in CI | to do |
@@ -83,16 +83,16 @@ Working and merged at `dd2daec3045c41662a722f4c6a3485dea14dd196` (PR #18, packag
 |---|---|
 | Project tests (for example `pytest`, `go test`, `npm test`) on an isolated copy, not only seven fixed checks | done (PR #18 merged; reviewed CI and maintainer acceptance below) |
 | A clear message about what a given check confirms and what it does not | done (PR #18 merged; reviewed CI and maintainer acceptance below) |
-| A longer time limit for `high`, if long messages exceed it | to check |
+| A longer time limit for `high`, if long messages exceed it | done — candidate 115: `high` gets 300 s per model call (default 110 s, `xhigh`/`max` 900 s); every waiting layer still derives from the same table and outlives 900 s |
 
 ## Stage 6: cleanup before release
 
 | Task | Status |
 |---|---|
 | Distinct `pkgrel` for each shipped candidate and consistent package references | done for candidates 79/80; maintain this requirement with every delivery |
-| Working acceptance scripts or their removal (`update_candidate.fish` requires an old version) | to do |
+| Working acceptance scripts or their removal (`update_candidate.fish` requires an old version) | done — candidate 115 removed the four scripts pinned to candidates 14–17 and their tests; `accept_system_clients_candidate.fish` and `accept_web_candidate.fish` remain, with the shared `tree_snapshot` helper moved to `tests/accept_script_support.py` |
 | Separate unused experiments/fixtures from installed runtime; preserve active `e2_*` boundary helpers | TODO — dependency review before movement, no deletion by prefix |
-| Retire `ask_context.infer`/`prepare` (Polish-only question heuristics no ordinary path calls) after moving its 15 tests of the live weather/systemd collectors (`_weather`, `_systemd`) to the path `assistant_flow` uses | TODO — the tests cover live consent and refusal behaviour, so they move before the code goes |
+| Retire `ask_context.infer`/`prepare` (Polish-only question heuristics no ordinary path calls) after moving its 15 tests of the live weather/systemd collectors (`_weather`, `_systemd`) to the path `assistant_flow` uses | done — candidate 115: the tests call the live collectors through a helper that mirrors `assistant_flow.collect`; tests that only checked question-text inference went with it |
 | Merging the duplicated `material` and `project` flows, shared text validation and smaller orchestration functions | TODO — preserve the complete task flow and refusal behavior |
 | Codex login/logout false error after a successful operation | TODO — reproduce and distinguish native exit status from verified account state |
 | Keep current documentation aligned with code and archive obsolete acceptance instructions | IN PROGRESS — candidate 82 documents the client runtime, registration, diagnosed failures and successful offline host acceptance in the sole roadmap |
@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** CachyOS acceptance of candidate 114 (the client's system-call filter) with real Claude and Codex requests, then Bubblewrap commands in CI (Stage 4). S0 and S7 remain deferred.
+**Next step:** CachyOS check of candidate 115 (stages 5 and 6), and a real Codex request under the client's system-call filter (candidate 114) once the maintainer's Codex limit resets. S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -261,10 +261,16 @@ Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaini
 
 Earlier dated entries preserve the evidence and status at that point. The latest entry supersedes historical pending/next-step statements.
 
+### 2026-11-08 — Stages 5 and 6: `high` time limit, dead code and old scripts
+
+- **READY FOR TEST**, candidate **0.1.0-115**, branch `cleanup/stage6`, on top of PR #34.
+- Stage 5: `high` reasoning got only the default 110 s per model call; with dozens of command outputs in one request the maintainer's turns ran for minutes. `request_seconds` now gives `high` 300 s (`REQUEST_SECONDS_HIGH`); `xhigh`/`max` stay at 900 s, so every waiting layer, unit and framing cap is unchanged. Test: `test_the_budget_grows_with_the_reasoning_level`.
+- Stage 6: `ask_context.infer`/`prepare`, `normalized` and `CITY_FORMS` are removed. Their 33 tests now drive `_systemd`/`_weather` through a helper with the same steps as `assistant_flow.collect`; two tests that only checked guessing a source from the question text were dropped, and the explicit-option conflicts stay covered in `test_ask_cli`. The acceptance scripts pinned to candidates 14–17 (`accept_candidate`, `accept_ask_edit_candidate`, `accept_home_candidate`, `update_candidate`) and their tests are removed, and CI no longer syntax-checks them.
+
 ### 2026-11-08 — Stage 4: a system-call filter for the client
 
 - PRs #32 and #33 (candidates 110–113) passed the maintainer's CachyOS checks and were merged (`43f2e12`).
-- **READY FOR TEST**, candidate **0.1.0-114**, branch `feature/syscall-filter`. The client filter used to allow everything except SUID/SGID creation and `openat2`. It now also refuses, with EPERM, kernel interfaces a chat client never needs, grouped as systemd's `SystemCallFilter` groups: `@clock`, `@cpu-emulation` (`modify_ldt`), `@debug` (`ptrace`, `process_vm_*`, `perf_event_open`, `pidfd_getfd`, `kcmp`), `@module`, `@mount` with `setns`/`unshare`/`chroot`, `@raw-io`, `@reboot`, `@swap`, `@obsolete`, plus `bpf`, `userfaultfd`, kernel keys, `acct`, `quotactl`, `fanotify_init`, `vhangup`, host/domain names and `open_by_handle_at`; `io_uring_*` return ENOSYS so a runtime falls back. Every name must resolve on the native ABI or no filter is installed (names absent on x86-64 are not listed). A deny list was chosen over an allow list deliberately: Claude (Bun) and Codex (Rust) update independently, and an allow list would break them on any new ordinary call.
+- Candidate **0.1.0-114**, branch `feature/syscall-filter`, merged as PR #34 (`a20d425`) at the maintainer's request after both clients started offline under the filter (`ai-desktop doctor --clients`: Claude 2.1.319 and Codex 0.167.0 compatible); a real Codex request is still to be checked when the maintainer's Codex limit resets. The client filter used to allow everything except SUID/SGID creation and `openat2`. It now also refuses, with EPERM, kernel interfaces a chat client never needs, grouped as systemd's `SystemCallFilter` groups: `@clock`, `@cpu-emulation` (`modify_ldt`), `@debug` (`ptrace`, `process_vm_*`, `perf_event_open`, `pidfd_getfd`, `kcmp`), `@module`, `@mount` with `setns`/`unshare`/`chroot`, `@raw-io`, `@reboot`, `@swap`, `@obsolete`, plus `bpf`, `userfaultfd`, kernel keys, `acct`, `quotactl`, `fanotify_init`, `vhangup`, host/domain names and `open_by_handle_at`; `io_uring_*` return ENOSYS so a runtime falls back. Every name must resolve on the native ABI or no filter is installed (names absent on x86-64 are not listed). A deny list was chosen over an allow list deliberately: Claude (Bun) and Codex (Rust) update independently, and an allow list would break them on any new ordinary call.
 - Evidence so far: the client's `--version`/`--help` start-up uses none of the listed calls (strace of Claude 2.1.319 and Codex 0.167.0), and both still run under the filter. Test: `test_kernel_interfaces_a_client_never_needs_are_refused_and_ordinary_work_continues` (every listed call refused on a real kernel, threads/sockets/children work, the filter is inherited across exec).
 - Idea recorded, not scheduled: a full-screen mode with the input always visible while scrolling (an alternate screen with in-app scrolling, as Claude Code's optional fullscreen rendering). It would move the conversation out of the terminal's scrollback; the maintainer agreed to keep the inline mode for now.
 

@@ -1,18 +1,10 @@
-"""Explicit, finite context selection for general questions. No model tools."""
+"""The fixed systemd and weather collectors behind an approved read plan, and their preview. No model tools."""
 import json
-import re
-import unicodedata
 
 from .analysis_contract import AnalysisDenied, terminal_text
 from . import systemd_context, weather_context
 from .terminal_consent import confirm, fresh_input
 from .question_consent import QuestionConsent
-
-CITY_FORMS = {
-    "example city": "Example City", "krakowie": "Kraków", "wroclawiu": "Wrocław",
-    "gdansku": "Gdańsk", "poznaniu": "Poznań", "lodzi": "Łódź",
-    "katowicach": "Katowice", "szczecinie": "Szczecin", "lublinie": "Lublin",
-}
 
 WEATHER_HINTS = {
     "not-found": "City not found. Give its base name, for example --weather CITY.",
@@ -24,53 +16,6 @@ WEATHER_HINTS = {
     "input": "Invalid city. Give a name, for example --weather CITY.",
     "response": "Could not verify the weather data. It was not passed to Claude.",
 }
-
-
-def normalized(text):
-    return "".join(c for c in unicodedata.normalize("NFKD", text.casefold().replace("ł", "l"))
-                   if not unicodedata.combining(c))
-
-
-def infer(question):
-    """Only hints for a visible fixed collector, never an executable plan."""
-    text = normalized(question)
-    weather = (bool(re.search(r"\b(?:pogod\w*|temperatur\w*)\b", text))
-               and bool(re.search(r"(?:^(?:pogod\w*|temperatur\w*)\b|\b(?:jaka|jaki|sprawdz|"
-                                  r"podaj|pokaz|dzis\w*|aktualn\w*|teraz)\b)", text)))
-    conceptual = bool(re.search(r"\b(?:czym\s+(?:jest|sa)|co\s+(?:to|oznacza)|jak\s+(?:powstaje|dziala)|"
-                                r"jakie\s+(?:sa\s+)?(?:stany|rodzaje|typy)|definicj\w*)\b", text))
-    if conceptual or re.search(r"\b(?:cpu|gpu|procesor\w*|komputer\w*|dysk\w*)\b", text):
-        weather = False
-    systemd = (bool(re.search(r"\b(?:systemd|systemctl|uslug\w*|services?|units?)\b", text))
-               and bool(re.search(r"\b(?:list\w*|pokaz|wypisz|jakie|ktore|wlaczon\w*|"
-                                  r"aktywn\w*|dzialaj\w*|failed|enabled|active)\b", text)))
-    if conceptual:
-        systemd = False
-    if re.search(r"\b(?:nieaktywn\w*|inactive)\b", text):
-        view = "inactive"
-    elif re.search(r"\bnie\s+dzialaj\w*\b", text):
-        view = "all"
-    elif re.search(r"\b(?:wlaczon\w*|enabled|autostart\w*)\b", text):
-        view = "enabled"
-    elif re.search(r"\b(?:failed|nieudan\w*|bled\w*)\b", text):
-        view = "failed"
-    elif re.search(r"\b(?:aktywn\w*|dzialaj\w*|active|uruchomion\w*)\b", text):
-        view = "active"
-    else:
-        view = "installed"
-    scope = "user" if re.search(r"\b(?:uzytkownik\w*|user)\b", text) else "system"
-    if scope == "user" and re.search(r"\b(?:systemow\w*|system)\b", text):
-        scope = "both"
-    # A small explicit Polish locative map helps the documented example;
-    # the resulting lookup name is shown before consent. Other names remain
-    # unchanged; ambiguous provider candidates always require a selection.
-    match = re.search(r"\b(?:w|we)\s+([^?\n,;]+)[?.!]*$", question, re.IGNORECASE)
-    city = match.group(1).strip(" .!?") if weather and match else None
-    if city and len(city) > 80:
-        city = None
-    if city:
-        city = CITY_FORMS.get(normalized(city), city)
-    return weather, systemd, view, scope, city
 
 
 def _read(prompt, reader, limit=128):
@@ -210,33 +155,3 @@ def preview_context(context, *, details=False):
             print("Sources: " + item["source_url"] + "; geocoding https://www.geonames.org/")
     if context:
         print()
-
-
-def prepare(question, args, *, reader=input):
-    explicit_systemd = getattr(args, "systemd", None)
-    explicit_weather = getattr(args, "weather", None)
-    state = getattr(args, "systemd_state", None)
-    if getattr(args, "no_context", False):
-        if explicit_systemd or explicit_weather or state:
-            raise ValueError("mixed context options")
-        return []
-    weather, systemd, inferred_view, inferred_scope, inferred_city = infer(question)
-    context = []
-    if explicit_systemd or systemd:
-        scope = explicit_systemd or inferred_scope
-        context.extend(_systemd(scope, state or inferred_view, args, reader))
-    elif state:
-        raise ValueError("state without systemd")
-    if explicit_weather or weather:
-        if not explicit_weather and re.search(r"\b(?:jutro|pojutrze|tydzien)\b", normalized(question)):
-            print("The weather source covers current conditions only; no forecast for another day is fetched.")
-        else:
-            try:
-                item = _weather(explicit_weather or inferred_city, args, reader)
-            except weather_context.WeatherError as exc:
-                print(WEATHER_HINTS[exc.reason])
-                raise AnalysisDenied("input") from None
-            if item is not None:
-                context.append(item)
-    preview_context(context, details=getattr(args, "details", False))
-    return context

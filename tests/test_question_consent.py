@@ -102,7 +102,8 @@ class QuestionConsentTests(unittest.TestCase):
 
     def test_slow_reasoning_gets_a_longer_window_and_the_default_keeps_180_seconds(self):
         from ai_desktop.analysis_contract import TTL, consent_seconds
-        self.assertEqual((TTL, consent_seconds(None), consent_seconds("high")), (180, 180, 180))
+        self.assertEqual((TTL, consent_seconds(None), consent_seconds("medium")), (180, 180, 180))
+        self.assertEqual(consent_seconds("high"), 300 + 40 + 30)       # a longer call keeps its approved step valid
         self.assertEqual(consent_seconds("max"), consent_seconds("xhigh"))
         self.assertGreater(consent_seconds("max"), 180)
         self.assertGreater(consent_seconds("max"), 900)              # a slow model is not mistaken for a lapsed consent

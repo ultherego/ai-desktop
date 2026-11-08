@@ -115,10 +115,6 @@ jobs:
         run: |
           sudo apt-get update -qq && sudo apt-get install -y bubblewrap openssl python3-rich python3-cryptography python3-pytest golang-go fish
           if ! test -x /usr/bin/npm; then sudo apt-get install -y npm; fi
-          fish --no-config --no-execute scripts/accept_candidate.fish
-          fish --no-config --no-execute scripts/accept_ask_edit_candidate.fish
-          fish --no-config --no-execute scripts/accept_home_candidate.fish
-          fish --no-config --no-execute scripts/update_candidate.fish
           fish --no-config --no-execute scripts/accept_web_candidate.fish
           fish --no-config --no-execute scripts/accept_system_clients_candidate.fish
           python -B -m unittest discover -s tests -p 'test_accept_*script.py' -v

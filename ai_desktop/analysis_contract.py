@@ -327,10 +327,12 @@ MAX_PACKET_LARGE = MAX_PACKET
 MAX_PROPOSAL_TEXT = 4 * 1024 * 1024 + 256 * 1024
 MAX_RESPONSE_BYTES = 2 * MAX_PROPOSAL_TEXT + 65536
 MAX_ANSWER_PACKET = 128 * 1024
-# One model call. Slow reasoning (xhigh / max) gets a longer budget; every layer derives its limit from this one table:
-# the client waits REQUEST + SERVICE_MARGIN, the per-request unit and the session helper outlive that (see packaging).
+# One model call. Slower reasoning gets a longer budget; every layer derives its limit from this one table: the client
+# waits REQUEST + SERVICE_MARGIN, the per-request unit and the session helper outlive the longest (see packaging).
 REQUEST_SECONDS = 110
-REQUEST_SECONDS_LONG = 900     # high reasoning can legitimately think for many minutes
+REQUEST_SECONDS_HIGH = 300     # `high` over a large discovery (dozens of command outputs) can pass two minutes
+REQUEST_SECONDS_LONG = 900     # xhigh / max can legitimately think for many minutes
+HIGH_EFFORTS = frozenset(("high",))
 LONG_EFFORTS = frozenset(("xhigh", "max"))
 SERVICE_MARGIN = 40
 # The privileged session helper stays open while the client holds the pipe, i.e. for a whole request: the longest
@@ -339,7 +341,9 @@ SESSION_SECONDS = REQUEST_SECONDS_LONG + SERVICE_MARGIN + 80
 
 
 def request_seconds(effort):
-    return REQUEST_SECONDS_LONG if effort in LONG_EFFORTS else REQUEST_SECONDS
+    if effort in LONG_EFFORTS:
+        return REQUEST_SECONDS_LONG
+    return REQUEST_SECONDS_HIGH if effort in HIGH_EFFORTS else REQUEST_SECONDS
 
 
 def request_effort(raw):

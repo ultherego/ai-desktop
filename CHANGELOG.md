@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-115: a longer wait for `high`, and cleanup
+
+- With reasoning `high` the program waits up to 5 minutes for one answer (it was 110 s, as for the default); `xhigh` and `max` keep 15 minutes.
+- Removed code that guessed a weather or systemd source from the question text; no path used it any more. Removed four acceptance scripts that only worked with packages 0.1.0-14 to -17.
+
 ## 0.1.0-114: a system-call filter for the client
 
 - The Claude and Codex clients now run with a filter that refuses kernel interfaces a chat client never needs: mounting and namespaces, kernel modules, `ptrace` and reading other processes' memory, `bpf`, kernel keys, `userfaultfd`, clock, reboot and swap calls (`io_uring` reports as unavailable). Ordinary file, network and process calls are unaffected.

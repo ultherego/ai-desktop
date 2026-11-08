@@ -343,7 +343,7 @@ class ExecutionNativeTests(unittest.TestCase):
         args, kwargs = run.call_args
         self.assertEqual(args[0], sandbox.client_command("analyze", controls()))
         self.assertEqual(json.loads(kwargs["input"]), {"mode": "question", "question": "synthetic", "context": []})
-        self.assertEqual(kwargs["timeout"], 110)
+        self.assertEqual(kwargs["timeout"], contract.request_seconds(controls()["effort"]))   # the effort's call budget
         self.assertNotIn("capture_output", kwargs)
         self.assertNotIn("stdout", kwargs)
         self.assertNotIn("stderr", kwargs)

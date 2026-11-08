@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 
 import host_system_clients_acceptance as host
-from test_accept_candidate_script import tree_snapshot
+from accept_script_support import tree_snapshot
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/accept_system_clients_candidate.fish"
 FISH = shutil.which("fish")
