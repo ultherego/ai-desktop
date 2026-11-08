@@ -785,12 +785,35 @@ class Session:
         if self.args.details and decision is not None:
             print("ASK: PASS")
 
-    def _stopped(self, loop):
+    # --- answer and stop summaries, shared by `material` and `project` -----------------------
+    def _stop_header(self):
         self._close_section()
-        spans, size = loop.delivered_summary()
         print(rule("Stopped without an answer"))
         print(field("What next", "Narrow the question or ask it again (new consent).",
                     "Type e.g. \"continue\" so the next question knows what was already checked."))
+
+    def _show_answer(self, decision):
+        self._close_section()
+        print(rule("Answer") + "\n")
+        print(render_answer(decision["text"], output_format=self.args.format))
+
+    @staticmethod
+    def _sources_block(confirmed):
+        print("\n" + rule("Sources"))
+        print(field("Confirmed", *(confirmed or [recipient("none — Claude named no sources the app could confirm")])))
+
+    @staticmethod
+    def _print_notes(notes):
+        for label, values in notes:
+            print(field(label, *values))
+
+    @staticmethod
+    def _plain_text_note():
+        return "Format", [recipient("Claude answered in plain text instead of the agreed action; sources are not confirmed.")]
+
+    def _stopped(self, loop):
+        self._stop_header()
+        spans, size = loop.delivered_summary()
         print(field(recipient("Claude received"), self._delivered_text(loop) + "; the rest of the file was not sent"))
         print(SEPARATOR)
         print()
@@ -813,33 +836,27 @@ class Session:
         return "lines %s (%d B of %d B)" % (text, size, self.material.size)
 
     def _answer(self, text, loop, decision):
-        self._close_section()
         confirmed, rejected = loop.confirm_sources(decision["sources"])
-        print(rule("Answer") + "\n")
-        print(render_answer(decision["text"], output_format=self.args.format))
+        self._show_answer(decision)
         notes = []
         if rejected:
             notes.append(("Rejected", ["lines " + ", ".join("%d–%d" % s for s in rejected),
                                         recipient("(Claude cited sources it did not receive)")]))
         if loop.format_note:
-            notes.append(("Format", [recipient("Claude answered in plain text instead of the agreed action; sources are not confirmed.")]))
+            notes.append(self._plain_text_note())
         if self.args.details:                      # --v: the full account of sources and scope, every time
-            print("\n" + rule("Sources"))
-            print(field("Confirmed", *(["lines %d–%d" % s if s[0] != s[1] else "line %d" % s[0] for s in confirmed]
-                                          or [recipient("none — Claude named no sources the app could confirm")])))
+            self._sources_block(["lines %d–%d" % s if s[0] != s[1] else "line %d" % s[0] for s in confirmed])
             print()
             print(rule("Scope"))
             print(field(recipient("Claude received"), self._delivered_text(loop), "(the rest of the file was not sent)"))
             if loop.searches:
                 print(field("Searches", ", ".join('"%s"' % _safe(n, 40) for n in loop.searches)))
-            for label, values in notes:
-                print(field(label, *values))
+            self._print_notes(notes)
             print(SEPARATOR)
             print("ASK: PASS")
         elif notes:                                # default: silence unless there is something to be careful about
             print("\n" + rule("Note"))
-            for label, values in notes:
-                print(field(label, *values))
+            self._print_notes(notes)
             print(SEPARATOR)
         print()
         self._save_answer(decision["text"])

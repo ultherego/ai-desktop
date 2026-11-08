@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-120: cleanup
+
+- No visible change. Shared code for `material` and `project`, an unused early network experiment removed from the package, and shorter documentation of the current state.
+
 ## 0.1.0-119: `task prune`
 
 - `ai-desktop task prune --workspace DIRECTORY` removes finished history entries you choose from a list: saved and undone tasks, finished conflicts, unlinked history and fully restored deletions. It asks separately and never changes project files. Unfinished saves and deletions still in the trash always stay. Before, at the limit of 128 entries per directory the history had to be cleaned by hand.

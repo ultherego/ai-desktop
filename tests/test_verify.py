@@ -13,7 +13,7 @@ from scripts import verify
 
 class VerificationRunnerTests(unittest.TestCase):
     def test_ci_steps_never_launch_ai_or_bubblewrap(self):
-        self.assertEqual(verify.STEPS["ci"], ("syntax", "unit", "cli", "skills", "doctor", "compare", "compare-summary", "snapshot", "compare-exit", "validate-report", "offline-pipeline", "stdin-pipeline", "snapshot-save", "e1-boundary", "e2-contract", "e2-broker", "e2-egress", "e3-e4-contracts", "e5-e6-contracts", "e7-install", "e7-host-cycle"))
+        self.assertEqual(verify.STEPS["ci"], ("syntax", "unit", "cli", "skills", "doctor", "compare", "compare-summary", "snapshot", "compare-exit", "validate-report", "offline-pipeline", "stdin-pipeline", "snapshot-save", "e1-boundary", "e2-contract", "e3-e4-contracts", "e5-e6-contracts", "e7-install", "e7-host-cycle"))
         for step in verify.STEPS["ci"]:
             argv = verify.command_for(step)
             if argv is not None:
@@ -97,22 +97,6 @@ class VerificationRunnerTests(unittest.TestCase):
         )
         self.assertNotIn("e2-host-probe", verify.STEPS["ci"])
         self.assertIn("e2-host-probe", verify.STEPS["local"])
-
-    def test_e2_broker_policy_is_offline_ci_step(self):
-        self.assertEqual(
-            verify.command_for("e2-broker", python="/usr/bin/python3"),
-            ["/usr/bin/python3", "-B", "-m", "unittest", "discover", "-s",
-             "tests", "-p", "test_e2_broker.py", "-v"],
-        )
-        self.assertIn("e2-broker", verify.STEPS["ci"])
-
-    def test_e2_egress_policy_is_an_offline_ci_step(self):
-        self.assertEqual(
-            verify.command_for("e2-egress", python="/usr/bin/python3"),
-            ["/usr/bin/python3", "-B", "-m", "unittest", "discover", "-s",
-             "tests", "-p", "test_e2_egress.py", "-v"],
-        )
-        self.assertIn("e2-egress", verify.STEPS["ci"])
 
     def test_e3_e4_contracts_run_offline_in_ci(self):
         self.assertEqual(

@@ -91,11 +91,11 @@ Working and merged at `dd2daec3045c41662a722f4c6a3485dea14dd196` (PR #18, packag
 |---|---|
 | Distinct `pkgrel` for each shipped candidate and consistent package references | done for candidates 79/80; maintain this requirement with every delivery |
 | Working acceptance scripts or their removal (`update_candidate.fish` requires an old version) | done — candidate 115 removed the four scripts pinned to candidates 14–17 and their tests; `accept_system_clients_candidate.fish` and `accept_web_candidate.fish` remain, with the shared `tree_snapshot` helper moved to `tests/accept_script_support.py` |
-| Separate unused experiments/fixtures from installed runtime; preserve active `e2_*` boundary helpers | TODO — dependency review before movement, no deletion by prefix |
+| Separate unused experiments/fixtures from installed runtime; preserve active `e2_*` boundary helpers | IN PROGRESS — candidate 120 removes the unused HEAD-probe experiment (`e2_broker`, `e2_egress`, `e2_network_gate`, their tests and the `e2-broker`/`e2-egress` gates); nothing in the runtime imported them. Kept on purpose: `e2_ipc`, `e2_account`, `e2_connect_proxy`, `e2_socket_activation`, `e2_worker_once`, `e2_subscription_boundary` and `e2_compat_fixture` (runtime imports), `e2_handoff_cli` (`cli`), `e2_client_compat` (`verify --mode compat`). Remaining: `e2_boundary`/`e2_probe` serve only the kernel-boundary regressions and could move out of the installed package |
 | Retire `ask_context.infer`/`prepare` (Polish-only question heuristics no ordinary path calls) after moving its 15 tests of the live weather/systemd collectors (`_weather`, `_systemd`) to the path `assistant_flow` uses | done — candidate 115: the tests call the live collectors through a helper that mirrors `assistant_flow.collect`; tests that only checked question-text inference went with it |
-| Merging the duplicated `material` and `project` flows, shared text validation and smaller orchestration functions | IN PROGRESS — the request step of both loops (packet, send, Skills, decision with the prose fallback, `ask_user`, last step and repeat checks) is one `Session._step_request`; `project` keeps its own decision parser and prose shape. Remaining: the answer/stop summaries and the whole-file stage loop |
+| Merging the duplicated `material` and `project` flows, shared text validation and smaller orchestration functions | done — one request step (`Session._step_request`, `_ask_user`, `_no_progress`) and shared answer/stop pieces (`_show_answer`, `_sources_block`, `_stop_header`, `_print_notes`, `_plain_text_note`); text validation was already shared through `material_step`. The whole-file stage loop exists only in `material` and stays there |
 | Codex login/logout false error after a successful operation | TODO — reproduce and distinguish native exit status from verified account state |
-| Keep current documentation aligned with code and archive obsolete acceptance instructions | IN PROGRESS — candidate 82 documents the client runtime, registration, diagnosed failures and successful offline host acceptance in the sole roadmap |
+| Keep current documentation aligned with code and archive obsolete acceptance instructions | IN PROGRESS — candidate 120: README points to the CHANGELOG instead of a per-candidate list, the release checklist no longer repeats candidate 82–85 evidence, and KNOWN_LIMITATIONS states what is still unchecked instead of the history of candidates 81–84 |
 | `task prune` with a list of entries and consent | done — candidate 119: `ai-desktop task prune --workspace DIR` lists only finished entries (saved with no stage left, undone, settled conflict, unlinked history, fully restored deletion), takes numbers or `all` and a separate consent, and re-checks each entry under the lock against the hash shown; unfinished saves, conflicts with stages left and deletions still in the trash always stay |
 | One client session per conversation, streaming answers | to do — follow-up S2; lifecycle and revocation checks required |
 
@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** CachyOS check of candidate 119 (`task prune` on a real project directory), then merging the duplicated `material` and `project` flows (Stage 6), and a real Codex request under the client's system-call filter (candidate 114) once the maintainer's Codex limit resets. S0 and S7 remain deferred.
+**Next step:** CachyOS check of candidate 120, then the S9 task flow with fewer approvals and task continuity, and a real Codex request under the client's system-call filter (candidate 114) once the maintainer's Codex limit resets. S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -260,6 +260,13 @@ Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaini
 ## Progress log
 
 Earlier dated entries preserve the evidence and status at that point. The latest entry supersedes historical pending/next-step statements.
+
+### 2026-11-08 — Candidate 120: Stage 6 cleanup
+
+- PR #38 (one request step) was checked by the maintainer with `material` and `project` on CachyOS and merged.
+- `material` and `project` now also share the answer and stop summaries; the duplicated-flow row is done.
+- The unused HEAD-probe experiment (`e2_broker`, `e2_egress`, `e2_network_gate`) is removed with its tests and `verify` gates, after checking that no runtime module, script, unit or document used it. The installed package therefore changes: candidate **0.1.0-120**, **READY FOR TEST** (`ai-desktop doctor`, one `ask`, `material` and `project` question).
+- Documentation: README, the release checklist and KNOWN_LIMITATIONS drop repeated candidate history; evidence stays in this log.
 
 ### 2026-11-08 — Stage 6: one request step for `material` and `project`
 

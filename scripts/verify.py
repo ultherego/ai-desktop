@@ -25,10 +25,10 @@ COMPAT_FAILURE_REASONS = frozenset({"internal", "timeout", "output-limit", "proc
     "turn-limit", "boundary", "version", "fault-not-observed"})
 STEPS = {
     "compat": ("e2-claude-compat",),
-    "ci": ("syntax", "unit", "cli", "skills", "doctor", "compare", "compare-summary", "snapshot", "compare-exit", "validate-report", "offline-pipeline", "stdin-pipeline", "snapshot-save", "e1-boundary", "e2-contract", "e2-broker", "e2-egress", "e3-e4-contracts", "e5-e6-contracts", "e7-install", "e7-host-cycle"),
-    "local": ("syntax", "unit", "cli", "skills", "doctor", "compare", "compare-summary", "snapshot", "compare-exit", "validate-report", "offline-pipeline", "stdin-pipeline", "snapshot-save", "e1-boundary", "e2-contract", "e2-broker", "e2-egress", "e3-e4-contracts", "e5-e6-contracts", "e7-install", "sandbox", "skill-mount",
+    "ci": ("syntax", "unit", "cli", "skills", "doctor", "compare", "compare-summary", "snapshot", "compare-exit", "validate-report", "offline-pipeline", "stdin-pipeline", "snapshot-save", "e1-boundary", "e2-contract", "e3-e4-contracts", "e5-e6-contracts", "e7-install", "e7-host-cycle"),
+    "local": ("syntax", "unit", "cli", "skills", "doctor", "compare", "compare-summary", "snapshot", "compare-exit", "validate-report", "offline-pipeline", "stdin-pipeline", "snapshot-save", "e1-boundary", "e2-contract", "e3-e4-contracts", "e5-e6-contracts", "e7-install", "sandbox", "skill-mount",
               "executor-probe", "executor-inspect", "e2-host-probe", "e5-host-cycle", "e7-host-cycle", "task-host-cycle", "e5-btrfs-binding"),
-    "ai": ("syntax", "unit", "cli", "skills", "doctor", "compare", "compare-summary", "snapshot", "compare-exit", "validate-report", "offline-pipeline", "stdin-pipeline", "snapshot-save", "e1-boundary", "e2-contract", "e2-broker", "e2-egress", "e3-e4-contracts", "e5-e6-contracts", "e7-install", "sandbox", "skill-mount",
+    "ai": ("syntax", "unit", "cli", "skills", "doctor", "compare", "compare-summary", "snapshot", "compare-exit", "validate-report", "offline-pipeline", "stdin-pipeline", "snapshot-save", "e1-boundary", "e2-contract", "e3-e4-contracts", "e5-e6-contracts", "e7-install", "sandbox", "skill-mount",
            "executor-probe", "executor-inspect", "launcher", "agent", "e2-host-probe", "e5-host-cycle", "e7-host-cycle", "controller-preview", "controller-ask"),
 }
 TIMEOUTS = {"unit": 240, "controller-ask": 180, "e2-claude-compat": 670, "e2-host-probe": 80}
@@ -56,8 +56,6 @@ def command_for(step, python=None):
         "snapshot-save": prefix + ["-m", "unittest", "discover", "-s", "tests", "-p", "test_private_snapshot_save.py", "-v"],
         "e1-boundary": prefix + ["-m", "unittest", "discover", "-s", "tests", "-p", "test_security_boundary_e1.py", "-v"],
         "e2-contract": prefix + ["-m", "unittest", "discover", "-s", "tests", "-p", "test_e2_*boundary*.py", "-v"],
-        "e2-broker": prefix + ["-m", "unittest", "discover", "-s", "tests", "-p", "test_e2_broker.py", "-v"],
-        "e2-egress": prefix + ["-m", "unittest", "discover", "-s", "tests", "-p", "test_e2_egress.py", "-v"],
         "e3-e4-contracts": prefix + ["-m", "unittest", "discover", "-s", "tests", "-p", "test_e3_e4*.py", "-v"],
         "e5-e6-contracts": prefix + ["-m", "unittest", "discover", "-s", "tests", "-p", "test_e5_*.py", "-v"],
         "e7-install": prefix + ["-m", "unittest", "discover", "-s", "tests", "-p", "test_e7_*.py", "-v"],
@@ -168,7 +166,7 @@ def run(mode, ai_consent=False, fail_fast=False, writer=print, runner=subprocess
                 for ident in list(failures)[:40]:
                     writer("Failed test: " + ident)
             # Only 'ci' static/unit checks are echoed for debugging.
-            if mode == "ci" and step in ("syntax", "unit", "cli", "skills", "doctor", "compare", "compare-summary", "snapshot", "compare-exit", "validate-report", "offline-pipeline", "stdin-pipeline", "snapshot-save", "e1-boundary", "e2-contract", "e2-broker", "e2-egress", "e3-e4-contracts", "e5-e6-contracts", "e7-install", "e7-host-cycle"):
+            if mode == "ci" and step in ("syntax", "unit", "cli", "skills", "doctor", "compare", "compare-summary", "snapshot", "compare-exit", "validate-report", "offline-pipeline", "stdin-pipeline", "snapshot-save", "e1-boundary", "e2-contract", "e3-e4-contracts", "e5-e6-contracts", "e7-install", "e7-host-cycle"):
                 writer("\n".join(output.splitlines()[-MAX_OUTPUT:]))
             if fail_fast:
                 break
