@@ -30,11 +30,16 @@ from ai_desktop.permissions import Limits
 profile = {'provider': 'claude', 'model': 'default', 'effort': 'default', 'instructions': '', 'profile': 'default',
            'access': 'changes'}
 count = 0
-def send(approval):
+def send(approval, on_partial=None):
     global count
     count += 1
     data = json.loads(approval.payload)
     print('SENT %d Q:%s H:%d' % (count, data['question'].replace('\n', '|'), len(data.get('conversation', []))), flush=True)
+    if data['question'] == 'NA ZYWO':
+        on_partial('Pierwszy akapit na zywo.\n\nDrugi')
+        time.sleep(0.5)
+        on_partial(' akapit')
+        return json.dumps({'action': 'answer', 'text': 'Pierwszy akapit na zywo.\n\nDrugi akapit, koniec.'})
     if data['question'] == 'WISI':
         print('WAITING', flush=True)
         time.sleep(30)
@@ -129,6 +134,21 @@ class Driver:
 
 
 class ConversationPtyTests(unittest.TestCase):
+    def test_a_finished_block_appears_while_the_answer_is_written_and_only_the_rest_follows(self):
+        driver = Driver(self)
+        self.addCleanup(driver.close)
+        mark = driver.wait_for("How can I help?")
+        driver.wait_for("> ", mark)
+        driver.send("NA ZYWO\r")
+        mark = driver.wait_for(CONSENT, mark)
+        driver.send(b"yes\n")
+        mark = driver.wait_for("Pierwszy akapit na zywo.", mark)
+        driver.wait_for("Drugi akapit, koniec.", mark)
+        text = driver.text()
+        self.assertEqual(text.count("Pierwszy akapit na zywo."), 1, text[-1500:])
+        self.assertEqual(text.count("Drugi akapit, koniec."), 1, text[-1500:])
+        self.assertNotIn("Drugi akapit\n", text)                 # an unfinished block is never shown on its own
+
     def test_a_full_terminal_conversation(self):
         driver = Driver(self)
         self.addCleanup(driver.close)

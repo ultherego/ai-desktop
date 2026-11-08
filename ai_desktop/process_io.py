@@ -14,7 +14,9 @@ MAX_PRIVATE_INPUT_BYTES = MAX_INPUT_BYTES + 17 * 1024
 
 def bounded_process(argv, *, env, input_bytes=b"", timeout=120, limit=131072, cancelled=None,
                     input_limit=32768, private_input=False, copy_input=False, stdout_chunk=None,
-                    pass_fds=()):
+                    pass_fds=(), stdout_filter=None, raw_limit=None):
+    """`stdout_filter(block)` returns the part of each stdout block to keep (None at the end flushes it); `limit`
+    then bounds what is kept and `raw_limit` everything the process wrote."""
     ceiling = MAX_PRIVATE_INPUT_BYTES if private_input is True else MAX_INPUT_BYTES
     if copy_input is True:
         from .copy_contract import MAX_PAYLOAD
@@ -24,7 +26,9 @@ def bounded_process(argv, *, env, input_bytes=b"", timeout=120, limit=131072, ca
             or len(set(pass_fds)) != len(pass_fds)
             or type(private_input) is not bool or type(copy_input) is not bool or (private_input and copy_input)
             or type(input_limit) is not int or not 0 <= input_limit <= ceiling
-            or type(input_bytes) is not bytes or len(input_bytes) > input_limit):
+            or type(input_bytes) is not bytes or len(input_bytes) > input_limit
+            or (stdout_filter is not None and (not callable(stdout_filter) or type(raw_limit) is not int
+                                               or raw_limit < limit))):
         raise AnalysisDenied("input")
     try:
         for descriptor in pass_fds:
@@ -36,7 +40,7 @@ def bounded_process(argv, *, env, input_bytes=b"", timeout=120, limit=131072, ca
     process = subprocess.Popen(argv, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE, close_fds=True, start_new_session=True,
                                pass_fds=pass_fds)
-    output, offset = [bytearray(), bytearray()], 0
+    output, offset, raw = [bytearray(), bytearray()], 0, 0
     deadline = time.monotonic() + timeout
     try:
         with selectors.DefaultSelector() as selector:
@@ -70,7 +74,16 @@ def bounded_process(argv, *, env, input_bytes=b"", timeout=120, limit=131072, ca
                             continue
                         if not block:
                             selector.unregister(key.fileobj)
+                            if key.data == 0 and stdout_filter is not None:
+                                output[0].extend(stdout_filter(None))
+                                if sum(map(len, output)) > limit:
+                                    raise AnalysisDenied("output-limit")
                         else:
+                            if key.data == 0 and stdout_filter is not None:
+                                raw += len(block)
+                                if raw > raw_limit:
+                                    raise AnalysisDenied("output-limit")
+                                block = stdout_filter(block)
                             output[key.data].extend(block)
                             if sum(map(len, output)) > limit:
                                 raise AnalysisDenied("output-limit")

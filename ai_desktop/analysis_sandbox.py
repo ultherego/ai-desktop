@@ -235,7 +235,9 @@ def client_command(action, execution=None):
                          "--max-turns", "4", "--system-prompt", prompt]
     if action != "analyze":
         raise AnalysisDenied("input")
-    return common + ["-p", "--output-format", "stream-json", "--verbose", "--tools", "", "--strict-mcp-config",
+    # Partial messages carry the live answer text; the supervisor drops them before the unchanged final checks.
+    return common + ["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
+                     "--tools", "", "--strict-mcp-config",
                      "--mcp-config", '{"mcpServers":{}}', "--permission-mode", "dontAsk",
                      "--no-session-persistence", "--max-turns", "1", "--system-prompt", prompt]
 
@@ -531,8 +533,13 @@ def local_claude_session(account_path, *, logout=False):
         return False
 
 
-def run_client(action, report=b"", *, cancelled=None, mode="analysis"):
-    """One official login OR one approved analysis. No retries or fallback."""
+# Live text is offered for a conversation answer only: `assistant` answers in the JSON answer action, `question` in plain text.
+LIVE_MODES = {"assistant": True, "question": False}
+STREAM_RAW_LIMIT = 64 * 1024 * 1024     # everything one analysis may write, partial-message events included
+
+
+def run_client(action, report=b"", *, cancelled=None, mode="analysis", partial=None):
+    """One official login OR one approved analysis. No retries or fallback. `partial(text)` receives live answer text."""
     if (action not in ("login", "analyze", "web") or (action == "login" and report)
             or (action == "web") != (mode == "web")):
         raise AnalysisDenied("input")
@@ -580,10 +587,15 @@ def run_client(action, report=b"", *, cancelled=None, mode="analysis"):
                     return "claude.ai"
                 with failure_stage("analysis"):
                     analysis_connection_failed = proxy.begin_phase()
+                    kept = 3 * MAX_PACKET_LARGE if mode == "workspace" else (512 * 1024 if action == "web" else 1024 * 1024)
+                    if action == "analyze":
+                        from .answer_stream import ClaudeStream
+                        live = partial if mode in LIVE_MODES else None
+                        options.update(stdout_filter=ClaudeStream(live, json_answer=LIVE_MODES.get(mode, True)),
+                                       raw_limit=max(STREAM_RAW_LIMIT, kept))
                     code, out, errors = _bound_run(bound, action, directory, online=True, **options,
                                                        input_bytes=report, timeout=request_seconds(request_effort(report)),
-                                                       limit=3 * MAX_PACKET_LARGE if mode == "workspace" else (512 * 1024 if action == "web" else 1024 * 1024),
-                                                       input_limit=MAX_PACKET_LARGE, cancelled=cancelled)
+                                                       limit=kept, input_limit=MAX_PACKET_LARGE, cancelled=cancelled)
                     if code:
                         if action == "web" and child_failure(errors, "client").reason == "client":
                             reason = web_failure(code, out)

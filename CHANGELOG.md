@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-122: the answer while it is written
+
+- In a conversation with Claude the answer appears paragraph by paragraph while it is being written, instead of all at once at the end. The checked final answer still decides; if it differs from what was shown, the program says so and prints it whole.
+- Codex, web search and `material`/`project`/`task` still show the answer at the end.
+
 ## 0.1.0-121: smaller package
 
 - A development-only test probe (`e2_boundary`, `e2_probe`) is no longer installed. No visible change.

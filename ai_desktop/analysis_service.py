@@ -8,7 +8,8 @@ import socket
 from .analysis_contract import (SERVICE_MARGIN, request_seconds, AnalysisDenied, Approval, MAX_PACKET, REASONS,
                                 digest, parse_request, read_result, result_packet)
 from .analysis_sandbox import run_client, transport_supervisor_ready as supervisor_ready
-from .analysis_framing import send_message, receive_message
+from .analysis_framing import PARTIAL_BYTES, send_message, receive_message
+from .answer_stream import MAX_PARTIAL_TOTAL
 from . import activation_socket, e2_account, e2_ipc
 
 DIRECTORY = "/run/ai-desktop-analysis"
@@ -61,7 +62,25 @@ def send_packet(channel, body):
         raise AnalysisDenied("result")
 
 
-def send_once(approval):
+def _live_text(on_partial):
+    """Decode live-text frames for the display callback; a bad frame or a display failure only ends the preview."""
+    state = {"total": 0, "on": on_partial is not None}      # without a display the frames are read and dropped
+
+    def receive(body):
+        if not state["on"]:
+            return
+        state["total"] += len(body)
+        try:
+            if state["total"] > MAX_PARTIAL_TOTAL:
+                raise ValueError("partial budget")
+            on_partial(body.decode("utf-8"))
+        except Exception:                   # never lose the final answer to the preview
+            state["on"] = False
+    return receive
+
+
+def send_once(approval, *, on_partial=None):
+    """Send one approved request. `on_partial(text)` may show live answer text; the returned answer is what counts."""
     send_once.last_meta = None
     try:
         uid = os.geteuid()
@@ -96,7 +115,8 @@ def send_once(approval):
             approval.recheck_sources()
             send_message(conn, body, kind="request")
             result = read_result(receive_message(conn, kind="response", timeout=request_seconds(
-                                         selected["effort"] if selected else None) + SERVICE_MARGIN), approval.sha256,
+                                         selected["effort"] if selected else None) + SERVICE_MARGIN,
+                                         partial=_live_text(on_partial)), approval.sha256,
                                  mode=mode, provider=provider)
             send_once.last_meta = getattr(result, "meta", None)      # closed model metadata, kept apart from the text
             if send_once.last_meta and ("quota" in send_once.last_meta or "plan" in send_once.last_meta):
@@ -108,6 +128,32 @@ def send_once(approval):
         raise AnalysisDenied("timeout") from None
     except (OSError, ValueError, TypeError, KeyError):
         raise AnalysisDenied("endpoint") from None
+
+
+def _live_sender(conn):
+    """Forward live answer text in bounded frames. A slow or closed terminal ends the preview, never the request:
+    closure is still noticed by `cancelled`."""
+    state = {"total": 0, "on": True}
+
+    def send(text):
+        if not state["on"] or type(text) is not str or not text:
+            return
+        body = text.encode("utf-8")
+        state["total"] += len(body)
+        if state["total"] > MAX_PARTIAL_TOTAL:
+            state["on"] = False
+            return
+        try:
+            offset = 0
+            while offset < len(body):
+                end = min(offset + PARTIAL_BYTES, len(body))
+                while end < len(body) and (body[end] & 0xC0) == 0x80:
+                    end -= 1                        # never split a UTF-8 character between frames
+                send_message(conn, body[offset:end], kind="partial", timeout=2)
+                offset = end
+        except AnalysisDenied:
+            state["on"] = False
+    return send
 
 
 def activation_listener(uid):
@@ -156,7 +202,8 @@ def receive_once(uid):
                         from .codex_runtime import run_client as run_codex
                         result = run_codex(action, model_input.encode("utf-8"), cancelled=cancelled, mode=mode)
                     else:
-                        result = run_client(action, model_input.encode("utf-8"), cancelled=cancelled, mode=mode)
+                        result = run_client(action, model_input.encode("utf-8"), cancelled=cancelled, mode=mode,
+                                            partial=_live_sender(conn))
                 response = result_packet(sha256, text=result, mode=mode, meta=getattr(result, "meta", None))
             except (AnalysisDenied, OSError, ValueError, KeyError) as exc:
                 reason = exc.reason if isinstance(exc, AnalysisDenied) else "internal"

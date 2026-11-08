@@ -97,7 +97,7 @@ Working and merged at `dd2daec3045c41662a722f4c6a3485dea14dd196` (PR #18, packag
 | Codex login/logout false error after a successful operation | done — not reproduced on candidate 121: `ai-desktop codex logout --allow-chatgpt-logout --v` and `codex login --allow-chatgpt-login --v` both ended `success` with exit 0 and the matching status line. Reopen with the full `--v` output if it returns |
 | Keep current documentation aligned with code and archive obsolete acceptance instructions | IN PROGRESS — candidate 120: README points to the CHANGELOG instead of a per-candidate list, the release checklist no longer repeats candidate 82–85 evidence, and KNOWN_LIMITATIONS states what is still unchecked instead of the history of candidates 81–84 |
 | `task prune` with a list of entries and consent | done — candidate 119: `ai-desktop task prune --workspace DIR` lists only finished entries (saved with no stage left, undone, settled conflict, unlinked history, fully restored deletion), takes numbers or `all` and a separate consent, and re-checks each entry under the lock against the hash shown; unfinished saves, conflicts with stages left and deletions still in the trash always stay |
-| One client session per conversation, streaming answers | to do — follow-up S2; lifecycle and revocation checks required |
+| One client session per conversation, streaming answers | IN PROGRESS — candidate 122 streams Claude answers in ordinary conversation (finished Markdown blocks while the model writes; the final validated answer decides). Remaining: Codex deltas, `web` mode, then one native session per conversation (lifecycle, revocation, the per-request sandbox and grants) |
 
 ## Agreed follow-up scope — 2026-11-06
 
@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** CachyOS check of candidate 120, then the S9 task flow with fewer approvals and task continuity, and a real Codex request under the client's system-call filter (candidate 114) once the maintainer's Codex limit resets. S0 and S7 remain deferred.
+**Next step:** CachyOS check of candidate 122 (a long `ask` answer should appear block by block), then Codex deltas, then the S9 task flow with fewer approvals and task continuity, and a real Codex request under the client's system-call filter (candidate 114) once the maintainer's Codex limit resets. S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -260,6 +260,19 @@ Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaini
 ## Progress log
 
 Earlier dated entries preserve the evidence and status at that point. The latest entry supersedes historical pending/next-step statements.
+
+### 2026-11-08 — Candidate 122: the answer while it is written (S2, first part)
+
+- Candidate 121 passed the full CachyOS acceptance (`CYCLE=0`, `SYSTEM_CLIENT=0`) and was merged as PR #40.
+- Request path today (reviewed before the change): every turn opens its own privileged session, one service process, Bubblewrap sandboxes and a new native client; only the final answer crossed back as one framed message. One native session per conversation needs a lifecycle broker and discarding native context on revocation, so streaming comes first.
+- **READY FOR TEST**, candidate **0.1.0-122**:
+  - The Claude client runs with `--include-partial-messages` for ordinary analysis (not `web`); the offline compatibility probe already parses every production flag, so a client without it is refused before account access.
+  - The supervisor reads the client's output through `answer_stream.ClaudeStream`: partial-message events are dropped before the unchanged final checks (so the 1 MiB / 4096-event bounds still apply to the rest; everything the client writes is bounded at 64 MiB), and their text deltas feed a preview.
+  - Only the decoded `text` of `{"action":"answer",...}` is previewed, and only when `action` comes first; a command or any other action never reaches the screen early. `question` mode (no JSON contract) previews plain text. Malformed data ends the preview, not the request.
+  - The service sends the preview as new `P` frames (at most 16 KiB each, 4096 per response, 256 KiB of text per request, UTF-8 never split). A slow or closed terminal ends the preview; closure still cancels the request as before.
+  - The terminal accepts `P` frames only before the response and drops them when no display asked; in an interactive `ask` it prints finished Markdown blocks (blank line outside a code fence) as they arrive, stopping the waiting indicator first. When the answer is validated it prints only what follows; if the final answer does not start with what was shown, it says so and prints the whole answer. A `@@MEMORY` line is never shown.
+  - Tests: `tests/test_answer_stream.py` (prefix decoding incl. cut escapes and surrogates, refusal of non-answer actions, event filtering and throttling, bounded process output, frames, budgets, failure paths) and a pty conversation test that sees the first block before the rest.
+- Not yet: Codex (its `item/agentMessage/delta` events stop in `codex_child`), `web` answers, `material`/`project`/`task`.
 
 ### 2026-11-08 — Candidate 121: boundary probe out of the package
 

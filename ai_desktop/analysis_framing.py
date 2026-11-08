@@ -16,7 +16,9 @@ from .analysis_contract import AnalysisDenied, MAX_PACKET_LARGE, MAX_RESPONSE_BY
 CHUNK_BYTES = 32768
 MAGIC = b"AIDFRM2\0"
 HEADER = struct.Struct("!8scI32s")
-_KINDS = {"request": (b"Q", MAX_PACKET_LARGE), "response": (b"R", MAX_RESPONSE_BYTES)}
+PARTIAL_BYTES = 16384
+MAX_PARTIALS = 4096                 # live-text frames before one response; their text is bounded again by the caller
+_KINDS = {"request": (b"Q", MAX_PACKET_LARGE), "response": (b"R", MAX_RESPONSE_BYTES), "partial": (b"P", PARTIAL_BYTES)}
 
 
 def _settings(kind, timeout):
@@ -67,20 +69,29 @@ def send_message(channel, body, *, kind, timeout=5, clock=time.monotonic):
         channel.settimeout(previous)
 
 
-def receive_message(channel, *, kind, timeout=5, clock=time.monotonic):
+def receive_message(channel, *, kind, timeout=5, clock=time.monotonic, partial=None):
+    """One message of `kind`. With `partial`, a response may be preceded by live-text frames, each handed over as
+    bytes; the whole exchange keeps one deadline and a fixed frame count."""
     tag, limit = _settings(kind, timeout)
+    if partial is not None and (kind != "response" or not callable(partial)):
+        raise AnalysisDenied("input")
     deadline, previous = clock() + timeout, channel.gettimeout()
     try:
-        raw = _receive_record(channel, HEADER.size, deadline, clock)
-        magic, actual_tag, length, expected = HEADER.unpack(raw)
-        if magic != MAGIC or actual_tag != tag or not 0 < length <= limit:
-            raise AnalysisDenied("input")
-        body = bytearray()
-        while len(body) < length:
-            body.extend(_receive_record(channel, min(CHUNK_BYTES, length - len(body)), deadline, clock))
-        if not hmac.compare_digest(hashlib.sha256(body).digest(), expected):
-            raise AnalysisDenied("input")
-        return bytes(body)
+        for _ in range(MAX_PARTIALS + 1):
+            raw = _receive_record(channel, HEADER.size, deadline, clock)
+            magic, actual_tag, length, expected = HEADER.unpack(raw)
+            live = partial is not None and actual_tag == b"P"
+            if magic != MAGIC or (actual_tag != tag and not live) or not 0 < length <= (PARTIAL_BYTES if live else limit):
+                raise AnalysisDenied("input")
+            body = bytearray()
+            while len(body) < length:
+                body.extend(_receive_record(channel, min(CHUNK_BYTES, length - len(body)), deadline, clock))
+            if not hmac.compare_digest(hashlib.sha256(body).digest(), expected):
+                raise AnalysisDenied("input")
+            if not live:
+                return bytes(body)
+            partial(bytes(body))
+        raise AnalysisDenied("input")
     except socket.timeout:
         raise AnalysisDenied("timeout") from None
     except OSError:
