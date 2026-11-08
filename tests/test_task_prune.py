@@ -161,7 +161,7 @@ class PruneCliTests(unittest.TestCase):
         code, text, confirm, tasks, _ = self.run_prune([self.record("a" * 64, "prepared", False)], [])
         self.assertEqual(code, 0)
         self.assertIn("Nothing to remove", text)
-        self.assertIn("Unfinished entries stay", text)
+        self.assertIn("Files still in the trash and unfinished tasks stay", text)
         confirm.assert_not_called()
         tasks.assert_not_called()
 
@@ -171,7 +171,7 @@ class PruneCliTests(unittest.TestCase):
         code, text, confirm, tasks, deleted = self.run_prune(records, ["x", "1 2", "y"])
         self.assertEqual(code, 0)
         self.assertIn("Enter numbers from 1 to 2", text)
-        self.assertIn("1 other entry needs checking and will stay.", text)
+        self.assertIn("1 other entry stays: files still in the trash", text)
         self.assertIn("can no longer be undone", text)
         self.assertIn("files in the project are not changed", text)
         tasks.assert_called_once_with("/tmp/project", {"a" * 64: "f" * 64})
@@ -191,6 +191,15 @@ class PruneCliTests(unittest.TestCase):
                 self.assertEqual(code, 2)
                 self.assertIn("Nothing was removed", text)
                 tasks.assert_not_called()
+
+    def test_restore_of_an_unknown_id_is_refused_before_the_consent(self):
+        args = SimpleNamespace(workspace="/tmp/project", plan="a" * 32, details=False)
+        with patch.object(trash, "recovery_records", return_value=[{"plan": "b" * 32}]), \
+                patch.object(cli, "confirm") as confirm, patch.object(trash, "restore") as restore, \
+                contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(ValueError, "unknown plan"):
+            cli.restore_deleted(args, lambda prompt: "y")
+        confirm.assert_not_called()
+        restore.assert_not_called()
 
     def test_chosen_answer_parsing(self):
         self.assertEqual(cli._chosen("ALL", 3), [0, 1, 2])

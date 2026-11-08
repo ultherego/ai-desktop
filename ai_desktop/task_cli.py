@@ -305,6 +305,8 @@ def show_record(record, number=None, *, details=False):
 def restore_deleted(args, reader):
     """Undo one deletion made by `ai-desktop project`: files return only to free names, never over newer files."""
     from . import workspace_trash
+    if not any(record["plan"] == args.plan for record in workspace_trash.recovery_records(args.workspace)):
+        raise ValueError("unknown plan")
     print("Restoring files deleted in: " + json.dumps(args.workspace, ensure_ascii=False))
     print("Files go back only where the name is free; nothing will be overwritten.")
     if not confirm("restore", reader=reader):
@@ -383,14 +385,15 @@ def prune_history(args, records, reader):
     kept = len(records) - len(candidates)
     if not candidates:
         print("Nothing to remove: no finished entries in this directory." +
-              (" Unfinished entries stay; check them with task status." if kept else ""))
+              (" Files still in the trash and unfinished tasks stay; see task status." if kept else ""))
         return 0
     expires = time.monotonic() + 180
     print("Finished entries that can be removed:")
     for index, record in enumerate(candidates, 1):
         show_record(record, index, details=args.details)
     if kept:
-        print(str(kept) + " other entr" + ("y needs" if kept == 1 else "ies need") + " checking and will stay.")
+        print(str(kept) + " other entr" + ("y stays" if kept == 1 else "ies stay") +
+              ": files still in the trash, or a task that is not finished. See task status.")
     select_reader = fresh_input if reader is input else reader
     while True:
         answer = select_reader("Choose numbers (for example 1 3), all, or n/no to cancel: ").strip()
