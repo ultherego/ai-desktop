@@ -24,7 +24,6 @@ from .question_consent import QuestionConsent
 from .workspace_executor import ExecutionDenied
 from .analysis_service import send_once
 from .skill_runtime import task_skills, accept_skill_response
-from .analysis_terminal import render_answer
 from .file_context import _read_hint
 from .material_cli import (GRANT_HINTS, GRANT_SECONDS, SEPARATOR, Session, SessionWindow, _countdown, _countdown_end,
                            _safe, field, rule)
@@ -428,7 +427,7 @@ class ProjectSession(Session):
         if partial:
             notes.append(("Incomplete", ["search (budget or further pages): " + ", ".join('"%s"' % _safe(n, 40) for n in partial)]))
         if loop.format_note:
-            notes.append(("Format", [recipient("Claude answered in plain text instead of the agreed action; sources are not confirmed.")]))
+            notes.append(self._plain_text_note())
         if loop.changed:
             notes.append(("Changed", [", ".join(_safe(p, 80) for p in loop.changed[:8]) + " (during the task or after the scan)"]))
         return notes
@@ -683,31 +682,23 @@ class ProjectSession(Session):
         return recipient("Out of reach for Claude: %s skipped during the scan (details: --v).") % _entries(total) if total else None
 
     def _answer(self, text, loop, decision):
-        self._close_section()
         confirmed, rejected = loop.confirm_sources(decision["sources"])
-        print(rule("Answer") + "\n")
-        print(render_answer(decision["text"], output_format=self.args.format))
+        self._show_answer(decision)
         notes = self._notes(loop, rejected)
         if self.args.details:                       # --v: the full account of sources and scope, every time
-            print("\n" + rule("Sources"))
-            if confirmed:
-                print(field("Confirmed", *[_source(p, a, b) for p, a, b in confirmed]))
-            else:
-                print(field("Confirmed", recipient("none — Claude named no sources the app could confirm")))
+            self._sources_block([_source(p, a, b) for p, a, b in confirmed])
             print()
             print(rule("Scope"))
             print(self._received_field(loop))
             skipped = self._skipped_field()
             if skipped:
                 print(skipped)
-            for label, values in notes:
-                print(field(label, *values))
+            self._print_notes(notes)
             print(SEPARATOR)
             print("ASK: PASS")
         elif notes:                                  # default: silence unless there is something to be careful about
             print("\n" + rule("Note"))
-            for label, values in notes:
-                print(field(label, *values))
+            self._print_notes(notes)
             if self._skipped_line():
                 print(field("Out of reach", "%s skipped during the scan (details: --v)" % _entries(self._skipped_total())))
             print(SEPARATOR)
@@ -722,17 +713,13 @@ class ProjectSession(Session):
         return decision if decision.get("continue") else None
 
     def _stopped(self, loop):
-        self._close_section()
-        print(rule("Stopped without an answer"))
-        print(field("What next", "Narrow the question or ask it again (new consent).",
-                    "Type e.g. \"continue\" so the next question knows what was already checked."))
+        self._stop_header()
         print(self._received_field(loop))
         if self.args.details:
             skipped = self._skipped_field()
             if skipped:
                 print(skipped)
-        for label, values in self._notes(loop):
-            print(field(label, *values))
+        self._print_notes(self._notes(loop))
         if not self.args.details and self._skipped_line():
             print(field("Out of reach", "%s skipped during the scan (details: --v)" % _entries(self._skipped_total())))
         print(SEPARATOR)
