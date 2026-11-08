@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-117: longer answers
+
+- One answer may now be up to 96 KiB (about 45,000 characters with Polish letters; it was 32 KiB). With `max`, asking to "list everything" after dozens of commands produced a longer answer, and the whole answer was refused as `output-limit` after many minutes. The model is now told the limit and asked to put the most important first.
+
 ## 0.1.0-116: a current status line and a named failure reason
 
 - The line under the input (service, profile, model, reasoning) follows the settings: it changes after a `/` command and when a queued setting is applied. Before, it kept the value from the start of the conversation.

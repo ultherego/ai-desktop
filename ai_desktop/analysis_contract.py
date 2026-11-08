@@ -33,6 +33,8 @@ RESPONSE_STYLE = (
     "and only when they make the answer easier to follow. Expand only on explicit request or when "
     "explaining a significant risk requires it. Do not truncate commands, code or diffs, "
     "and do not leave out necessary uncertainty or security effects. "
+    "One answer may be at most 96 KiB (about 45,000 characters with Polish letters); a longer one is refused whole. "
+    "Even when asked to list everything, put the most important first and stay well within that. "
     "These rules also apply to answer.text in an assistant plan. The summary of a workspace "
     "proposal must briefly describe the proposed change, without claiming it was saved."
 )
@@ -326,7 +328,7 @@ MAX_PACKET_LARGE = MAX_PACKET
 # smaller ceiling even when the resulting local files are much larger.
 MAX_PROPOSAL_TEXT = 4 * 1024 * 1024 + 256 * 1024
 MAX_RESPONSE_BYTES = 2 * MAX_PROPOSAL_TEXT + 65536
-MAX_ANSWER_PACKET = 128 * 1024
+MAX_ANSWER_PACKET = 256 * 1024   # the answer packet: MAX_TEXT with JSON escaping and metadata
 # One model call. Slower reasoning gets a longer budget; every layer derives its limit from this one table: the client
 # waits REQUEST + SERVICE_MARGIN, the per-request unit and the session helper outlive the longest (see packaging).
 REQUEST_SECONDS = 110
@@ -355,7 +357,7 @@ def request_effort(raw):
         return effort if type(effort) is str else None
     except (ValueError, TypeError, RecursionError):
         return None
-MAX_TEXT = 32768
+MAX_TEXT = 96 * 1024          # one answer; `max` asked to list everything can pass 32 KiB in Polish (2-byte letters)
 MAX_QUESTION_BYTES = 2048       # a one-shot or material/project question
 MAX_MESSAGE_BYTES = 128 * 1024  # one `ask` message with what was pasted into it; it travels on stdin, not in argv
 def consent_seconds(effort):

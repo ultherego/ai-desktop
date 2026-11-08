@@ -183,7 +183,7 @@ class AnalysisSandboxTests(unittest.TestCase):
             self.assertEqual(process.call_count, 7)
             self.assertEqual(command.call_args.args[0], "web")
             self.assertEqual(process.call_args.kwargs["input_bytes"], question)
-            self.assertEqual(process.call_args.kwargs["limit"], 131072)
+            self.assertEqual(process.call_args.kwargs["limit"], 512 * 1024)
             self.assertEqual(process.call_args.kwargs["input_limit"], contract.MAX_PACKET_LARGE)
             self.assertNotIn(question.decode(), repr(command.call_args_list))
             proxy.shutdown.assert_called_once()
@@ -251,7 +251,7 @@ class AnalysisSandboxTests(unittest.TestCase):
                 sandbox.model_text(0, json.dumps(dict(base, result="ok")).encode(), mode=mode)
 
     def test_native_pipe_limits_are_explicit_and_data_never_enters_argv(self):
-        for mode, output_limit in (("question", 256 * 1024), ("workspace", 3 * contract.MAX_PACKET_LARGE)):
+        for mode, output_limit in (("question", 1024 * 1024), ("workspace", 3 * contract.MAX_PACKET_LARGE)):
             proxy = Mock()
             proxy.begin_phase.return_value.is_set.return_value = False
             native = json.dumps({"type": "result", "subtype": "success", "is_error": False,

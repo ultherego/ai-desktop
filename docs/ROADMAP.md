@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** CachyOS check of candidate 116 (`max` with many commands, the status line), and a real Codex request under the client's system-call filter (candidate 114) once the maintainer's Codex limit resets. S0 and S7 remain deferred.
+**Next step:** CachyOS check of candidate 117 (`max` asked to list everything), and a real Codex request under the client's system-call filter (candidate 114) once the maintainer's Codex limit resets. S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -260,6 +260,10 @@ Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaini
 ## Progress log
 
 Earlier dated entries preserve the evidence and status at that point. The latest entry supersedes historical pending/next-step statements.
+
+### 2026-11-08 — Candidate 117: the `max` failure was the answer size
+
+- With candidate 116 the maintainer's `max` run ("list everything" after 56 commands) ended with `Could not get an answer (output-limit)`; the service log showed the last call ran 10 min 52 s and ended normally. The answer text limit (`MAX_TEXT`, 32 KiB, about 16,000–20,000 characters of Polish) was smaller than the answer, and the model had never been told the limit. **READY FOR TEST**, candidate **0.1.0-117**: `MAX_TEXT` is 96 KiB, the answer packet 256 KiB (room for JSON escaping), the Claude client stream 1 MiB (512 KiB for web), since `max` streams thinking and the answer appears twice in `stream-json`; Codex reads the same `result_text_limit`. The system prompt states the limit and asks to put the most important first. Test: `AnswerSizeTests` (the largest answer with 2-byte letters and escapes fits its packet; the prompt names the limit).
 
 ### 2026-11-08 — Candidate 116: status line and the reason of an unusual failure
 

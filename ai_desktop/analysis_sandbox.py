@@ -555,7 +555,7 @@ def run_client(action, report=b"", *, cancelled=None, mode="analysis"):
                     analysis_connection_failed = proxy.begin_phase()
                     code, out, errors = _bound_run(bound, action, directory, online=True, **options,
                                                        input_bytes=report, timeout=request_seconds(request_effort(report)),
-                                                       limit=3 * MAX_PACKET_LARGE if mode == "workspace" else (131072 if action == "web" else 256 * 1024),
+                                                       limit=3 * MAX_PACKET_LARGE if mode == "workspace" else (512 * 1024 if action == "web" else 1024 * 1024),
                                                        input_limit=MAX_PACKET_LARGE, cancelled=cancelled)
                     if code:
                         if action == "web" and child_failure(errors, "client").reason == "client":
