@@ -273,6 +273,7 @@ Earlier dated entries preserve the evidence and status at that point. The latest
   - The terminal accepts `P` frames only before the response and drops them when no display asked; in an interactive `ask` it prints finished Markdown blocks (blank line outside a code fence) as they arrive, stopping the waiting indicator first. When the answer is validated it prints only what follows; if the final answer does not start with what was shown, it says so and prints the whole answer. A `@@MEMORY` line is never shown.
   - Tests: `tests/test_answer_stream.py` (prefix decoding incl. cut escapes and surrogates, refusal of non-answer actions, event filtering and throttling, bounded process output, frames, budgets, failure paths) and a pty conversation test that sees the first block before the rest.
 - Not yet: Codex (its `item/agentMessage/delta` events stop in `codex_child`), `web` answers, `material`/`project`/`task`.
+- CachyOS acceptance of candidate 122: the full runner passed (`CYCLE=0`, `SYSTEM_CLIENT=0`, upgrade 121 → 122, the compatibility probe accepted `--include-partial-messages` on Claude 2.1.319). A real 15-paragraph `ask` answer with `high` reasoning appeared paragraph by paragraph while it was written, with no repeated text and no mismatch note. A `web` answer still arrived whole, as intended for now.
 
 ### 2026-11-08 — Candidate 121: boundary probe out of the package
 
