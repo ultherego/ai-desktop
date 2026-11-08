@@ -12,7 +12,8 @@ from . import __version__
 from . import agent, audit, compare, controller, diagnose, doctor, e2_handoff_cli, executor, launcher, sandbox, skill_mount, skills, validate_snapshot, workspace_cli
 
 PUBLIC_COMMANDS = ("ask", "material", "project", "task", "status", "stop", "settings",
-                   "agents", "agent", "account", "usage", "local", "panel", "sessions", "skills", "login", "doctor", "clients")
+                   "agents", "agent", "account", "usage", "local", "panel", "sessions", "skills", "login", "doctor", "clients",
+                   "widget")
 
 
 def build_parser():
@@ -23,7 +24,7 @@ def build_parser():
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("ask", help="Ask a question; optionally attach chosen context", add_help=False)
-    commands.add_parser("material", help="Work with one local text file up to 5 MiB", add_help=False)
+    commands.add_parser("material", help="Work with one local text file (up to 32 MiB by default)", add_help=False)
     commands.add_parser("project", help="Work with a project directory: read-only analysis, changes and deletions only after approval", add_help=False)
     commands.add_parser("settings", help="Service, agent, model, reasoning and Skills", add_help=False)
     commands.add_parser("claude", help="Compatibility: older Claude settings; use settings", add_help=False)
@@ -42,6 +43,7 @@ def build_parser():
     status = commands.add_parser("status", help="Show offline agent, policy and conversation status")
     status.add_argument("--json", action="store_true", help="Output machine-readable local status")
     commands.add_parser("panel", help="Open the interactive agent panel")
+    commands.add_parser("widget", help="Link the DankBar widget into DMS (only where DMS is installed)", add_help=False)
     commands.add_parser("account", help="Manage isolated subscription accounts", add_help=False)
     commands.add_parser("local", help="Query the local model catalog or server status", add_help=False)
     commands.add_parser("usage", help="Show cached subscription usage", add_help=False)
@@ -122,11 +124,12 @@ SHORT_HELP = """AI Desktop: controlled tools for CachyOS
 
 Run ai-desktop in a terminal to start a conversation; ai-desktop -c continues the last one.
   ask        Ask a question; optionally attach chosen context
-  material   Analyze one local text file (up to 5 MiB)
+  material   Analyze one local text file (up to 32 MiB by default)
   project    Work with a project directory: read-only analysis; changes and deletions only after your approval
   task       Change chosen files with a test and a full diff; undo and restore
   status     Agent, permissions and live conversations (--json for widgets)
   panel      Interactive agent and account panel
+  widget     Link the DankBar widget into DMS, if DMS is installed
   stop       Stop or recover your own temporary analysis session
 
   settings   Service, agent, model, reasoning and Skills
@@ -198,6 +201,9 @@ def main(argv=None):
     if argv[0] == "usage":
         from . import account_cli
         return account_cli.usage_main(argv[1:])
+    if argv[0] == "widget":
+        from . import desktop_widget
+        return desktop_widget.main(argv[1:])
     if argv[:1] == ["workspace"]:
         return workspace_cli.main(argv[1:])
     if argv[:1] == ["settings"]:

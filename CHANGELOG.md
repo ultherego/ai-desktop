@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.1.0-113: the widget heading follows the theme
+
+- The **AI Desktop** heading is styled like the DMS system-update popout: the theme's primary colour at the large size and medium weight, with the service, role and model in the theme's muted colour right under it.
+
+## 0.1.0-112: `/` list during a turn, widget title and DMS-only widget link
+
+- While the model works, typing `/` shows the same list of commands above the input as when it waits; arrows choose, Tab completes and Enter opens the highlighted command (its menu at once, the choice after the answer). Closing a menu no longer turns off pasting in the live input.
+- The widget title **AI Desktop** is smaller and uses the theme's second colour.
+- `ai-desktop widget install` links the DankBar widget into DMS only when DMS is installed; without DMS it changes nothing, and it never replaces another plugin. `install_agents.py --install` runs it after installing the package.
+
+## 0.1.0-111: fixes from a code review
+
+- The keyboard is handed to `sudo` only after the live input has really stopped reading; an unfinished paste or character can no longer make keys typed for `sudo` land in your draft.
+- `ai-desktop workspace recover --rollback` no longer deletes a newer editor save published while it checks a file.
+- `host_sockets` accepts only sockets: `/run/user`, `/run/dbus` and directories are refused.
+- A change made after many reads in one turn is always remembered, so it is not proposed again later.
+- CI now runs the real sandbox and D-Bus filter tests instead of skipping them.
+- The DankBar widget refreshes both services every minute; a Codex account with connected live limits is read live once a minute, like the refresh button. Claude usage still changes only after a Claude request: there is no live reading for Claude. The separate **Refresh limits** button in the Codex card is gone; the refresh icon and the minute timer do the same.
+- The read-only D-Bus filter needs `xdg-dbus-proxy` 0.1.9 or newer (older versions cannot serve systemd's tools and have known filter bypasses); with an older proxy, `allow` commands get no D-Bus at all. CachyOS ships 0.1.9.
+
 ## 0.1.0-110: `/` menus open at once during a turn
 
 - While the model works, `/help`, `/settings` and `/permissions` show at once; `/model`, `/effort`, `/agent` and `/skills` open their menu at once and your choice is applied after the answer, so a setting never changes halfway through a question. `/provider`, `/test` and `/exit` still wait for the answer.

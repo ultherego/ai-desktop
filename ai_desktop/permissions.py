@@ -1079,14 +1079,17 @@ def load_policy(*, optional=False):
         share = section.get("share_processes", False)
         if type(share) is not bool:
             raise _Problem("commands.share_processes must be true or false.")
-        from .command_ops import MAX_HOST_SOCKETS, valid_host_socket
+        from .command_ops import MAX_HOST_SOCKETS, is_socket, valid_host_socket
         sockets = section.get("host_sockets", [])
         if type(sockets) is not list or len(sockets) > MAX_HOST_SOCKETS:
             raise _Problem("commands.host_sockets must be a list of at most %d paths." % MAX_HOST_SOCKETS)
         for item in sockets:
             if not valid_host_socket(item):
-                raise _Problem("commands.host_sockets accepts only paths under /run (not /run/user), e.g. "
+                raise _Problem("commands.host_sockets accepts only paths under /run (not /run/user or /run/dbus), e.g. "
                                "\"/run/docker.sock\": " + _shown(str(item)))
+            if os.path.lexists(item) and not is_socket(item):
+                raise _Problem("commands.host_sockets lists something that is not a socket (a directory, file or "
+                               "link): " + _shown(str(item)))
         if len(set(sockets)) != len(sockets):
             raise _Problem("commands.host_sockets lists the same path twice.")
         policy = Policy(uid, home, raw, identity, *rules,

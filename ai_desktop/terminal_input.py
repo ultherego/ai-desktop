@@ -20,12 +20,15 @@ import signal
 import sys
 import termios
 import threading
+import time
 
 from .analysis_contract import MAX_MESSAGE_BYTES
-from .question_input import QuestionInputError, _Line, _PASTE_START, _character, _escape, _paste
+from .question_input import _KEYS, _PASTE_END, _PASTE_START, QuestionInputError, _Line, _safe_text
 
 _ANSI = re.compile(r"\x1b\[[0-9;?<>]*[A-Za-z]")
 _current = None
+_EDITS = {b"[D": "left", b"OD": "left", b"[C": "right", b"OC": "right", b"[H": "home", b"OH": "home", b"[1~": "home",
+          b"[7~": "home", b"[F": "end", b"OF": "end", b"[4~": "end", b"[8~": "end", b"[3~": "delete"}
 _SLASH = "/"
 
 
@@ -55,8 +58,9 @@ class _Output:
 
 
 class TypeAhead:
-    def __init__(self, frame, stream, draft="", resolver=None):
+    def __init__(self, frame, stream, draft="", resolver=None, commands=()):
         self.resolver = resolver                   # turns a `/` command into what waits for the answer
+        self.commands, self.pick = tuple(commands), 0   # the `/` list offered above the band, as when idle
         self.frame, self.stream = frame, stream
         self.lock = threading.RLock()
         self.line = _Line(MAX_MESSAGE_BYTES)
@@ -100,8 +104,18 @@ class TypeAhead:
                 cursor = len(self._question) + 1 + self._answer.cursor
             else:
                 text, cursor = self.line.text, self.line.cursor
+            found = self._matches() if self._question is None else ()
+            self.pick = min(self.pick, max(0, len(found) - 1))
+            self.frame.show_commands(found, self.pick)
             self.frame.note = self._note()
             self.frame.draw(text, cursor, typing=False)
+
+    def _matches(self):
+        """The `/` commands for one word at the start of the line, as the idle prompt offers them."""
+        text = self.line.text
+        if not self.commands or not text.startswith("/") or " " in text or "\n" in text:
+            return ()
+        return tuple(item for item in self.commands if item[0].startswith(text))
 
     # -- lifecycle -----------------------------------------------------------------------------------------------------
     def start(self):
@@ -118,7 +132,7 @@ class TypeAhead:
     def stop(self):
         self._stop.set()
         if self._thread is not None:
-            self._thread.join(timeout=2)
+            self._thread.join(timeout=2)           # the loop checks the flag every round and never blocks in a read
         with self.lock:
             self.frame.busy = None
             sys.stdout = self.stream
@@ -135,12 +149,16 @@ class TypeAhead:
     def lease(self):
         """The keyboard and the terminal for someone else (sudo, a menu): no key reaches the draft meanwhile."""
         self._pause.set()
-        self._paused.wait(timeout=1)
+        alive = self._thread is not None and self._thread.is_alive()
+        if alive and not self._paused.wait(timeout=2):
+            self._pause.clear()                        # never hand over a keyboard someone else still reads
+            raise OSError("the live input did not pause")
         with self.lock:
             sys.stdout = self.stream
             self.stream.write("\x1b8")
             self.stream.flush()
             self._cooked()
+            termios.tcflush(self.fd, termios.TCIFLUSH)  # the new reader starts with keys typed after the handover
         try:
             yield
         finally:
@@ -173,15 +191,24 @@ class TypeAhead:
         return answer
 
     # -- keys ----------------------------------------------------------------------------------------------------------
+    # One byte at a time, never a blocking read of "the rest": an escape sequence, a paste or a multi-byte character
+    # is collected across loop rounds, so a pause or stop is honoured within one round. Whatever is unfinished when
+    # the keyboard is handed over is dropped, never completed with keys typed for someone else.
+    _QUIET = {"escape": 0.15, "char": 0.15, "paste": 2.0, "discard": 2.0}
+
     def _run(self):
+        self._sequence, self._sequence_at = None, 0.0
         while not self._stop.is_set():
             if self._pause.is_set():
+                self._sequence = None
                 self._paused.set()
                 while self._pause.is_set() and not self._stop.is_set():
-                    self._stop.wait(0.05)
+                    self._stop.wait(0.02)
                 self._paused.clear()
                 continue
-            if not select.select([self.fd], [], [], 0.05)[0]:
+            if self._sequence is not None and time.monotonic() - self._sequence_at > self._QUIET[self._sequence[0]]:
+                self._sequence = None                  # a lone Esc, a cut character or an unfinished paste
+            if not select.select([self.fd], [], [], 0.02)[0] or self._pause.is_set() or self._stop.is_set():
                 continue
             try:
                 value = os.read(self.fd, 1)
@@ -190,10 +217,62 @@ class TypeAhead:
             if not value:
                 return
             try:
-                self._key(value)
-            except (QuestionInputError, KeyboardInterrupt, EOFError, UnicodeError):
-                pass
+                self._feed(value)
+            except (QuestionInputError, KeyboardInterrupt, EOFError, UnicodeError, ValueError):
+                self._sequence = None
             self.draw()
+
+    def _feed(self, value):
+        """One byte from the terminal."""
+        target = self._answer if self._question is not None else self.line
+        sequence = getattr(self, "_sequence", None)
+        if sequence is not None:
+            kind, buffer = sequence[0], sequence[1]
+            self._sequence_at = time.monotonic()
+            if kind == "discard":                      # an oversized paste: wait for its end, keep nothing
+                tail = (buffer + value)[-len(_PASTE_END):]
+                self._sequence = None if tail == _PASTE_END else ("discard", tail)
+                return
+            buffer.extend(value)
+            if kind == "paste":
+                if buffer.endswith(_PASTE_END):
+                    self._sequence = None
+                    raw = bytes(buffer[:-len(_PASTE_END)])
+                    if len(raw) <= MAX_MESSAGE_BYTES - len(target.text.encode("utf-8")):
+                        target.insert(_safe_text(raw, newlines=True))
+                elif len(buffer) > MAX_MESSAGE_BYTES + len(_PASTE_END):
+                    self._sequence = ("discard", bytearray(buffer[-len(_PASTE_END):]))
+                return
+            if kind == "escape":
+                key = bytes(buffer)
+                if key == _PASTE_START:
+                    self._sequence = ("paste", bytearray())
+                elif key in _KEYS:
+                    self._sequence = None
+                    found = self._matches() if self._question is None else ()
+                    if found and key in (b"[A", b"OA", b"[B", b"OB"):
+                        self.pick = (self.pick + (-1 if key in (b"[A", b"OA") else 1)) % len(found)
+                        return
+                    edit = _EDITS.get(key)
+                    if edit:
+                        target.edit(edit)
+                elif not any(known.startswith(key) for known in (*_KEYS, _PASTE_START)):
+                    self._sequence = None
+                return
+            if kind == "char" and len(buffer) == sequence[2]:
+                self._sequence = None
+                target.insert(_safe_text(bytes(buffer)))
+            return
+        if value == b"\x1b":
+            self._sequence, self._sequence_at = ("escape", bytearray()), time.monotonic()
+            return
+        if value[0] >= 0x80:
+            number = value[0]
+            length = 2 if 0xC2 <= number <= 0xDF else 3 if 0xE0 <= number <= 0xEF else 4 if 0xF0 <= number <= 0xF4 else 0
+            if length:
+                self._sequence, self._sequence_at = ("char", bytearray(value), length), time.monotonic()
+            return
+        self._key(value)
 
     def _key(self, value):
         target = self._answer if self._question is not None else self.line
@@ -203,10 +282,18 @@ class TypeAhead:
             else:
                 os.kill(os.getpid(), signal.SIGINT)    # like Ctrl+C while waiting: stops the turn
             return
+        if value == b"\t" and self._question is None and self._matches():
+            self.line.text = self._matches()[self.pick][0]
+            self.line.cursor, self.pick = len(self.line.text), 0
+            return
         if value in (b"\r", b"\n"):
             if self._question is not None:
                 self._answered.set()
             elif self.line.text.strip():
+                found = self._matches()
+                if found and self.line.text not in (item[0] for item in found):
+                    self.line.text = found[self.pick][0]   # `/mo` + Enter runs what the list has highlighted
+                self.pick = 0
                 text = self.line.text
                 self.line.text, self.line.cursor = "", 0
                 items = [text]
@@ -215,6 +302,7 @@ class TypeAhead:
                         items = self.resolver(text)  # a menu opens now; its choice, or the whole command, waits
                     except Exception:           # a failing menu must not lose what was typed
                         items = [text]
+                    sys.stdout.write("\x1b[?2004h")    # a menu turns bracketed paste off when it closes
                     for item in items:
                         print(_note("%s \u00b7 after the answer" % getattr(item, "label", item)))
                 self.queue.extend(items)
@@ -223,16 +311,8 @@ class TypeAhead:
             target.edit("backspace")
         elif value in (b"\x01", b"\x05", b"\x02", b"\x06"):
             target.edit({b"\x01": "home", b"\x05": "end", b"\x02": "left", b"\x06": "right"}[value])
-        elif value == b"\x1b":
-            key = _escape(self.fd)
-            if key == _PASTE_START:
-                target.insert(_paste(self.fd, MAX_MESSAGE_BYTES - len(target.text.encode("utf-8")), newlines=True))
-            elif key in (b"[D", b"OD", b"[C", b"OC", b"[H", b"OH", b"[F", b"OF", b"[3~"):
-                target.edit({b"[D": "left", b"OD": "left", b"[C": "right", b"OC": "right", b"[H": "home",
-                             b"OH": "home", b"[F": "end", b"OF": "end", b"[3~": "delete"}[key])
-        elif value >= b" " or value == b"\t":
-            if value != b"\t":
-                target.insert(_character(self.fd, value))
+        elif b" " <= value < b"\x7f":
+            target.insert(value.decode("ascii"))
 
 
 def _note(text):
@@ -240,7 +320,7 @@ def _note(text):
     return paint("  \u203a " + text, "muted")
 
 
-def start(frame, stream, resolver=None):
+def start(frame, stream, resolver=None, commands=()):
     """Keep the input live for this turn; returns the owner or None when there is no pinned input."""
     global _current
     if _current is not None or frame is None:
@@ -248,7 +328,7 @@ def start(frame, stream, resolver=None):
     try:
         if not (stream.isatty() and sys.stdin.isatty()):
             return None
-        owner = TypeAhead(frame, stream, draft=getattr(frame, "draft", ""), resolver=resolver)
+        owner = TypeAhead(frame, stream, draft=getattr(frame, "draft", ""), resolver=resolver, commands=commands)
         owner.start()
     except (OSError, ValueError, termios.error):
         return None

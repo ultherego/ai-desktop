@@ -1,11 +1,14 @@
 """Read commands see only a fixed part of /run: no Docker, varlink or other daemon sockets unless the owner opts in."""
+import os
 import shutil
 import subprocess
+import tempfile
 import unittest
 from unittest.mock import patch
 
 from ai_desktop import command_ops, permissions
 from tests.test_change_plan import ChangeBase, ANSWER_PLAN, ops
+from sandbox_requirement import requires, skip_or_fail
 
 
 def bound(command):
@@ -31,16 +34,30 @@ class SandboxRunTests(unittest.TestCase):
         self.assertEqual(command[-1], "ps")
 
     def test_an_owner_opt_in_adds_exactly_those_sockets(self):
-        command = self.command(host_sockets=("/run/docker.sock", "/run/example-daemon.sock"))
+        with patch.object(command_ops, "is_socket", return_value=True):
+            command = self.command(host_sockets=("/run/docker.sock", "/run/example-daemon.sock"))
         self.assertEqual(bound(command)[-2:], ["/run/docker.sock", "/run/example-daemon.sock"])
 
+    def test_only_a_real_socket_is_shared_never_a_directory_or_a_link_in_its_place(self):
+        sockets = {"/run/docker.sock"}
+        with patch.object(command_ops, "is_socket", side_effect=lambda path: path in sockets):
+            command = self.command(host_sockets=("/run/docker.sock", "/run/systemd", "/run/missing.sock"))
+        self.assertIn("/run/docker.sock", bound(command))
+        self.assertNotIn("/run/systemd", bound(command)[len(command_ops.RUN_VISIBLE):])
+        self.assertNotIn("/run/missing.sock", bound(command))
+        with tempfile.TemporaryDirectory() as folder:
+            self.assertFalse(command_ops.is_socket(folder))                     # a directory
+            link = os.path.join(folder, "link.sock")
+            os.symlink("/run/docker.sock", link)
+            self.assertFalse(command_ops.is_socket(link))                       # a link, even to a socket
+
     def test_an_invalid_opt_in_never_runs_with_a_wider_view(self):
-        for bad in ("/run/user/1000/bus", "/run/../home", "/var/run/docker.sock", "run/docker.sock", "/run/a b",
-                    "/run/", "/run/a/b/c/d/e"):
+        for bad in ("/run/user/1000/bus", "/run/user", "/run/dbus", "/run/dbus/system_bus_socket", "/run/../home",
+                    "/var/run/docker.sock", "run/docker.sock", "/run/a b", "/run/", "/run/a/b/c/d/e"):
             with self.subTest(bad=bad):
                 self.assertIsNone(self.command(host_sockets=(bad,)))
 
-    @unittest.skipUnless(shutil.which("bwrap"), "bubblewrap is not available")
+    @requires(shutil.which("bwrap"), "bubblewrap is not available")
     def test_real_sandbox_shows_only_the_fixed_part_of_run(self):
         command = command_ops.sandbox_command(shutil.which("ls"), ["ls", "-A", "/run"])
         listed = set(subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, text=True,
@@ -58,12 +75,21 @@ class HostSocketPolicyTests(ChangeBase):
         self.share_line = 'host_sockets = ["/run/docker.sock", "/run/example-daemon.sock"]\n'
         self.write_policy()
         self.assertEqual(permissions.load_policy().host_sockets(), ("/run/docker.sock", "/run/example-daemon.sock"))
-        for bad in ('"/run/docker.sock"', '["/run/user/1000/bus"]', '["/home/x.sock"]', '["/run/../etc"]',
+        for bad in ('"/run/docker.sock"', '["/run/user/1000/bus"]', '["/run/user"]', '["/run/dbus/system_bus_socket"]',
+                    '["/home/x.sock"]', '["/run/../etc"]',
                     '["/run/a", "/run/a"]', "[%s]" % ", ".join('"/run/s%d"' % i for i in range(9)), "[1]"):
             self.share_line = "host_sockets = %s\n" % bad
             self.write_policy()
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 permissions.load_policy()
+
+    def test_an_existing_path_that_is_not_a_socket_is_refused_when_the_policy_loads(self):
+        self.share_line = 'host_sockets = ["/run/systemd"]\n'
+        self.write_policy()
+        with patch.object(permissions.os.path, "lexists", return_value=True), \
+                patch.object(command_ops, "is_socket", return_value=False), self.assertRaises(ValueError) as caught:
+            permissions.load_policy()
+        self.assertIn("not a socket", " ".join(getattr(caught.exception, "problem", ())))
 
     def test_read_commands_get_the_opt_in_and_nothing_else_changes_without_it(self):
         views = []

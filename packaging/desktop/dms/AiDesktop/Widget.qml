@@ -98,6 +98,13 @@ PluginComponent {
         });
     }
 
+    // Every minute: the local status for both services and, for a Codex account whose live limits the owner
+    // connected, a fresh reading of those limits. Claude's windows come with each Claude request, so they are as
+    // current as the last conversation; there is no separate live reading for Claude.
+    function tick() {
+        refresh(codexAccount?.live_limits_connected === true ? codexAccount.account : undefined);
+    }
+
     function validAlias(name) {
         return typeof name === "string" && name === name.trim() && /^[a-z][a-z0-9-]{0,31}$/.test(name);
     }
@@ -206,7 +213,7 @@ PluginComponent {
         running: true
         repeat: true
         triggeredOnStart: true
-        onTriggered: root.refresh()
+        onTriggered: root.tick()
     }
 
     horizontalBarPill: Component {
@@ -242,36 +249,71 @@ PluginComponent {
             property bool showAccounts: false
             readonly property real availableHeight: parentPopout?.maxBodyHeight > 0
                 ? parentPopout.maxBodyHeight : (root.parentScreen?.height || 800) * 0.8
-            readonly property real controlsHeight: headerHeight + detailsHeight + 2 * PopoutMetrics.contentPadding
-                + tabs.height + footer.height + 2 * content.spacing
+            readonly property real controlsHeight: header.height + 2 * PopoutMetrics.contentPadding
+                + tabs.height + footer.height + 3 * content.spacing
                 + (liveError.visible ? liveError.height + content.spacing : 0)
             readonly property real listLimit: Math.max(0, Math.min(432, availableHeight - controlsHeight))
 
             readonly property bool opened: parentPopout?.shouldBeVisible === true
             onOpenedChanged: if (opened) root.refresh()
 
-            headerText: "AI Desktop"
-            headerActions: Component {
-                DButton {
-                    objectName: "statusRefresh"
-                    iconName: "refresh"
-                    enabled: !root.refreshing && !root.switching && !root.fetchingLimitsFor
-                    busy: !!root.fetchingLimitsFor
-                    minimumWidth: 36
-                    horizontalPadding: 8
-                    tooltipText: "Refresh local status and linked Codex limits"
-                    Accessible.name: tooltipText
-                    onClicked: root.refresh(root.codexAccount?.account)
-                }
-            }
-            detailsText: root.snapshot ? [Status.providerName(root.service), root.snapshot.role, root.snapshot.model].filter(Boolean).join("  ·  ")
-                                         + (root.snapshot.sessions.length ? "  ·  " + root.snapshot.sessions.length + " active" : "")
-                                       : "Local status unavailable"
-
+            // Our own heading, styled like the DMS system-update popout: DMS draws headerText at a fixed size and
+            // colour. Title in the theme's primary colour, the status line under it in its muted variant colour.
             Column {
                 id: content
                 width: parent.width
                 spacing: Theme.spacingM
+
+                Item {
+                    id: header
+                    objectName: "aiDesktopHeader"
+                    width: parent.width
+                    height: Math.max(heading.implicitHeight, statusRefresh.implicitHeight)
+
+                    Column {
+                        id: heading
+                        anchors.left: parent.left
+                        anchors.right: statusRefresh.left
+                        anchors.rightMargin: Theme.spacingM
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: Theme.spacingXS
+
+                        StyledText {
+                            id: title
+                            objectName: "aiDesktopTitle"
+                            width: parent.width
+                            text: "AI Desktop"
+                            font.pixelSize: Theme.fontSizeLarge
+                            font.weight: Theme.fontWeightMedium
+                            color: Theme.primary
+                        }
+                        StyledText {
+                            id: details
+                            objectName: "aiDesktopDetails"
+                            width: parent.width
+                            wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                            font.pixelSize: Theme.fontSizeSmall
+                            color: Theme.onSurfaceVariant
+                            text: root.snapshot ? [Status.providerName(root.service), root.snapshot.role, root.snapshot.model].filter(Boolean).join("  \u00b7  ")
+                                                  + (root.snapshot.sessions.length ? "  \u00b7  " + root.snapshot.sessions.length + " active" : "")
+                                                : "Local status unavailable"
+                        }
+                    }
+                    DButton {
+                        id: statusRefresh
+                        objectName: "statusRefresh"
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        iconName: "refresh"
+                        enabled: !root.refreshing && !root.switching && !root.fetchingLimitsFor
+                        busy: !!root.fetchingLimitsFor
+                        minimumWidth: 36
+                        horizontalPadding: 8
+                        tooltipText: "Refresh local status and linked Codex limits"
+                        Accessible.name: tooltipText
+                        onClicked: root.refresh(root.codexAccount?.account)
+                    }
+                }
 
                 Row {
                     id: tabs
@@ -315,8 +357,6 @@ PluginComponent {
                         readonly property bool selectedCodex: account.provider === "codex" && account.selected === true && account.status !== "retired"
                         readonly property bool showConnect: selectedCodex && account.auth_state === "signed_in" &&
                             !account.live_limits_connected && root.codexAvailable
-                        readonly property bool showRefresh: selectedCodex && account.auth_state === "signed_in" &&
-                            account.live_limits_connected === true && root.codexAvailable
                         readonly property bool showSignIn: selectedCodex && !hasUsage &&
                             account.auth_state !== "signed_in" && root.codexAvailable
                         objectName: "usageCard_" + account.provider + "_" + account.account
@@ -357,20 +397,9 @@ PluginComponent {
                             anchors.bottom: parent.bottom
                             anchors.bottomMargin: usageCard.inset
                             width: parent.width - 2 * usageCard.inset
-                            visible: usageCard.showConnect || usageCard.showRefresh || usageCard.showSignIn
+                            visible: usageCard.showConnect || usageCard.showSignIn
                             spacing: Theme.spacingS
 
-                            ChoiceButton {
-                                objectName: "refreshUsage_" + usageCard.account.account
-                                visible: usageCard.showRefresh
-                                enabled: !root.switching && !root.fetchingLimitsFor
-                                busy: root.fetchingLimitsFor === usageCard.account.account
-                                maximumWidth: parent.width
-                                text: busy ? "Reading limits…" : "Refresh limits"
-                                iconName: "refresh"
-                                tooltipText: "Read this account's usage and reset times"
-                                onClicked: root.fetchLiveLimits(usageCard.account.account)
-                            }
                             ChoiceButton {
                                 id: connectLimits
                                 visible: usageCard.showConnect

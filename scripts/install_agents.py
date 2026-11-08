@@ -84,6 +84,9 @@ def main(argv=None, *, root=ROOT):
                     env.pop(name, None)
                 subprocess.run(["/usr/bin/makepkg", "--cleanbuild", "-si"], cwd=root / "packaging/arch",
                                env=env, check=True)
+            # The DankBar widget depends only on DMS: linked where DMS is installed, skipped elsewhere.
+            from ai_desktop import desktop_widget
+            print(desktop_widget.MESSAGES[desktop_widget.install()], flush=True)
         for step in steps:
             print("After AI Desktop is installed, review and register the source explicitly: " + step, flush=True)
     except (EOFError, KeyboardInterrupt):

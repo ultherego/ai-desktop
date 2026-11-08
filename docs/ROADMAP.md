@@ -14,7 +14,7 @@ Existing stage tables use **done**, **in progress** and **to do**. Follow-up ent
 
 ## Current state
 
-Independent-client migration and candidate-83 quota/widget changes were merged in [PR #20](https://github.com/ultherego/ai-desktopv2/pull/20) as `700a6093056490254b177295eaa402dafef652e8`. Candidate 84 completed the first S9 slice and was merged in [PR #21](https://github.com/ultherego/ai-desktopv2/pull/21) as `9424ce604683e56bacf183bc4ee54a94edfcc786`; its separate main/push CI completed 5/5 PASS. Candidate 85 in [PR #23](https://github.com/ultherego/ai-desktopv2/pull/23) on `feature/conversation-autosave` implements the first S1 slice: bounded private checkpoints for ordinary interactive terminal `ask`, with `--no-save`. Focused ordinary-user tests pass locally; exact-head GitHub CI and CachyOS persistence/package acceptance are still pending.
+`main` is at [`57249dc`](https://github.com/ultherego/ai-desktopv2/commit/57249dc30872f8d49d9c33ebe50a46d224c8bb09) (PR #31, package `0.1.0-109`, accepted by the maintainer on CachyOS; main/push CI 5/5). Since PR #20 (independent clients) and #21 (first S9 slice) the merged work adds autosave and `ai-desktop -c` with the whole read-back thread (#23, #25), hidden daemon sockets and a read-only D-Bus filter for `allow` commands (#27, #28), command groups, `...` and `commands.deny` (#29), larger command budgets (#30) and the Codex-like terminal with typing during a turn and web searches that know the conversation (#31). Open: [PR #32](https://github.com/ultherego/ai-desktopv2/pull/32) (`/` menus during a turn) and the review fixes stacked on it (latest progress-log entry). The detailed evidence of each candidate is in the progress log below.
 
 Working and merged at `dd2daec3045c41662a722f4c6a3485dea14dd196` (PR #18, package `0.1.0-79`; maintainer acceptance recorded below):
 
@@ -30,7 +30,7 @@ Working and merged at `dd2daec3045c41662a722f4c6a3485dea14dd196` (PR #18, packag
 
 | Task | Status |
 |---|---|
-| Undoing a change does not overwrite or delete a newer editor save, both for an edit and for a new file | done |
+| Undoing a change does not overwrite or delete a newer editor save, both for an edit and for a new file | done — `task`/`ask` rollback since PR #18; the older `ai-desktop workspace recover --rollback` path gained the same move-aside-then-verify guarantee in candidate 111 |
 | Independent-client delivery | S8 migrates package/private clients to independent system or explicitly registered native/HOME/npm installations; candidate 82 passed exact-head CachyOS upgrade and native offline acceptance for both corrected paths. PR #20 merged as `700a609`; wider lifecycle/release checks remain open. Earlier download/checksum evidence belongs to the legacy path only. |
 | Consent for a conversation covers the whole `permissions.toml` | done |
 | A long change instruction is not refused at the edit stage (`ask` accepts 128 KiB, the edit stage 2 KiB) | done |
@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** CachyOS check of candidate 110 (`/` menus opening at once during a turn, the choice applied after the answer), then the general system-call filter for the client (Stage 4). S0 and S7 remain deferred.
+**Next step:** CachyOS check of candidate 113 (the widget heading), then the general system-call filter for the client (Stage 4). S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -260,6 +260,30 @@ Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaini
 ## Progress log
 
 Earlier dated entries preserve the evidence and status at that point. The latest entry supersedes historical pending/next-step statements.
+
+### 2026-11-08 — Candidate 113: widget heading like the DMS system-update popout
+
+- The maintainer confirmed the `/` list during a turn works (candidate 112) and asked that the heading take its colour from the theme as the DMS "Up to date" popout does. That popout (`Modules/SystemUpdate/SystemUpdatePanel.qml` in DMS) uses `Theme.primary`, `Theme.fontSizeLarge` and `Theme.fontWeightMedium` for the title and `Theme.fontSizeSmall` in `Theme.onSurfaceVariant` for the line under it, `Theme.spacingXS` apart. **READY FOR TEST**, candidate **0.1.0-113**: the popout heading uses exactly those, with the service, role and model line directly under the title. The QML fixture checks both colours and sizes.
+
+### 2026-11-08 — Candidate 112: `/` list during a turn, widget title, DMS-only widget link
+
+- The maintainer accepted candidate 111 on CachyOS (D-Bus reads such as `hostnamectl` work, "better than before") but `/` did not seem to work while the model worked. A PTY probe showed the menu and the queued choice worked after typing a full name and Enter; what was missing was the list above the input that the idle prompt shows. **READY FOR TEST**, candidate **0.1.0-112**, same branch: the live input offers that list (`TypeAhead._matches`), arrows move the highlight, Tab completes and Enter on a partial name takes the highlighted command; bracketed paste is switched on again after a menu turns it off. Test: `test_during_a_turn_slash_offers_the_command_list_and_enter_runs_the_highlighted_one`.
+- Widget: DMS draws `headerText` at a fixed large size in the plain text colour, so the popout draws its own heading — **AI Desktop** at `Theme.fontSizeLarge` in `Theme.secondary` — with the refresh button and the details line. The QML fixture checks the colour, size and that the DMS heading stays empty.
+- The widget depends only on DMS: `ai-desktop widget install|status|remove` (`ai_desktop/desktop_widget.py`) links `/usr/share/ai-desktop/dms/AiDesktop` into `$XDG_CONFIG_HOME/dms/plugins` only when `/usr/bin/dms` exists, never over another plugin, and removes only its own link; `install_agents.py --install` runs it after the package. The package itself still never changes DMS configuration. Tests: `tests/test_desktop_widget_link.py`.
+
+### 2026-11-08 — Fixes from an external code review
+
+- An external review of `main` at `57249dc` reported two P1 and two P2 defects with synthetic reproductions, plus test and documentation gaps. Each was checked in the code before changing it; all four defects were confirmed.
+- **READY FOR TEST**, candidate **0.1.0-111**, branch `fix/review-findings`, stacked on PR #32 (candidate 110).
+- **P1, keyboard handover:** `lease()` waited at most one second and handed the terminal over even when the live-input thread had not paused; that thread could sit in a blocking read of an unfinished paste or multi-byte character, so keys typed for `sudo` could reach the draft. The thread now reads one byte per round and collects escape sequences, pastes and characters across rounds, dropping whatever is unfinished when a pause starts; `lease()` hands over only after a confirmed pause (otherwise it refuses, and `sudo -v` is then refused as authorization) and flushes pending input. Test: `test_an_unfinished_paste_or_character_never_keeps_the_keyboard_from_a_lease` (fails on the old code: the first key meant for the new reader was taken), plus refusal and byte-collection unit tests.
+- **P1, older rollback:** `workspace_executor._remove_verified` checked an open file and then unlinked the name, so an editor save published in between was deleted. It now moves the entry aside atomically (`RENAME_NOREPLACE`), checks the object actually moved and deletes only that; anything else goes back or stays aside, never deleted. Test: `test_rollback_never_deletes_a_newer_editor_save_published_while_it_checks` (fails on the old code).
+- **P2, `host_sockets`:** `/run/user` itself and directories such as `/run/systemd` were accepted and bound whole. The pattern now also refuses `/run/user` and `/run/dbus` (the system bus goes only through the read filter); the policy refuses an existing path that is not a socket, and the sandbox binds an entry only if it is a socket at that moment (`lstat`, so never a link or directory).
+- **P2, recorded actions:** at most eight facts were kept per turn, reads included, so a change after eight reads could be lost and proposed again later. Reads now take at most eight entries plus one "...and N more" counter; changes, tests, undos, writes and deletions are always kept. Test: `test_a_change_is_recorded_even_after_many_reads_in_the_same_turn`.
+- **Tests and CI:** the Snapper check in `test_dbus_filter.py` ran a host program while the module was imported; it now runs inside the test with a timeout. The real-sandbox and D-Bus filter tests were skipped in every CI job; the Bubblewrap jobs now install `xdg-dbus-proxy` and run them with `AI_DESKTOP_REQUIRE_SANDBOX_TESTS=1`, where a missing prerequisite fails instead of skipping (`tests/sandbox_requirement.py`).
+- **Documentation:** `SECURITY.md` describes web searches with the conversation; `KNOWN_LIMITATIONS.md` no longer says `-c` is missing; this roadmap's current state, the release checklist's candidate-85 items and the CLI's material size were brought up to date.
+- **xdg-dbus-proxy 0.1.9 required:** making the D-Bus tests mandatory in CI showed they failed there with `Transport endpoint is not connected`. A diagnostic run proved the proxy itself failed outside any sandbox: Ubuntu ships 0.1.5, which cannot serve sd-bus clients (`busctl`, `hostnamectl`; added in 0.1.6), and the upstream 0.1.8 and 0.1.9 releases fix filter bypasses (broadcasts, forged replies, CVE-2026-94422). `dbus_filter` now reads the proxy version once per process and gives `allow` commands no D-Bus with anything older than 0.1.9; the package depends on `xdg-dbus-proxy>=0.1.9`; CI builds the pinned 0.1.9 release (`72b40c8`) and the real filter tests pass there (run 42463917397, 5/5). Test: `test_a_proxy_older_than_the_filter_fixes_gives_no_bus`.
+- **Widget, requested by the maintainer:** the minute timer now calls `tick()`, which reads the local status and, for a Codex slot with connected live limits, the live limits too, as the refresh button does; the maintainer then had the redundant **Refresh limits** button removed from the Codex card. This deliberately relaxes the candidate-83 rule that only an explicit click reads native limits; opening the popout still reads local status only. Claude has no live reading (its windows arrive with requests); reading Claude Code's OAuth usage endpoint would need the Claude credentials and an undocumented API, so it waits for the maintainer's decision. Tests: the QML fixture checks that a tick reads connected limits (and fails if it does not); the static test checks the wiring.
+- Not changed: the old acceptance scripts pinned to candidates 14–17 remain a Stage 6 item; the review's notes on credentials, the proxy and the syscall filter restate documented trust assumptions.
 
 ### 2026-11-08 — `/` commands during a turn
 

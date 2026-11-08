@@ -8,8 +8,9 @@ import unittest
 from unittest.mock import patch
 
 from ai_desktop import command_ops, dbus_filter
+from sandbox_requirement import requires, skip_or_fail
 
-PROXY_READY = os.path.exists(dbus_filter.PROXY) and os.path.exists("/run/dbus/system_bus_socket") \
+PROXY_READY = os.path.exists(dbus_filter.PROXY) and dbus_filter.usable() and os.path.exists("/run/dbus/system_bus_socket") \
     and shutil.which("bwrap") is not None and shutil.which("busctl") is not None
 
 
@@ -66,6 +67,19 @@ class SandboxWiringTests(unittest.TestCase):
             with dbus_filter.session() as bus:
                 self.assertIsNone(bus)
 
+    def test_a_proxy_older_than_the_filter_fixes_gives_no_bus(self):
+        for output, usable in (("xdg-dbus-proxy 0.1.5\n", False), ("xdg-dbus-proxy 0.1.8\n", False),
+                               ("xdg-dbus-proxy 0.1.9\n", True), ("xdg-dbus-proxy 0.2\n", True),
+                               ("something else 9.9\n", False), ("", False)):
+            with self.subTest(output=output), patch.dict(dbus_filter._checked, clear=True), \
+                    patch.object(dbus_filter.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, output)):
+                self.assertIs(dbus_filter.usable("/usr/bin/synthetic-proxy"), usable)
+        with patch.dict(dbus_filter._checked, {dbus_filter.PROXY: (0, 1, 5)}), \
+                patch.object(dbus_filter.shutil, "which", return_value=dbus_filter.PROXY), \
+                patch.object(dbus_filter.os.path, "exists", return_value=True):
+            with dbus_filter.session() as bus:
+                self.assertIsNone(bus)                                        # never the old filter, never the raw bus
+
     def test_only_sandboxed_read_commands_start_the_proxy(self):
         calls = []
 
@@ -86,7 +100,7 @@ class SandboxWiringTests(unittest.TestCase):
         self.assertEqual(calls, ["start", "start"])
 
 
-@unittest.skipUnless(PROXY_READY, "xdg-dbus-proxy, a system bus, bwrap and busctl are needed")
+@requires(PROXY_READY, "xdg-dbus-proxy, a system bus, bwrap and busctl are needed")
 class RealProxyTests(unittest.TestCase):
     def busctl(self, *args):
         with dbus_filter.session() as bus:
@@ -109,10 +123,17 @@ class RealProxyTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("Access denied", result.stderr)
 
-    @unittest.skipUnless(shutil.which("snapper") and subprocess.run(["snapper", "list-configs"], capture_output=True,
-                                                                    stdin=subprocess.DEVNULL).returncode == 0,
-                         "snapper with a readable configuration is needed")
     def test_the_snapper_tool_reads_its_configurations_through_the_filter(self):
+        # Checked here, not at import: discovering the tests must never run a host program.
+        snapper = shutil.which("snapper", path="/usr/bin")
+        if snapper is None:
+            self.skipTest("snapper is not installed")
+        try:
+            direct = subprocess.run([snapper, "list-configs"], capture_output=True, stdin=subprocess.DEVNULL, timeout=10)
+        except subprocess.TimeoutExpired:
+            self.skipTest("snapper did not answer in time")
+        if direct.returncode != 0:
+            self.skipTest("snapper has no configuration readable by this user")
         with dbus_filter.session():
             command = command_ops.sandbox_command(shutil.which("snapper"), ["snapper", "list-configs"])
             result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=20)

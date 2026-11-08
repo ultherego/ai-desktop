@@ -8,6 +8,7 @@ from unittest.mock import patch
 from ai_desktop import assistant_contract as plans, assistant_flow as flow, command_ops, discovery_contract as dc
 from ai_desktop import analysis_contract as contract, codex_protocol as codex, permissions
 from test_ask_discovery import ANSWER, ANSWER_PLAN, Base, QUESTION, plan
+from sandbox_requirement import requires, skip_or_fail
 
 ALLOW = '["uname -s", "uname -r", "systemctl status <unit> --no-pager", "journalctl -b -n <int>"]'
 
@@ -183,13 +184,13 @@ class RealSandboxFlowTests(OperationsBase):
     def test_a_command_runs_in_the_real_sandbox_through_the_conversation(self):
         import shutil
         if shutil.which("bwrap") is None:
-            self.skipTest("bubblewrap is not available")
+            skip_or_fail(self, "bubblewrap is not available")
         self.commands = '["uname -s", "touch -- <word>"]'
         self.write_policy()
         result = self.run_flow([run("uname", "-s"), ANSWER_PLAN])
         step = self.steps_of(1)[0]
         if step["status"] == "unavailable":
-            self.skipTest("unprivileged user namespaces are not available here")
+            skip_or_fail(self, "unprivileged user namespaces are not available here")
         self.assertEqual(result, ANSWER)
         self.assertEqual((step["status"], step["output"].strip()), ("ok", "Linux"))
         # a listed command that tries to WRITE is stopped by the read-only view, even though the user said yes

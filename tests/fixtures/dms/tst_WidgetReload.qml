@@ -60,6 +60,14 @@ Item {
         function exerciseAccountActions(widget, popout, snapshot, provider, account) {
             const refresh = findChild(popout, "statusRefresh");
             verify(refresh && refresh.visible);
+            const title = findChild(popout, "aiDesktopTitle");
+            verify(title && title.visible && title.text === "AI Desktop");
+            compare(title.color, Theme.primary, "The title takes the theme colour, like the system-update popout");
+            compare(title.font.pixelSize, Theme.fontSizeLarge, "The title is smaller than the DMS heading");
+            const details = findChild(popout, "aiDesktopDetails");
+            compare(details.color, Theme.onSurfaceVariant);
+            compare(details.font.pixelSize, Theme.fontSizeSmall);
+            compare(popout.headerText, "", "The DMS heading is not drawn in addition");
             const corner = refresh.mapToItem(popout, refresh.width, 0);
             verify(corner.x >= popout.width - 1 && corner.y < 40, "Refresh belongs in the top right corner");
             if (provider.id === "claude") {
@@ -135,22 +143,28 @@ Item {
             host.shouldBeVisible = true;
             widget.refresh();
             compare(Proc.limitReads.length, 0, "Passive refresh cannot fetch a native quota");
+            // The minute timer reads the limits of a connected account, like the refresh button.
+            widget.tick();
+            tryVerify(() => Proc.limitReads.length === 1, 5000, "The minute tick reads connected live limits");
+            Proc.finishLimits("", 0);
+            tryVerify(() => !widget.fetchingLimitsFor && !widget.refreshing);
+            Proc.limitReads = [];
             const usageCard = findChild(popout, "usageCard_codex_" + account.account);
             verify(usageCard);
             verify(!findChild(usageCard, "chatgptUsageLink"), "Missing limits must not redirect to a browser");
-            verifyButtonInside(usageCard, "Refresh limits");
-            compare(findChild(usageCard, "emptyUsage").text, "Read limits to show usage and reset times here.");
+            verify(!visibleButton(usageCard, "Refresh limits"), "The card has no separate refresh: the icon and the minute timer read");
+            compare(findChild(usageCard, "emptyUsage").text, "Limits are read every minute; the refresh icon reads them now.");
             widget.fetchLiveLimits("--help");
             widget.manageLiveLimits("spare", true);
             compare(Proc.limitReads.length, 0);
             compare(SessionService.lastLaunched, "ai-desktop-codex-limits.desktop");
 
-            clickButton(usageCard, "Refresh limits");
+            mouseClick(refresh);
+            tryVerify(() => Proc.limitReads.length === 1);
             compare(JSON.stringify(Proc.limitReads), JSON.stringify([
                 ["/usr/bin/ai-desktop", "usage", "--refresh", "--provider", "codex", "--account", account.account, "--json"]
             ]));
             verify(!refresh.enabled);
-            verify(visibleButton(usageCard, "Reading limits…"));
             compare(findChild(usageCard, "emptyUsage").text, "Reading usage and reset times…");
             widget.fetchLiveLimits(account.account);
             compare(Proc.limitReads.length, 1, "In-flight refresh cannot be duplicated");

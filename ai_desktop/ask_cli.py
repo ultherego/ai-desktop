@@ -445,7 +445,8 @@ def main(argv=None, *, reader=input):
         while True:
             finished = False
             if reader is input:
-                terminal_input.start(terminal_frame.current(), sys.stdout, resolver=controls.during_turn)
+                terminal_input.start(terminal_frame.current(), sys.stdout, resolver=controls.during_turn,
+                                     commands=ask_commands.COMMANDS)
             try:
                 with conversation_state.recording() as sources, _lenient(interactive):
                     answer = assistant_flow.run(question, args, reader,

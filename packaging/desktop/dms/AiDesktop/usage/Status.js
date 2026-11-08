@@ -78,7 +78,7 @@ function emptyUsageText(account) {
     if (account.live_limits_connected === true) {
         if (account.quota_source === "codex_native" && account.observed_at > 0)
             return "Codex did not report a 5-hour or 7-day window.";
-        return "Read limits to show usage and reset times here.";
+        return "Limits are read every minute; the refresh icon reads them now.";
     }
     return "Connect this account's limits to show usage and reset times here.";
 }

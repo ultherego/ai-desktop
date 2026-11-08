@@ -91,6 +91,15 @@ class ChangeFlowTests(ChangeBase):
             self.assertIn(text, shown)
         self.assertEqual(self.wire[0]["access"]["change_commands"], ["systemctl restart <unit>", "systemctl enable <unit>"])
 
+    def test_a_change_is_recorded_even_after_many_reads_in_the_same_turn(self):
+        batch = json.dumps({"action": "run", "commands": [STATUS] * 9})
+        result, facts = self.facts([batch, change(RESTART, STATUS, REVERT), ANSWER_PLAN])
+        self.assertEqual(result, ANSWER)
+        self.assertIn("Change systemctl restart foo.service: ok, code 0", facts)
+        self.assertIn("Test after change systemctl status foo.service --no-pager: ok, code 0", facts)
+        self.assertIn("...and 1 more read command", facts)                    # reads are counted, not dropped silently
+        self.assertEqual(sum(fact.startswith("Command ") for fact in facts), cs.READ_FACTS)
+
     def revoke(self):
         self.config.write_text(self.config.read_text(encoding="utf-8") + "\n# changed while the command ran\n", encoding="utf-8")
 

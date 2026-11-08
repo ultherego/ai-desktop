@@ -154,6 +154,30 @@ jobs:
           }
           PROFILE
           sudo apparmor_parser -r "$RUNNER_TEMP/ai-desktop-bwrap.apparmor"
+      - name: Checkout pinned upstream xdg-dbus-proxy 0.1.9
+        # Ubuntu 24.04 ships 0.1.5: no sd-bus clients and the filter bypasses fixed in 0.1.8/0.1.9 (CVE-2026-94422).
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: flatpak/xdg-dbus-proxy
+          ref: 72b40c8f6d9d585cfbdb249690724f740d207087 # 0.1.9
+          path: .ci-dbus-proxy
+          persist-credentials: false
+      - name: Build xdg-dbus-proxy 0.1.9 only on the disposable runner
+        run: |
+          sudo apt-get install -y meson ninja-build pkg-config libglib2.0-dev
+          meson setup .ci-dbus-proxy/build .ci-dbus-proxy -Dman=disabled -Dtests=false
+          meson compile -C .ci-dbus-proxy/build
+          sudo install -o root -g root -m755 .ci-dbus-proxy/build/xdg-dbus-proxy /usr/bin/xdg-dbus-proxy
+          test "$(/usr/bin/xdg-dbus-proxy --version)" = 'xdg-dbus-proxy 0.1.9'
+      - name: Read-command sandbox and D-Bus read filter (real bwrap and xdg-dbus-proxy; skipping is a failure)
+        env:
+          AI_DESKTOP_REQUIRE_SANDBOX_TESTS: '1'
+        run: |
+          python -m pip install 'rich>=13.7,<15' 'cryptography>=44'
+          test -S /run/dbus/system_bus_socket
+          for module in test_command_ops test_command_sockets test_dbus_filter test_ask_operations; do
+            python -B -m unittest discover -s tests -p "$module.py" -v
+          done
       - name: User native registration with actual root-owned copies (synthetic ELF, no execution)
         id: client_registration
         run: python -B tests/ci_client_registration.py --allow-disposable-client-registration-test

@@ -9,6 +9,7 @@ import tempfile
 import unittest
 
 from ai_desktop import command_ops as ops
+from sandbox_requirement import requires, skip_or_fail
 
 DIRECT = lambda path, argv: [path, *argv[1:]]          # no sandbox: process handling is tested on its own
 
@@ -119,11 +120,11 @@ class ExecutionTests(unittest.TestCase):
         self.assertNotIn("must-not-leak", step["output"])
         self.assertEqual(self.run_command(["cat"])["output"], "")             # stdin is /dev/null: returns at once
 
-    @unittest.skipUnless(shutil.which("bwrap"), "bubblewrap is not available")
+    @requires(shutil.which("bwrap"), "bubblewrap is not available")
     def test_real_sandbox_runs_a_read_command_and_cannot_write_or_see_the_network(self):
         step = ops.execute(ops.resolve("uname"), ["uname", "-s"], output_limit=500, timeout=10)
         if step["status"] == "unavailable":
-            self.skipTest("unprivileged user namespaces are not available here")
+            skip_or_fail(self, "unprivileged user namespaces are not available here")
         self.assertEqual((step["status"], step["output"].strip()), ("ok", "Linux"))
         with tempfile.TemporaryDirectory(dir=Path.home()) as directory:
             target = Path(directory) / "created-by-sandbox"
@@ -219,7 +220,7 @@ class ReviewFindingsTests(unittest.TestCase):
     def test_the_sandbox_hides_homes_and_the_user_runtime_dir_and_sets_no_session_bus_dir(self):
         command = ops.sandbox_command("/usr/bin/uname", ["uname", "-s"])
         if command is None:
-            self.skipTest("bubblewrap is not available")
+            skip_or_fail(self, "bubblewrap is not available")
         for hidden in ("/home", "/root", "/run"):
             index = command.index(hidden)
             self.assertEqual(command[index - 1], "--tmpfs")

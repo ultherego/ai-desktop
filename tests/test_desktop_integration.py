@@ -41,7 +41,11 @@ class DesktopIntegrationTests(unittest.TestCase):
         self.assertIn('if (Status.canSelectAccount(snapshot, provider, account))\n            changeSelection(["account", "use", provider, account]', widget)
         self.assertIn("root.selectService(serviceCard.provider)", widget)
         self.assertIn("onClicked: root.selectAccount(serviceCard.provider, modelData.account)", widget)
-        self.assertIn("onTriggered: root.refresh()", widget)
+        self.assertIn("onTriggered: root.tick()", widget)
+        self.assertIn('text: "AI Desktop"\n                            font.pixelSize: Theme.fontSizeLarge\n'
+                      '                            font.weight: Theme.fontWeightMedium\n                            color: Theme.primary', widget)
+        self.assertNotIn("headerText:", widget)
+        self.assertIn("refresh(codexAccount?.live_limits_connected === true ? codexAccount.account : undefined)", widget)
         self.assertNotIn("sudo", widget)
         self.assertIn('["/usr/bin/ai-desktop", "status", "--json"]', widget)
         self.assertIn('["/usr/bin/ai-desktop", "usage", "--refresh", "--provider", "codex", "--account", name, "--json"]', widget)
@@ -55,5 +59,5 @@ class DesktopIntegrationTests(unittest.TestCase):
             self.assertTrue((DESKTOP / (name + ".desktop")).is_file())
         self.assertNotIn("Qt.openUrlExternally(", widget)
         self.assertNotIn("https://chatgpt.com/settings/usage", widget)
-        self.assertIn('onClicked: root.fetchLiveLimits(usageCard.account.account)', widget)
+        self.assertNotIn('Refresh limits', widget)                       # the refresh icon and the minute timer read
         self.assertIn('onClicked: root.manageLiveLimits(usageCard.account.account, false)', widget)

@@ -12,16 +12,13 @@ The package installs an example at `/usr/share/ai-desktop/niri-bindings.kdl`. Pi
 
 ## Optional DMS bar widget
 
-With the package installed, link its widget into the directory DMS scans. These fish commands honor `XDG_CONFIG_HOME` and leave an existing plugin of the same name in place.
+The widget depends only on DMS. The package ships it in `/usr/share/ai-desktop/dms/AiDesktop` and never changes your DMS configuration by itself. Link it into the directory DMS scans with:
 
 ```fish
-set -l dms_config ~/.config
-if set -q XDG_CONFIG_HOME; and test -n "$XDG_CONFIG_HOME"
-    set dms_config "$XDG_CONFIG_HOME"
-end
-set -l dms_plugins "$dms_config/dms/plugins"
-mkdir -p -- "$dms_plugins"; and ln -sT -- /usr/share/ai-desktop/dms/AiDesktop "$dms_plugins/AiDesktop"
+ai-desktop widget install
 ```
+
+It checks that DMS is installed (`/usr/bin/dms`); without DMS it changes nothing. It honors `XDG_CONFIG_HOME`, creates one link in `dms/plugins`, and leaves an existing plugin of the same name in place. `ai-desktop widget status` shows the state and `ai-desktop widget remove` deletes only that link. `scripts/install_agents.py --install` runs the same step after installing the package.
 
 Enable **AI Desktop** under **Settings → Plugins**, then add the widget in the DankBar editor. Restart the shell with `dms restart` if it has already cached the plugin directory. The panel opens when you click the bar widget. **Open chat** and **Open panel** use the installed desktop entries.
 
@@ -33,13 +30,13 @@ Click the horizontal provider indicator to open **Usage**. If a current five-hou
 
 In **Accounts & login**, click the Claude or Codex card to use that service for new conversations. Click an account name to select that slot. The controls inside the card act on the displayed provider and account. The terminal shows the outcome and the account name. For actions opened from the widget, press Enter to close the result. **Sign in…** opens the account picker. A confirmed login changes the action to **Sign out…**; the terminal names the target and asks for confirmation before disconnecting it. **Manage accounts…** is available on both Claude and Codex cards, including when the local sign-in state is unknown or signed out. For an account connected on an older release, click **Check sign-in…** once to check its existing isolated profile. An administrator prompt may appear. After the check, use the refresh icon in the top right if the widget is still open.
 
-The refresh icon works on both tabs. With the optional native limits connection, an explicit click reads the current usage windows of the selected Codex slot, including while Claude is active for chat. Opening the popout and its regular timer read local status. Claude usage continues to reflect the last reported observation.
+The refresh icon works on both tabs and refreshes both services at once: the local status of Claude and Codex and, with the optional native limits connection, a live reading of the selected Codex slot's usage windows, including while Claude is active for chat. The widget does the same every minute, so a connected Codex slot is read live once a minute; opening the popout reads local status only. Claude usage reflects the last reading Claude reported with a request: there is no separate live reading for Claude, so it changes after a conversation.
 
 To set up live Codex limits:
 
 1. In **Accounts & login**, check the Codex slot is signed in. For an existing login that still says **Check sign-in…**, run that check first.
 2. Click **Connect live limits…**, confirm the named slot and approve the administrator prompt. The terminal opens an official device sign-in flow. Open the displayed address, enter the short code and choose the ChatGPT account and workspace whose native Codex limits you want to see. Enable device-code login in your personal security settings or ask your workspace administrator if the provider has disabled it.
-3. Connecting performs the first quota read. Return to **Usage** to see its percentages and reset times, then use **Refresh limits** inside the card or the upper-right refresh icon for another reading. When Codex is active, the DankBar pill marks the live five-hour reading with **CLI**. Only the windows returned by Codex receive numbers. A network failure leaves the previous measurement and its timestamp visible; a connected account without a reading keeps its refresh action. Opening the widget does not make a network request.
+3. Connecting performs the first quota read. Return to **Usage** to see its percentages and reset times, after that the widget reads them every minute, and the upper-right refresh icon reads them at once. When Codex is active, the DankBar pill marks the live five-hour reading with **CLI**. Only the windows returned by Codex receive numbers. A network failure leaves the previous measurement and its timestamp visible; a connected account without a reading keeps its refresh action. Opening the widget does not make a network request.
 4. **Reconnect live limits…** means the previous separate quota connection was invalidated, for example after a new chat login. Reconnect explicitly to obtain a reading for the intended account and workspace. The widget does not silently reuse a previous account or browser session. To remove the native session locally, choose **Disconnect live limits…** in **Accounts & login**. After chat sign-out or loss of the native connection, the account picker also lets you remove saved native limits credentials.
 
 [Codex device authentication](https://learn.chatgpt.com/docs/auth#login-on-headless-devices) · [ChatGPT usage settings](https://chatgpt.com/settings/usage).

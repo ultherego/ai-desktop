@@ -134,8 +134,8 @@ The chosen provider (Anthropic, and with Codex OpenAI) receives:
 On top of this comes the technical context of the official client and login data, which the program neither reads nor shows. `--v` shows the program's data, not
 a record of all encrypted traffic.
 
-Other network targets: `weather = true` reveals the place name and IP address to the Open-Meteo service. `web = true` sends the question itself for a search on the
-provider's side; the question's content may go into search engine queries, and files and local data are not attached.
+Other network targets: `weather = true` reveals the place name and IP address to the Open-Meteo service. `web = true` sends the question together with the latest conversation exchanges for a search on the
+provider's side, so a question about "the error above" is understood. Text from the question and from those exchanges may go into search engine queries; Claude is told to keep personal details out of them, which is an instruction, not a filter. Files, task memory and Skills are not attached.
 
 Data that was sent cannot be withdrawn.
 

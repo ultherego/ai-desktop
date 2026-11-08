@@ -4,12 +4,12 @@
 # Only the guarded package scriptlet may apply it during this approved install.
 pkgname=ai-desktop
 pkgver=0.1.0
-pkgrel=110
+pkgrel=113
 pkgdesc='Terminal AI assistant for CachyOS and Arch with an isolated client and approved changes'
 arch=('x86_64')
 url='https://github.com/ultherego/ai-desktopv2'
 license=('Apache-2.0')
-depends=('python>=3.12' 'bubblewrap' 'xdg-dbus-proxy' 'systemd' 'ca-certificates' 'libseccomp' 'sudo' 'python-rich>=13.7' 'python-cryptography')
+depends=('python>=3.12' 'bubblewrap' 'xdg-dbus-proxy>=0.1.9' 'systemd' 'ca-certificates' 'libseccomp' 'sudo' 'python-rich>=13.7' 'python-cryptography')
 optdepends=('claude-code: independently installed native Claude client' 'openai-codex: independently installed native Codex client'
             'python-pytest: run the offline pytest recipe' 'go: run the offline go-test recipe' 'npm: run the offline npm-test recipe')
 install=ai-desktop.install

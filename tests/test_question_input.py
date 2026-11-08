@@ -446,6 +446,27 @@ class PromptSessionTerminalTests(unittest.TestCase):
         self.assertEqual(output.count("SYNTHETIC-SECRET"), 2)                # echoed by the terminal once, printed once
         self.assertIn("RESTORED=True", output)
 
+    def test_an_unfinished_paste_or_character_never_keeps_the_keyboard_from_a_lease(self):
+        colour = {key: value for key, value in os.environ.items() if key != "NO_COLOR"}
+        colour.update(TERM="xterm-256color", COLORTERM="truecolor")
+        body = ("import time\nimport ai_desktop.terminal_frame as frame, ai_desktop.terminal_input as live\n"
+                "f = frame.start(sys.stdout, 'SYNTHETIC status')\n"
+                "live.start(f, sys.stdout)\n"
+                "time.sleep(0.6)\n"
+                "with live.lease():\n"
+                "    line = sys.stdin.readline()\n"
+                "print('LEASE=' + json.dumps(line.strip()), flush=True)\n"
+                "draft, queue = live.stop()\n"
+                "print('R=' + json.dumps([draft, queue]), flush=True)\n"
+                "frame.stop()\n")
+        for unfinished in (b"\x1b[200~SYNTHETIC unfinished paste", b"\xc4"):
+            with self.subTest(unfinished=unfinished):
+                output = self.run_script(body, [unfinished, b"SYNTHETIC-FOR-SUDO\n"], env=colour, delay=0.45)
+                self.assertEqual(re.findall(r'LEASE=("[^"]*")', output), ['"SYNTHETIC-FOR-SUDO"'])
+                self.assertEqual([json.loads(found) for found in re.findall(r"R=(\[[^\n\x1b]*\])", output)],
+                                 [["", []]])                                  # nothing reached the draft
+                self.assertIn("RESTORED=True", output)
+
     def test_up_and_down_walk_the_history_of_this_command_only(self):
         output = self.run_script(self.READS.format(attach=False, count=3),
                                  [b"pierwsze\n", b"drugie\n", b"\x1b[A\x1b[A\n"])

@@ -301,7 +301,8 @@ def sanitize(raw, limit):
 RUN_VISIBLE = ("/run/systemd/system", "/run/systemd/sessions", "/run/systemd/seats",
                "/run/systemd/users", "/run/systemd/netif", "/run/systemd/timesync", "/run/log", "/run/udev/data",
                "/run/udev/tags", "/run/mount", "/run/utmp", "/run/NetworkManager")
-_HOST_SOCKET = re.compile(r"/run/(?!user/)[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+){0,3}\Z")
+# Not /run/user (session sockets of every login) and not /run/dbus (the system bus goes only through the read filter).
+_HOST_SOCKET = re.compile(r"/run/(?!(?:user|dbus)(?:/|\Z))[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+){0,3}\Z")
 MAX_HOST_SOCKETS = 8
 
 
@@ -309,6 +310,14 @@ def valid_host_socket(value):
     """An extra socket the owner chose to share with read commands (for example /run/docker.sock)."""
     return (type(value) is str and bool(_HOST_SOCKET.fullmatch(value))
             and not any(part in (".", "..") for part in value.split("/")))
+
+
+def is_socket(path):
+    """True only for a Unix socket itself (not a link to one, not a directory): what may be bound for a command."""
+    try:
+        return stat.S_ISSOCK(os.lstat(path).st_mode)
+    except OSError:
+        return False
 
 
 def sandbox_command(path, argv, *, share_processes=False, host_sockets=()):
@@ -322,8 +331,11 @@ def sandbox_command(path, argv, *, share_processes=False, host_sockets=()):
     if any(not valid_host_socket(item) for item in host_sockets):
         return None
     run = ["--tmpfs", "/run"]
-    for item in (*RUN_VISIBLE, *host_sockets):
+    for item in RUN_VISIBLE:
         run += ["--ro-bind-try", item, item]
+    for item in host_sockets:
+        if is_socket(item):                        # a directory or a link in its place is never shared
+            run += ["--ro-bind-try", item, item]
     from . import dbus_filter
     bus = dbus_filter.current()
     if bus is not None:
