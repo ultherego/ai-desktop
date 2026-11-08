@@ -65,7 +65,9 @@ def installed_matches(*, native=True):
     """
     offline._installed_matches()
     _installed_skills_match()
-    mappings = [(p, INSTALL / "ai_desktop" / p.name) for p in (ROOT / "ai_desktop").glob("*.py")]
+    from package_files import development_only_absent, packaged_modules
+    development_only_absent(INSTALL / "ai_desktop")
+    mappings = [(p, INSTALL / "ai_desktop" / p.name) for p in packaged_modules(ROOT)]
     mappings += [(ROOT / "packaging/systemd" / name, INSTALL / name)
                  for name in ("analysis-client.py", "analysis-worker.py", "analysis-session.py",
                               "codex-auth.py", "codex-client.py", "codex-quota.py", "client-admin.py")]
@@ -146,7 +148,7 @@ def preflight():
     if (uid <= 0 or uid != os.getuid() or not os.isatty(0) or not os.isatty(1)
             or Path("/proc/1/comm").read_text().strip() != "systemd"):
         raise ValueError("host")
-    if offline._command(["/usr/bin/pacman", "-Q", "ai-desktop"]) != "ai-desktop 0.1.0-120":
+    if offline._command(["/usr/bin/pacman", "-Q", "ai-desktop"]) != "ai-desktop 0.1.0-121":
         raise ValueError("package")
     installed_matches()
     units = ["ai-desktop-analysis@" + str(uid) + suffix for suffix in (".socket", ".service")]
