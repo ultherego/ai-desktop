@@ -69,7 +69,7 @@ Working and merged at `dd2daec3045c41662a722f4c6a3485dea14dd196` (PR #18, packag
 
 | Task | Status |
 |---|---|
-| `allow` commands without access to the host's Unix sockets (D-Bus, Docker) | in progress — candidate 89 (merged) hides daemon sockets under `/run`; candidate 90 gives D-Bus only through a read-method filter; maintainer acceptance pending |
+| `allow` commands without access to the host's Unix sockets (D-Bus, Docker) | done — candidate 89 hides daemon sockets under `/run` (opt-in `host_sockets`), candidate 90 gives D-Bus only through a read-method filter (Snapper read methods added in 93); accepted by the maintainer on CachyOS and merged in PRs #27, #28 and #30 |
 | General system call filter for the client | to do |
 | Matching `change` template limits in the policy and the contract | done |
 | Checking the template parser for option arguments | done |
@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** CachyOS check of candidate 109 (a web question about the error above, after `ai-desktop -c`), then `/` command menus opening at once during a turn, then the general system-call filter for the client (Stage 4). S0 and S7 remain deferred.
+**Next step:** CachyOS check of candidate 110 (`/` menus opening at once during a turn, the choice applied after the answer), then the general system-call filter for the client (Stage 4). S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -260,6 +260,12 @@ Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaini
 ## Progress log
 
 Earlier dated entries preserve the evidence and status at that point. The latest entry supersedes historical pending/next-step statements.
+
+### 2026-11-08 — `/` commands during a turn
+
+- Candidates 98–109 passed the maintainer's checks and were merged in PR #31 (`57249dc`). The Stage 4 socket/D-Bus row is marked done.
+- **READY FOR TEST**, candidate **0.1.0-110**, branch `feature/slash-during-turn`. The maintainer's earlier decision: a `/` command used while the model works acts at once, but a choice that changes settings takes effect only after the answer. `Controls.during_turn` shows `/help`, `/settings` and `/permissions` at once; `/model`, `/effort`, `/agent` and `/skills` open their menu at once and queue only the choice (`/model X`, or a `Deferred` for a Skills selection, applied with the conversation after the answer); `/provider`, `/test`, `/exit` and unknown commands wait whole. A menu that fails keeps the typed command. The live input calls it from its key thread, so the menu owns the keyboard while it is open.
+- Tests: three `during_turn` tests in `tests/test_ask_commands.py`; two live-input tests in `tests/test_terminal_look.py`.
 
 ### 2026-11-07 — Usability: a conversation look closer to Codex
 

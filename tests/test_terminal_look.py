@@ -4,7 +4,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from ai_desktop import run_controls, terminal_frame
+from ai_desktop import ask_commands, run_controls, terminal_frame, terminal_input
 
 CONFIG = {"provider": "claude", "profile": "diagnostic", "model": "default", "effort": "high",
           "access": "read-only", "instructions": ""}
@@ -185,3 +185,39 @@ class FrameTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LiveInputTests(unittest.TestCase):
+    def owner(self, resolver):
+        with patch.object(terminal_input.termios, "tcgetattr", return_value=[0, 0, 0, 0, 0, 0, [0] * 32]):
+            return terminal_input.TypeAhead(object(), io.StringIO(), resolver=resolver)
+
+    def type(self, owner, text):
+        output = io.StringIO()
+        with patch("sys.stdout", output):
+            for char in text:
+                owner._key(char.encode())
+        return output.getvalue()
+
+    def test_enter_on_a_slash_command_during_a_turn_queues_what_its_menu_chose(self):
+        seen = []
+        choice = ask_commands.Deferred("/skills b", lambda conversation: None)
+
+        def resolver(line):
+            seen.append(line)
+            return {"/model": ["/model opus"], "/help": [], "/skills": [choice]}[line]
+
+        owner = self.owner(resolver)
+        printed = self.type(owner, "/model\r/help\r/skills\rnext question\r")
+        self.assertEqual(seen, ["/model", "/help", "/skills"])            # an ordinary message never reaches it
+        self.assertEqual(owner.queue, ["/model opus", choice, "next question"])
+        self.assertIn("/model opus \u00b7 after the answer", printed)
+        self.assertIn("/skills b \u00b7 after the answer", printed)
+
+    def test_a_failing_menu_keeps_the_typed_command_for_after_the_answer(self):
+        def resolver(line):
+            raise RuntimeError("SYNTHETIC menu failure")
+
+        owner = self.owner(resolver)
+        self.type(owner, "/model\r")
+        self.assertEqual(owner.queue, ["/model"])

@@ -55,7 +55,8 @@ class _Output:
 
 
 class TypeAhead:
-    def __init__(self, frame, stream, draft=""):
+    def __init__(self, frame, stream, draft="", resolver=None):
+        self.resolver = resolver                   # turns a `/` command into what waits for the answer
         self.frame, self.stream = frame, stream
         self.lock = threading.RLock()
         self.line = _Line(MAX_MESSAGE_BYTES)
@@ -206,8 +207,17 @@ class TypeAhead:
             if self._question is not None:
                 self._answered.set()
             elif self.line.text.strip():
-                self.queue.append(self.line.text)
+                text = self.line.text
                 self.line.text, self.line.cursor = "", 0
+                items = [text]
+                if self.resolver is not None and text[:1] == "/":
+                    try:
+                        items = self.resolver(text)  # a menu opens now; its choice, or the whole command, waits
+                    except Exception:           # a failing menu must not lose what was typed
+                        items = [text]
+                    for item in items:
+                        print(_note("%s \u00b7 after the answer" % getattr(item, "label", item)))
+                self.queue.extend(items)
             return
         if value in (b"\x08", b"\x7f"):
             target.edit("backspace")
@@ -225,7 +235,12 @@ class TypeAhead:
                 target.insert(_character(self.fd, value))
 
 
-def start(frame, stream):
+def _note(text):
+    from .terminal_style import paint
+    return paint("  \u203a " + text, "muted")
+
+
+def start(frame, stream, resolver=None):
     """Keep the input live for this turn; returns the owner or None when there is no pinned input."""
     global _current
     if _current is not None or frame is None:
@@ -233,7 +248,7 @@ def start(frame, stream):
     try:
         if not (stream.isatty() and sys.stdin.isatty()):
             return None
-        owner = TypeAhead(frame, stream, draft=getattr(frame, "draft", ""))
+        owner = TypeAhead(frame, stream, draft=getattr(frame, "draft", ""), resolver=resolver)
         owner.start()
     except (OSError, ValueError, termios.error):
         return None

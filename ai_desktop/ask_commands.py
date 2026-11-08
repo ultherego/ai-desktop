@@ -61,6 +61,16 @@ def _pick(title, options, default=0):
             return start + answer
 
 
+class Deferred:
+    """A choice made in a menu while the model worked; it is applied after the answer, with the conversation then."""
+
+    def __init__(self, label, run):
+        self.label, self.run = label, run
+
+
+_READ_ONLY = ("/help", "/settings", "/permissions")
+
+
 class Controls:
     def __init__(self):
         self.skills = None                   # this conversation's choice; None means what the agent has assigned
@@ -155,6 +165,73 @@ class Controls:
         else:
             print("Unknown command %s. List: /help. To send this as a question, start with a space." % word)
         return True
+
+    def during_turn(self, line):
+        """A `/` command typed while the model works. Read-only ones are shown at once; a menu opens at once and only
+        its choice waits; anything else waits whole. Returns what to queue: message lines and Deferred choices."""
+        if line[:1].isspace():
+            return [line]
+        text = line.strip()
+        word, _, value = text.partition(" ")
+        if not _SHAPE.fullmatch(word) or "\n" in word:
+            return [line]
+        value = value.strip()
+        name = _ALIASES.get(word, word)
+        if name == "/":
+            chosen = _pick("Commands", tuple("%s  %s" % item for item in COMMANDS))
+            if chosen is None:
+                return []
+            name = COMMANDS[chosen][0]
+        if name in _READ_ONLY:
+            self.handle(name)
+            return []
+        if value:
+            return [name + " " + value]
+        if name in ("/model", "/effort"):
+            field = name[1:]
+            options = (execution.MODELS if self._provider() == "claude" else ()) if name == "/model" \
+                else execution.efforts_for(self._provider())
+            picked = self._pick_value(name, field, tuple(options))
+            return [] if picked is None else [name + " " + picked]
+        if name == "/agent":
+            picked = self._pick_agent()
+            return [] if picked is None else ["/agent " + picked]
+        if name == "/skills":
+            try:
+                profile_name, profile = self._profile()
+                from . import skills
+                available = tuple(skills.names())
+            except (OSError, ValueError, KeyError):
+                return ["/skills"]
+            result = self._skill_menu(available, list(profile.skills if self.skills is None else self.skills))
+            if result is None:
+                return []
+            return [Deferred("/skills " + (", ".join(result) or "none"),
+                             lambda conversation: self._set_skills(profile_name, profile, result, conversation))]
+        return [name]
+
+    def _pick_value(self, command, field, options):
+        if not options:
+            return None
+        try:
+            present = self._active()[field]
+        except (OSError, ValueError, KeyError):
+            present = None
+        chosen = _pick("%s \u00b7 now: %s \u00b7 applies after the answer" % (command, present), options,
+                       default=options.index(present) if present in options else 0)
+        return None if chosen is None else options[chosen]
+
+    def _pick_agent(self):
+        try:
+            names = tuple(sorted(self._config().profiles))
+            present = self._profile()[0]
+        except (OSError, ValueError, KeyError):
+            return None
+        if not names:
+            return None
+        chosen = _pick("/agent \u00b7 now: %s \u00b7 applies after the answer" % present, names,
+                       default=names.index(present) if present in names else 0)
+        return None if chosen is None else names[chosen]
 
     @staticmethod
     def _help():
@@ -327,6 +404,9 @@ class Controls:
                 print("Switch one: /skills NAME")
                 return
             chosen = result
+        self._set_skills(name, profile, chosen, conversation)
+
+    def _set_skills(self, name, profile, chosen, conversation):
         selected = dict(execution.current() or profiles.resolve(profile=name))
         try:
             selected["instructions"] = profiles.catalog_for(replace(profile, skills=tuple(chosen)))

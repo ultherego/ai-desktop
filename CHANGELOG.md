@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-110: `/` menus open at once during a turn
+
+- While the model works, `/help`, `/settings` and `/permissions` show at once; `/model`, `/effort`, `/agent` and `/skills` open their menu at once and your choice is applied after the answer, so a setting never changes halfway through a question. `/provider`, `/test` and `/exit` still wait for the answer.
+
 ## 0.1.0-109: a web search knows the conversation
 
 - A web search now gets the latest exchanges of the conversation, like every other question, so "check online what the error above means" knows which error, also after returning with `ai-desktop -c`. Before, it got only the sentence you typed and often came back without sources. Files, task memory and Skills are still not sent, and Claude is told to keep personal details out of search queries.
