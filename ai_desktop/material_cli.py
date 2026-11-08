@@ -473,40 +473,67 @@ class Session:
         print(field("Without", "Internet, file writes or running code · time limit %d s" % GRANT_SECONDS))
         print(SEPARATOR)
 
+    # --- one request of a step loop, shared by `material` and `project` ---------------------
+    def _step_request(self, number, loop, session, prepare, parse, fallback=plain_answer):
+        """Prepare, send and read one step. Returns ("decision", (packet, decision)), ("skill", None) when Claude only
+        loaded Skills and the loop goes on, or ("end", result) when the task already ended and was reported."""
+        try:
+            packet = prepare(loop.request_input(number, session.bytes_left()))
+        except GrantDenied as exc:
+            print(GRANT_HINTS[exc.code])
+            return "end", self._stopped(loop)
+        if self.args.details:
+            if number == 1:
+                self._line("=== EXACT PAYLOAD (request 1) ===\n" + packet.payload)
+            self._line("REQUEST %d: SHA256 %s, %d B of data" % (number, packet.sha256, packet.data_bytes))
+        delivery = self._deliver(session, packet, on_handoff=loop.mark_handed_off)
+        if delivery is None:
+            return "end", None
+        self._timing(delivery)
+        try:
+            if accept_skill_response(delivery.answer):
+                if number == loop.max_steps:
+                    print("The task request budget is exhausted after loading Skills.")
+                    return "end", self._stopped(loop)
+                return "skill", None
+        except ValueError:
+            print("The Skill request was refused; the task stopped.")
+            return "end", self._stopped(loop)
+        try:
+            decision = parse(delivery.answer)
+        except ValueError:
+            decision = fallback(delivery.answer)              # prose instead of an action: shown, but without sources
+            if decision is None:
+                print(recipient("The answer from Claude is not in the required format; the task was stopped without a retry."))
+                print("Start of the answer: %s" % _safe(str(delivery.answer).replace("\n", " "), 4000 if self.args.details else 160))
+                return "end", self._stopped(loop)
+            loop.format_note = True
+        return "decision", (packet, decision)
+
+    def _ask_user(self, text, decision):
+        self._close_section()
+        print(recipient("Claude asks: %s") % _safe(decision["text"], 500))
+        self.remember(text, recipient("[Claude asked: %s]") % decision["text"])
+
+    def _no_progress(self, number, loop, decision):
+        """A read step that cannot run: the last request was spent, or Claude repeated itself. Reports and stops."""
+        if number == loop.max_steps:
+            print(recipient("Claude did not answer in the last step."))
+            return True
+        if loop.repeated(decision):
+            print(recipient("Claude repeated an earlier request without progress; the task was stopped."))
+            return True
+        return False
+
     def _run(self, text, loop, session, whole):
+        prepare = lambda step_input: session.prepare_step(text, step_input, loop.data_bytes(), loop.request_ranges())
         for number in range(1, loop.max_steps + 1):
-            material_input = loop.request_input(number, session.bytes_left())
-            try:
-                packet = session.prepare_step(text, material_input, loop.data_bytes(), loop.request_ranges())
-            except GrantDenied as exc:
-                print(GRANT_HINTS[exc.code])
-                return self._stopped(loop)
-            if self.args.details:
-                if number == 1:
-                    self._line("=== EXACT PAYLOAD (request 1) ===\n" + packet.payload)
-                self._line("REQUEST %d: SHA256 %s, %d B of data" % (number, packet.sha256, packet.data_bytes))
-            delivery = self._deliver(session, packet, on_handoff=loop.mark_handed_off)
-            if delivery is None:
-                return
-            self._timing(delivery)
-            try:
-                if accept_skill_response(delivery.answer):
-                    if number == loop.max_steps:
-                        print("The task request budget is exhausted after loading Skills.")
-                        return self._stopped(loop)
-                    continue
-            except ValueError:
-                print("The Skill request was refused; the task stopped.")
-                return self._stopped(loop)
-            try:
-                decision = parse_decision(delivery.answer, loop.lines)
-            except ValueError:
-                decision = plain_answer(delivery.answer)          # prose instead of an action: shown, but without sources
-                if decision is None:
-                    print(recipient("The answer from Claude is not in the required format; the task was stopped without a retry."))
-                    print("Start of the answer: %s" % _safe(str(delivery.answer).replace("\n", " "), 4000 if self.args.details else 160))
-                    return self._stopped(loop)
-                loop.format_note = True
+            kind, value = self._step_request(number, loop, session, prepare, lambda raw: parse_decision(raw, loop.lines))
+            if kind == "end":
+                return value
+            if kind == "skill":
+                continue
+            packet, decision = value
             action = decision["action"]
             if whole == "range" and action not in ("answer", "ask_user"):
                 print("Only the selected line range was approved. Additional material reads were refused.")
@@ -522,10 +549,7 @@ class Session:
             if action == "whole":
                 return self._whole(text)
             if action == "ask_user":
-                self._close_section()
-                print(recipient("Claude asks: %s") % _safe(decision["text"], 500))
-                self.remember(text, recipient("[Claude asked: %s]") % decision["text"])
-                return
+                return self._ask_user(text, decision)
             if number == loop.max_steps:
                 print(recipient("Claude did not answer in the last step."))
                 return self._stopped(loop)
@@ -533,8 +557,7 @@ class Session:
                 # Valid in the whole-file flow only: file text must not be able to crash an ordinary question.
                 print(recipient("Claude returned a step that does not fit this question; the task was stopped."))
                 return self._stopped(loop)
-            if loop.repeated(decision):
-                print(recipient("Claude repeated an earlier request without progress; the task was stopped."))
+            if self._no_progress(number, loop, decision):
                 return self._stopped(loop)
             note = loop.execute(decision)
             self._line(recipient("  Step %d/%d: Claude asked for %s") % (number, loop.max_steps, _safe(note, 200)))

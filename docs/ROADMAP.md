@@ -93,7 +93,7 @@ Working and merged at `dd2daec3045c41662a722f4c6a3485dea14dd196` (PR #18, packag
 | Working acceptance scripts or their removal (`update_candidate.fish` requires an old version) | done — candidate 115 removed the four scripts pinned to candidates 14–17 and their tests; `accept_system_clients_candidate.fish` and `accept_web_candidate.fish` remain, with the shared `tree_snapshot` helper moved to `tests/accept_script_support.py` |
 | Separate unused experiments/fixtures from installed runtime; preserve active `e2_*` boundary helpers | TODO — dependency review before movement, no deletion by prefix |
 | Retire `ask_context.infer`/`prepare` (Polish-only question heuristics no ordinary path calls) after moving its 15 tests of the live weather/systemd collectors (`_weather`, `_systemd`) to the path `assistant_flow` uses | done — candidate 115: the tests call the live collectors through a helper that mirrors `assistant_flow.collect`; tests that only checked question-text inference went with it |
-| Merging the duplicated `material` and `project` flows, shared text validation and smaller orchestration functions | TODO — preserve the complete task flow and refusal behavior |
+| Merging the duplicated `material` and `project` flows, shared text validation and smaller orchestration functions | IN PROGRESS — the request step of both loops (packet, send, Skills, decision with the prose fallback, `ask_user`, last step and repeat checks) is one `Session._step_request`; `project` keeps its own decision parser and prose shape. Remaining: the answer/stop summaries and the whole-file stage loop |
 | Codex login/logout false error after a successful operation | TODO — reproduce and distinguish native exit status from verified account state |
 | Keep current documentation aligned with code and archive obsolete acceptance instructions | IN PROGRESS — candidate 82 documents the client runtime, registration, diagnosed failures and successful offline host acceptance in the sole roadmap |
 | `task prune` with a list of entries and consent | done — candidate 119: `ai-desktop task prune --workspace DIR` lists only finished entries (saved with no stage left, undone, settled conflict, unlinked history, fully restored deletion), takes numbers or `all` and a separate consent, and re-checks each entry under the lock against the hash shown; unfinished saves, conflicts with stages left and deletions still in the trash always stay |
@@ -260,6 +260,11 @@ Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaini
 ## Progress log
 
 Earlier dated entries preserve the evidence and status at that point. The latest entry supersedes historical pending/next-step statements.
+
+### 2026-11-08 — Stage 6: one request step for `material` and `project`
+
+- The maintainer accepts the current Claude and Codex limits in the widget as they are; live Claude limits are not planned.
+- `material_cli.Session._step_request` now prepares, sends and reads one step for both `material` and `project` (the grant refusal, the `--v` payload lines, Skills loading, the decision with the prose fallback), and `_ask_user`/`_no_progress` replace the copied `ask_user`, last-step and repeat checks. Each flow passes its own packet preparation and parser; `project` keeps its `plain_answer` shape (`progress`, `continue`), now covered by `test_prose_keeps_the_project_answer_shape`. No visible behaviour change, so no new package candidate.
 
 ### 2026-11-08 — Candidate 119: `task prune`
 
