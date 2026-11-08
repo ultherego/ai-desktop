@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** CachyOS check of candidates 110 (`/` menus during a turn) and 111 (review fixes: keyboard handover to sudo, older rollback, `host_sockets`, recorded changes), then the general system-call filter for the client (Stage 4). S0 and S7 remain deferred.
+**Next step:** CachyOS check of candidate 112 (the `/` list during a turn, the widget title, `ai-desktop widget install`), then the general system-call filter for the client (Stage 4). S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -260,6 +260,12 @@ Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaini
 ## Progress log
 
 Earlier dated entries preserve the evidence and status at that point. The latest entry supersedes historical pending/next-step statements.
+
+### 2026-11-08 — Candidate 112: `/` list during a turn, widget title, DMS-only widget link
+
+- The maintainer accepted candidate 111 on CachyOS (D-Bus reads such as `hostnamectl` work, "better than before") but `/` did not seem to work while the model worked. A PTY probe showed the menu and the queued choice worked after typing a full name and Enter; what was missing was the list above the input that the idle prompt shows. **READY FOR TEST**, candidate **0.1.0-112**, same branch: the live input offers that list (`TypeAhead._matches`), arrows move the highlight, Tab completes and Enter on a partial name takes the highlighted command; bracketed paste is switched on again after a menu turns it off. Test: `test_during_a_turn_slash_offers_the_command_list_and_enter_runs_the_highlighted_one`.
+- Widget: DMS draws `headerText` at a fixed large size in the plain text colour, so the popout draws its own heading — **AI Desktop** at `Theme.fontSizeLarge` in `Theme.secondary` — with the refresh button and the details line. The QML fixture checks the colour, size and that the DMS heading stays empty.
+- The widget depends only on DMS: `ai-desktop widget install|status|remove` (`ai_desktop/desktop_widget.py`) links `/usr/share/ai-desktop/dms/AiDesktop` into `$XDG_CONFIG_HOME/dms/plugins` only when `/usr/bin/dms` exists, never over another plugin, and removes only its own link; `install_agents.py --install` runs it after the package. The package itself still never changes DMS configuration. Tests: `tests/test_desktop_widget_link.py`.
 
 ### 2026-11-08 — Fixes from an external code review
 

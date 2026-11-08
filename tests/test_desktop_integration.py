@@ -42,6 +42,8 @@ class DesktopIntegrationTests(unittest.TestCase):
         self.assertIn("root.selectService(serviceCard.provider)", widget)
         self.assertIn("onClicked: root.selectAccount(serviceCard.provider, modelData.account)", widget)
         self.assertIn("onTriggered: root.tick()", widget)
+        self.assertIn('text: "AI Desktop"\n                        font.pixelSize: Theme.fontSizeLarge\n                        color: Theme.secondary', widget)
+        self.assertNotIn("headerText:", widget)
         self.assertIn("refresh(codexAccount?.live_limits_connected === true ? codexAccount.account : undefined)", widget)
         self.assertNotIn("sudo", widget)
         self.assertIn('["/usr/bin/ai-desktop", "status", "--json"]', widget)

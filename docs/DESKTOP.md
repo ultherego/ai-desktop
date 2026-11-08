@@ -12,16 +12,13 @@ The package installs an example at `/usr/share/ai-desktop/niri-bindings.kdl`. Pi
 
 ## Optional DMS bar widget
 
-With the package installed, link its widget into the directory DMS scans. These fish commands honor `XDG_CONFIG_HOME` and leave an existing plugin of the same name in place.
+The widget depends only on DMS. The package ships it in `/usr/share/ai-desktop/dms/AiDesktop` and never changes your DMS configuration by itself. Link it into the directory DMS scans with:
 
 ```fish
-set -l dms_config ~/.config
-if set -q XDG_CONFIG_HOME; and test -n "$XDG_CONFIG_HOME"
-    set dms_config "$XDG_CONFIG_HOME"
-end
-set -l dms_plugins "$dms_config/dms/plugins"
-mkdir -p -- "$dms_plugins"; and ln -sT -- /usr/share/ai-desktop/dms/AiDesktop "$dms_plugins/AiDesktop"
+ai-desktop widget install
 ```
+
+It checks that DMS is installed (`/usr/bin/dms`); without DMS it changes nothing. It honors `XDG_CONFIG_HOME`, creates one link in `dms/plugins`, and leaves an existing plugin of the same name in place. `ai-desktop widget status` shows the state and `ai-desktop widget remove` deletes only that link. `scripts/install_agents.py --install` runs the same step after installing the package.
 
 Enable **AI Desktop** under **Settings → Plugins**, then add the widget in the DankBar editor. Restart the shell with `dms restart` if it has already cached the plugin directory. The panel opens when you click the bar widget. **Open chat** and **Open panel** use the installed desktop entries.
 

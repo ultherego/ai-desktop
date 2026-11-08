@@ -58,8 +58,9 @@ class _Output:
 
 
 class TypeAhead:
-    def __init__(self, frame, stream, draft="", resolver=None):
+    def __init__(self, frame, stream, draft="", resolver=None, commands=()):
         self.resolver = resolver                   # turns a `/` command into what waits for the answer
+        self.commands, self.pick = tuple(commands), 0   # the `/` list offered above the band, as when idle
         self.frame, self.stream = frame, stream
         self.lock = threading.RLock()
         self.line = _Line(MAX_MESSAGE_BYTES)
@@ -103,8 +104,18 @@ class TypeAhead:
                 cursor = len(self._question) + 1 + self._answer.cursor
             else:
                 text, cursor = self.line.text, self.line.cursor
+            found = self._matches() if self._question is None else ()
+            self.pick = min(self.pick, max(0, len(found) - 1))
+            self.frame.show_commands(found, self.pick)
             self.frame.note = self._note()
             self.frame.draw(text, cursor, typing=False)
+
+    def _matches(self):
+        """The `/` commands for one word at the start of the line, as the idle prompt offers them."""
+        text = self.line.text
+        if not self.commands or not text.startswith("/") or " " in text or "\n" in text:
+            return ()
+        return tuple(item for item in self.commands if item[0].startswith(text))
 
     # -- lifecycle -----------------------------------------------------------------------------------------------------
     def start(self):
@@ -238,6 +249,10 @@ class TypeAhead:
                     self._sequence = ("paste", bytearray())
                 elif key in _KEYS:
                     self._sequence = None
+                    found = self._matches() if self._question is None else ()
+                    if found and key in (b"[A", b"OA", b"[B", b"OB"):
+                        self.pick = (self.pick + (-1 if key in (b"[A", b"OA") else 1)) % len(found)
+                        return
                     edit = _EDITS.get(key)
                     if edit:
                         target.edit(edit)
@@ -267,10 +282,18 @@ class TypeAhead:
             else:
                 os.kill(os.getpid(), signal.SIGINT)    # like Ctrl+C while waiting: stops the turn
             return
+        if value == b"\t" and self._question is None and self._matches():
+            self.line.text = self._matches()[self.pick][0]
+            self.line.cursor, self.pick = len(self.line.text), 0
+            return
         if value in (b"\r", b"\n"):
             if self._question is not None:
                 self._answered.set()
             elif self.line.text.strip():
+                found = self._matches()
+                if found and self.line.text not in (item[0] for item in found):
+                    self.line.text = found[self.pick][0]   # `/mo` + Enter runs what the list has highlighted
+                self.pick = 0
                 text = self.line.text
                 self.line.text, self.line.cursor = "", 0
                 items = [text]
@@ -279,6 +302,7 @@ class TypeAhead:
                         items = self.resolver(text)  # a menu opens now; its choice, or the whole command, waits
                     except Exception:           # a failing menu must not lose what was typed
                         items = [text]
+                    sys.stdout.write("\x1b[?2004h")    # a menu turns bracketed paste off when it closes
                     for item in items:
                         print(_note("%s \u00b7 after the answer" % getattr(item, "label", item)))
                 self.queue.extend(items)
@@ -296,7 +320,7 @@ def _note(text):
     return paint("  \u203a " + text, "muted")
 
 
-def start(frame, stream, resolver=None):
+def start(frame, stream, resolver=None, commands=()):
     """Keep the input live for this turn; returns the owner or None when there is no pinned input."""
     global _current
     if _current is not None or frame is None:
@@ -304,7 +328,7 @@ def start(frame, stream, resolver=None):
     try:
         if not (stream.isatty() and sys.stdin.isatty()):
             return None
-        owner = TypeAhead(frame, stream, draft=getattr(frame, "draft", ""), resolver=resolver)
+        owner = TypeAhead(frame, stream, draft=getattr(frame, "draft", ""), resolver=resolver, commands=commands)
         owner.start()
     except (OSError, ValueError, termios.error):
         return None

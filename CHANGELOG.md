@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-112: `/` list during a turn, widget title and DMS-only widget link
+
+- While the model works, typing `/` shows the same list of commands above the input as when it waits; arrows choose, Tab completes and Enter opens the highlighted command (its menu at once, the choice after the answer). Closing a menu no longer turns off pasting in the live input.
+- The widget title **AI Desktop** is smaller and uses the theme's second colour.
+- `ai-desktop widget install` links the DankBar widget into DMS only when DMS is installed; without DMS it changes nothing, and it never replaces another plugin. `install_agents.py --install` runs it after installing the package.
+
 ## 0.1.0-111: fixes from a code review
 
 - The keyboard is handed to `sudo` only after the live input has really stopped reading; an unfinished paste or character can no longer make keys typed for `sudo` land in your draft.

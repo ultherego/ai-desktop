@@ -249,36 +249,64 @@ PluginComponent {
             property bool showAccounts: false
             readonly property real availableHeight: parentPopout?.maxBodyHeight > 0
                 ? parentPopout.maxBodyHeight : (root.parentScreen?.height || 800) * 0.8
-            readonly property real controlsHeight: headerHeight + detailsHeight + 2 * PopoutMetrics.contentPadding
-                + tabs.height + footer.height + 2 * content.spacing
+            readonly property real controlsHeight: header.height + details.implicitHeight + 2 * PopoutMetrics.contentPadding
+                + tabs.height + footer.height + 4 * content.spacing
                 + (liveError.visible ? liveError.height + content.spacing : 0)
             readonly property real listLimit: Math.max(0, Math.min(432, availableHeight - controlsHeight))
 
             readonly property bool opened: parentPopout?.shouldBeVisible === true
             onOpenedChanged: if (opened) root.refresh()
 
-            headerText: "AI Desktop"
-            headerActions: Component {
-                DButton {
-                    objectName: "statusRefresh"
-                    iconName: "refresh"
-                    enabled: !root.refreshing && !root.switching && !root.fetchingLimitsFor
-                    busy: !!root.fetchingLimitsFor
-                    minimumWidth: 36
-                    horizontalPadding: 8
-                    tooltipText: "Refresh local status and linked Codex limits"
-                    Accessible.name: tooltipText
-                    onClicked: root.refresh(root.codexAccount?.account)
-                }
-            }
-            detailsText: root.snapshot ? [Status.providerName(root.service), root.snapshot.role, root.snapshot.model].filter(Boolean).join("  ·  ")
-                                         + (root.snapshot.sessions.length ? "  ·  " + root.snapshot.sessions.length + " active" : "")
-                                       : "Local status unavailable"
-
+            // Our own heading: DMS draws headerText at a fixed large size in the plain text colour.
             Column {
                 id: content
                 width: parent.width
                 spacing: Theme.spacingM
+
+                Item {
+                    id: header
+                    objectName: "aiDesktopHeader"
+                    width: parent.width
+                    height: Math.max(title.implicitHeight, statusRefresh.implicitHeight)
+
+                    StyledText {
+                        id: title
+                        objectName: "aiDesktopTitle"
+                        anchors.left: parent.left
+                        anchors.leftMargin: Theme.spacingS
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "AI Desktop"
+                        font.pixelSize: Theme.fontSizeLarge
+                        color: Theme.secondary
+                    }
+                    DButton {
+                        id: statusRefresh
+                        objectName: "statusRefresh"
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        iconName: "refresh"
+                        enabled: !root.refreshing && !root.switching && !root.fetchingLimitsFor
+                        busy: !!root.fetchingLimitsFor
+                        minimumWidth: 36
+                        horizontalPadding: 8
+                        tooltipText: "Refresh local status and linked Codex limits"
+                        Accessible.name: tooltipText
+                        onClicked: root.refresh(root.codexAccount?.account)
+                    }
+                }
+
+                StyledText {
+                    id: details
+                    objectName: "aiDesktopDetails"
+                    width: parent.width
+                    leftPadding: Theme.spacingS
+                    wrapMode: Text.WordWrap
+                    font.pixelSize: Theme.fontSizeMedium
+                    color: Theme.surfaceVariantText
+                    text: root.snapshot ? [Status.providerName(root.service), root.snapshot.role, root.snapshot.model].filter(Boolean).join("  \u00b7  ")
+                                          + (root.snapshot.sessions.length ? "  \u00b7  " + root.snapshot.sessions.length + " active" : "")
+                                        : "Local status unavailable"
+                }
 
                 Row {
                     id: tabs

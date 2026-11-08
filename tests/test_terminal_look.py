@@ -188,9 +188,11 @@ if __name__ == "__main__":
 
 
 class LiveInputTests(unittest.TestCase):
-    def owner(self, resolver):
+    def owner(self, resolver, commands=()):
         with patch.object(terminal_input.termios, "tcgetattr", return_value=[0, 0, 0, 0, 0, 0, [0] * 32]):
-            return terminal_input.TypeAhead(object(), io.StringIO(), resolver=resolver)
+            owner = terminal_input.TypeAhead(object(), io.StringIO(), resolver=resolver, commands=commands)
+        owner._sequence = None
+        return owner
 
     def type(self, owner, text):
         output = io.StringIO()
@@ -244,3 +246,17 @@ class LiveInputTests(unittest.TestCase):
         owner._sequence = None                                                 # ... dropped when a lease begins
         owner._feed(b"x")
         self.assertEqual(owner.line.text, "abżcx")
+
+    def test_during_a_turn_slash_offers_the_command_list_and_enter_runs_the_highlighted_one(self):
+        seen = []
+        owner = self.owner(lambda line: seen.append(line) or [], commands=ask_commands.COMMANDS)
+        self.type(owner, "/e")
+        self.assertEqual([name for name, _ in owner._matches()], ["/effort", "/exit"])
+        owner._feed(b"\x1b"), owner._feed(b"["), owner._feed(b"B")             # Down: the second match
+        self.assertEqual(owner.pick, 1)
+        self.type(owner, "\r")
+        self.assertEqual(seen, ["/exit"])                                     # Enter takes the highlighted command
+        self.type(owner, "/he\t")
+        self.assertEqual(owner.line.text, "/help")                            # Tab completes it
+        self.type(owner, " x")
+        self.assertEqual(owner._matches(), ())                                 # a space ends the list, as when idle
