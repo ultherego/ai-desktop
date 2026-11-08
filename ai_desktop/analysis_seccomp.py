@@ -1,7 +1,12 @@
-"""Apply mode-bit restrictions only after Bubblewrap has finished setup.
+"""Apply the client's system-call filter only after Bubblewrap has finished setup.
 
-systemd's RestrictSUIDSGID blocks openat2, which modern Bubblewrap requires.
-Keep that restriction on the native client, not on the trusted setup process.
+Two parts, both inherited across exec and irreversible:
+- mode bits: no SUID/SGID file or directory can be created (systemd's RestrictSUIDSGID; that also blocks openat2,
+  which modern Bubblewrap requires, so it is installed here on the native client, not on the trusted setup process);
+- kernel interfaces a chat client never needs, refused as a group in the spirit of systemd's SystemCallFilter
+  (@clock @cpu-emulation @debug @module @mount @raw-io @reboot @swap @obsolete, plus bpf, keys, namespaces,
+  userfaultfd and io_uring). A deny list, not an allow list: a client update that starts using a new ordinary call
+  keeps working, while the attack surface these interfaces expose stays closed.
 Only libseccomp's public ABI is used; no hand-written syscall numbers or BPF.
 """
 import ctypes
@@ -11,6 +16,31 @@ from pathlib import Path
 import stat
 
 from .analysis_contract import AnalysisDenied
+
+
+# Refused with EPERM. Every name must resolve on the native ABI, or the filter is not installed at all.
+DENIED = (
+    # @clock
+    "adjtimex", "clock_adjtime", "clock_settime", "settimeofday",
+    # @cpu-emulation
+    "modify_ldt",
+    # @debug: reading or controlling other processes
+    "ptrace", "process_vm_readv", "process_vm_writev", "perf_event_open", "pidfd_getfd", "kcmp", "lookup_dcookie",
+    # @module
+    "init_module", "finit_module", "delete_module", "create_module", "query_module", "get_kernel_syms",
+    # @mount and namespaces
+    "mount", "umount2", "mount_setattr", "move_mount", "open_tree", "fsopen", "fsconfig", "fsmount", "fspick",
+    "pivot_root", "chroot", "setns", "unshare",
+    # @raw-io, @reboot, @swap
+    "ioperm", "iopl", "kexec_load", "kexec_file_load", "reboot", "swapon", "swapoff",
+    # kernel keys, eBPF, page-fault handling, privileged leftovers
+    "bpf", "userfaultfd", "keyctl", "add_key", "request_key", "acct", "quotactl", "quotactl_fd",
+    "fanotify_init", "vhangup", "sethostname", "setdomainname", "open_by_handle_at",
+    # @obsolete
+    "_sysctl", "afs_syscall", "sysfs", "tuxcall", "uselib", "ustat", "vserver", "security",
+)
+# Refused with ENOSYS, so a runtime that probes for io_uring falls back to ordinary calls.
+UNAVAILABLE = ("io_uring_setup", "io_uring_enter", "io_uring_register")
 
 
 class _Comparison(ctypes.Structure):
@@ -65,6 +95,10 @@ def install_mode_filter():
         # seccomp cannot inspect struct open_how; force clients onto the filtered
         # open/openat ABI, as systemd's RestrictSUIDSGID does. Setup already ended.
         deny("openat2", errno.ENOSYS)
+        for name in DENIED:
+            deny(name, errno.EPERM)
+        for name in UNAVAILABLE:
+            deny(name, errno.ENOSYS)
         if lib.seccomp_load(context) != 0:
             raise AnalysisDenied("sandbox")
     finally:

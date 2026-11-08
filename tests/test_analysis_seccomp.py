@@ -79,7 +79,46 @@ print('MODE FILTER: PASS chmod=create=exec=denied normal-write=allowed openat2=E
 '''
 
 
+GROUPS = r'''
+import ctypes, errno, os, socket, subprocess, sys, threading
+from ai_desktop.analysis_seccomp import DENIED, UNAVAILABLE, install_mode_filter
+libc = ctypes.CDLL(None, use_errno=True)
+libc.syscall.restype = ctypes.c_long
+sec = ctypes.CDLL('libseccomp.so.2')
+sec.seccomp_syscall_resolve_name.argtypes = [ctypes.c_char_p]
+sec.seccomp_syscall_resolve_name.restype = ctypes.c_int
+assert libc.prctl(38, 1, 0, 0, 0) == 0
+install_mode_filter()
+def call(name, *args):
+    ctypes.set_errno(0)
+    result = libc.syscall(ctypes.c_long(sec.seccomp_syscall_resolve_name(name.encode())), *[ctypes.c_long(a) for a in args])
+    return result, ctypes.get_errno()
+# Every listed call is refused before the kernel looks at its arguments.
+for name in DENIED:
+    assert call(name) == (-1, errno.EPERM), name
+for name in UNAVAILABLE:
+    assert call(name) == (-1, errno.ENOSYS), name
+# What a client does keeps working: files, threads, sockets, a child process.
+done = []
+thread = threading.Thread(target=lambda: done.append(os.getpid()))
+thread.start(); thread.join()
+pair = socket.socketpair(); pair[0].send(b'x'); assert pair[1].recv(1) == b'x'
+child = subprocess.run([sys.executable, '-I', '-B', '-c',
+    'import ctypes,errno,sys\nlibc=ctypes.CDLL(None,use_errno=True)\n'
+    'sys.exit(0 if libc.ptrace(0,0,0,0)==-1 and ctypes.get_errno()==errno.EPERM else 5)'],
+    check=False, timeout=10)
+assert child.returncode == 0, 'the filter is inherited across exec'
+print('GROUP FILTER: PASS denied=%d unavailable=%d ordinary=allowed exec=inherited' % (len(DENIED), len(UNAVAILABLE)))
+'''
+
+
 class AnalysisSeccompTests(unittest.TestCase):
+    def test_kernel_interfaces_a_client_never_needs_are_refused_and_ordinary_work_continues(self):
+        done = subprocess.run([sys.executable, '-B', '-c', GROUPS], cwd=ROOT,
+                              capture_output=True, text=True, check=False, timeout=20)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn('GROUP FILTER: PASS', done.stdout)
+
     def test_real_kernel_refusal_and_exec_inheritance_with_normal_profile_writes(self):
         done = subprocess.run([sys.executable, '-B', '-c', SCRIPT], cwd=ROOT,
                               capture_output=True, text=True, check=False, timeout=10)

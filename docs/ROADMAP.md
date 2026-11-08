@@ -70,7 +70,7 @@ Working and merged at `dd2daec3045c41662a722f4c6a3485dea14dd196` (PR #18, packag
 | Task | Status |
 |---|---|
 | `allow` commands without access to the host's Unix sockets (D-Bus, Docker) | done — candidate 89 hides daemon sockets under `/run` (opt-in `host_sockets`), candidate 90 gives D-Bus only through a read-method filter (Snapper read methods added in 93); accepted by the maintainer on CachyOS and merged in PRs #27, #28 and #30 |
-| General system call filter for the client | to do |
+| General system call filter for the client | in progress — candidate 114: a deny list of syscall groups (systemd `SystemCallFilter` style) in `analysis_seccomp`, real-kernel test; maintainer acceptance with real Claude and Codex requests pending |
 | Matching `change` template limits in the policy and the contract | done |
 | Checking the template parser for option arguments | done |
 | Commands with real Bubblewrap also in CI | to do |
@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** CachyOS check of candidate 113 (the widget heading), then the general system-call filter for the client (Stage 4). S0 and S7 remain deferred.
+**Next step:** CachyOS acceptance of candidate 114 (the client's system-call filter) with real Claude and Codex requests, then Bubblewrap commands in CI (Stage 4). S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -260,6 +260,13 @@ Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaini
 ## Progress log
 
 Earlier dated entries preserve the evidence and status at that point. The latest entry supersedes historical pending/next-step statements.
+
+### 2026-11-08 — Stage 4: a system-call filter for the client
+
+- PRs #32 and #33 (candidates 110–113) passed the maintainer's CachyOS checks and were merged (`43f2e12`).
+- **READY FOR TEST**, candidate **0.1.0-114**, branch `feature/syscall-filter`. The client filter used to allow everything except SUID/SGID creation and `openat2`. It now also refuses, with EPERM, kernel interfaces a chat client never needs, grouped as systemd's `SystemCallFilter` groups: `@clock`, `@cpu-emulation` (`modify_ldt`), `@debug` (`ptrace`, `process_vm_*`, `perf_event_open`, `pidfd_getfd`, `kcmp`), `@module`, `@mount` with `setns`/`unshare`/`chroot`, `@raw-io`, `@reboot`, `@swap`, `@obsolete`, plus `bpf`, `userfaultfd`, kernel keys, `acct`, `quotactl`, `fanotify_init`, `vhangup`, host/domain names and `open_by_handle_at`; `io_uring_*` return ENOSYS so a runtime falls back. Every name must resolve on the native ABI or no filter is installed (names absent on x86-64 are not listed). A deny list was chosen over an allow list deliberately: Claude (Bun) and Codex (Rust) update independently, and an allow list would break them on any new ordinary call.
+- Evidence so far: the client's `--version`/`--help` start-up uses none of the listed calls (strace of Claude 2.1.319 and Codex 0.167.0), and both still run under the filter. Test: `test_kernel_interfaces_a_client_never_needs_are_refused_and_ordinary_work_continues` (every listed call refused on a real kernel, threads/sockets/children work, the filter is inherited across exec).
+- Idea recorded, not scheduled: a full-screen mode with the input always visible while scrolling (an alternate screen with in-app scrolling, as Claude Code's optional fullscreen rendering). It would move the conversation out of the terminal's scrollback; the maintainer agreed to keep the inline mode for now.
 
 ### 2026-11-08 — Candidate 113: widget heading like the DMS system-update popout
 
