@@ -2,9 +2,7 @@
 
 For project maintainers. Tick items for a specific commit: the result of another commit attests nothing.
 
-Candidate 82 evidence: on `0f0bcb6a0b77e52fcf29b46d4f8e1c56d112659f`, CachyOS CI/LOCAL, upgrade 81 to 82, retained Claude registration, complete Codex registration and both native offline probes passed. All five GitHub jobs also passed for this SHA. These results did not exercise login, token renewal or model inference; see [ROADMAP.md](ROADMAP.md) for scope and later changes. Unchecked wider release requirements below remain open.
-
-PR #20 subsequently merged as `700a609` after the candidate-83 widget/quota flow was accepted; its own main/push CI passed five jobs. Candidate 84 passed focused offline CachyOS CI/LOCAL, build, upgrade and installed-file checks on `457118d5e3b1d5224ecdb00b88a847ab6c7ccc65`, then PR #21 was merged as `9424ce604683e56bacf183bc4ee54a94edfcc786`; its separate main/push CI passed five jobs. Candidate 85 changes local conversation persistence. Focused ordinary-user regressions pass, but exact-head GitHub CI and the mandatory CachyOS CI/LOCAL, clean build, upgrade and installed-file checks are not yet accepted. Unchanged native client registration/compatibility and candidate-84 task checks do not need repeating beyond their normal inclusion in the gates.
+Evidence for each candidate (CachyOS checks, GitHub jobs, what was not exercised) is kept only in the progress log of [ROADMAP.md](ROADMAP.md); this page is the list to tick for the release commit. The few items ticked below record earlier candidates and must be ticked again for the release commit.
 
 ## Version
 
