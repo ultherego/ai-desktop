@@ -445,7 +445,7 @@ def main(argv=None, *, reader=input):
         while True:
             finished = False
             if reader is input:
-                terminal_input.start(terminal_frame.current(), sys.stdout)
+                terminal_input.start(terminal_frame.current(), sys.stdout, resolver=controls.during_turn)
             try:
                 with conversation_state.recording() as sources, _lenient(interactive):
                     answer = assistant_flow.run(question, args, reader,
@@ -538,6 +538,9 @@ def main(argv=None, *, reader=input):
             draft = typed or draft
             while True:
                 try:
+                    if pending and reader is input and isinstance(pending[0], ask_commands.Deferred):
+                        pending.pop(0).run(conversation)   # a choice made in a menu during the answer, applied now
+                        continue
                     if pending and reader is input:
                         question = pending.pop(0)          # queued during the previous answer: sent now, in order
                         frame = terminal_frame.current()

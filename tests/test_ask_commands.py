@@ -54,6 +54,42 @@ class ControlsTests(unittest.TestCase):
         self.assertIn("Unknown command", output)
         self.assertIn("space", output)
 
+    def during(self, line, picks=()):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), patch.object(commands, "_pick", side_effect=list(picks)) as pick:
+            items = self.controls.during_turn(line)
+        return items, out.getvalue(), pick
+
+    def test_during_a_turn_read_only_commands_show_at_once_and_queue_nothing(self):
+        for line in ("/help", "/settings", "/permissions", "/pomoc"):
+            items, output, pick = self.during(line)
+            self.assertEqual(items, [], line)
+            self.assertTrue(output.strip(), line)
+            pick.assert_not_called()
+
+    def test_during_a_turn_a_menu_opens_now_and_only_its_choice_waits(self):
+        before = execution.current()
+        items, _, pick = self.during("/effort", picks=[0])
+        self.assertEqual(items, ["/effort " + execution.efforts_for("claude")[0]])
+        self.assertIn("applies after the answer", pick.call_args.args[0])
+        self.assertEqual(execution.current(), before)                         # nothing changed yet
+        self.assertEqual(self.during("/model", picks=[None])[0], [])           # a cancelled menu queues nothing
+        self.assertEqual(self.during("/model opus")[0], ["/model opus"])        # a full command waits as typed
+        for line in ("/provider", "/test pytest", "/exit", "/unknown"):
+            self.assertEqual(self.during(line)[0], [line], line)               # interactive or final: after the answer
+        self.assertEqual(self.during(" /help")[0], [" /help"])                 # a question, as the space says
+
+    def test_skills_chosen_during_a_turn_are_applied_only_when_the_deferred_choice_runs(self):
+        with patch.object(commands.Controls, "_skill_menu", return_value=["b"]):
+            items = self.during("/skills")[0]
+        self.assertEqual(len(items), 1)
+        self.assertIsInstance(items[0], commands.Deferred)
+        self.assertEqual(items[0].label, "/skills b")
+        self.assertIsNone(self.controls.skills)                                # not applied yet
+        with contextlib.redirect_stdout(io.StringIO()):
+            items[0].run(None)
+        self.assertEqual(self.controls.skills, ("b",))
+
     def test_help_lists_every_command_and_aliases_reach_the_same_action(self):
         output = self.run_line("/help")[1]
         for name, _ in commands.COMMANDS:
