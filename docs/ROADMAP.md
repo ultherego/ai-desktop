@@ -91,7 +91,7 @@ Working and merged at `dd2daec3045c41662a722f4c6a3485dea14dd196` (PR #18, packag
 |---|---|
 | Distinct `pkgrel` for each shipped candidate and consistent package references | done for candidates 79/80; maintain this requirement with every delivery |
 | Working acceptance scripts or their removal (`update_candidate.fish` requires an old version) | done — candidate 115 removed the four scripts pinned to candidates 14–17 and their tests; `accept_system_clients_candidate.fish` and `accept_web_candidate.fish` remain, with the shared `tree_snapshot` helper moved to `tests/accept_script_support.py` |
-| Separate unused experiments/fixtures from installed runtime; preserve active `e2_*` boundary helpers | IN PROGRESS — candidate 120 removes the unused HEAD-probe experiment (`e2_broker`, `e2_egress`, `e2_network_gate`, their tests and the `e2-broker`/`e2-egress` gates); nothing in the runtime imported them. Kept on purpose: `e2_ipc`, `e2_account`, `e2_connect_proxy`, `e2_socket_activation`, `e2_worker_once`, `e2_subscription_boundary` and `e2_compat_fixture` (runtime imports), `e2_handoff_cli` (`cli`), `e2_client_compat` (`verify --mode compat`). Remaining: `e2_boundary`/`e2_probe` serve only the kernel-boundary regressions and could move out of the installed package |
+| Separate unused experiments/fixtures from installed runtime; preserve active `e2_*` boundary helpers | done — candidate 120 removed the unused HEAD-probe experiment (`e2_broker`, `e2_egress`, `e2_network_gate`) with its tests and gates; candidate 121 leaves the development-only kernel-boundary probe (`e2_boundary`, `e2_probe`) out of the installed package, kept in the repository for its regressions and checked by a packaging test that no installed module imports it. Kept in the package because the runtime uses them: `e2_ipc`, `e2_account`, `e2_connect_proxy`, `e2_socket_activation`, `e2_worker_once`, `e2_subscription_boundary`, `e2_compat_fixture`, `e2_handoff_cli`; `e2_client_compat` stays for `verify --mode compat` |
 | Retire `ask_context.infer`/`prepare` (Polish-only question heuristics no ordinary path calls) after moving its 15 tests of the live weather/systemd collectors (`_weather`, `_systemd`) to the path `assistant_flow` uses | done — candidate 115: the tests call the live collectors through a helper that mirrors `assistant_flow.collect`; tests that only checked question-text inference went with it |
 | Merging the duplicated `material` and `project` flows, shared text validation and smaller orchestration functions | done — one request step (`Session._step_request`, `_ask_user`, `_no_progress`) and shared answer/stop pieces (`_show_answer`, `_sources_block`, `_stop_header`, `_print_notes`, `_plain_text_note`); text validation was already shared through `material_step`. The whole-file stage loop exists only in `material` and stays there |
 | Codex login/logout false error after a successful operation | TODO — reproduce and distinguish native exit status from verified account state |
@@ -260,6 +260,12 @@ Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaini
 ## Progress log
 
 Earlier dated entries preserve the evidence and status at that point. The latest entry supersedes historical pending/next-step statements.
+
+### 2026-11-08 — Candidate 121: boundary probe out of the package
+
+- Candidate 120 was checked by the maintainer with `material` and `project` and merged as PR #39.
+- **READY FOR TEST**, candidate **0.1.0-121**: `PKGBUILD` skips `e2_boundary.py` and `e2_probe.py`; `test_development_only_boundary_probe_is_not_installed_and_no_runtime_module_imports_it` stages the package and checks both the file list and that no installed module names them. An upgrade removes the two files.
+- Codex login/logout false error: reading `codex_cli` → `codex-auth.py` → `codex_admin.main` → worker → `_account_action` did not show the cause. The maintainer is signed in to Codex (limit used up, which does not affect sign-in); the next step is a reproduction with `--v` and the exit status.
 
 ### 2026-11-08 — Candidate 120: Stage 6 cleanup
 

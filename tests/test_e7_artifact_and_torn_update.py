@@ -80,6 +80,17 @@ class PublicArtifactTests(unittest.TestCase):
         self.assertNotIn("usr/bin/claude", expected)
         self.assertNotIn("usr/bin/codex", expected)
 
+    def test_development_only_boundary_probe_is_not_installed_and_no_runtime_module_imports_it(self):
+        done = stage(self.tree, self.temp / "pkg")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        installed = {path.name for path in (self.temp / "pkg/usr/lib/ai-desktop/ai_desktop").glob("*.py")}
+        self.assertNotIn("e2_boundary.py", installed)
+        self.assertNotIn("e2_probe.py", installed)
+        self.assertIn("e2_subscription_boundary.py", installed)
+        for name in installed:
+            text = (self.tree / "ai_desktop" / name).read_text()
+            self.assertNotRegex(text, r"\be2_(boundary|probe)\b", name)
+
     def test_legacy_symlinks_and_special_files_are_never_followed_or_opened(self):
         startdir = self.tree / "packaging/arch"
         (startdir / "claude-code").symlink_to("/nonexistent/claude")

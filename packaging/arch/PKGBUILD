@@ -4,7 +4,7 @@
 # Only the guarded package scriptlet may apply it during this approved install.
 pkgname=ai-desktop
 pkgver=0.1.0
-pkgrel=120
+pkgrel=121
 pkgdesc='Terminal AI assistant for CachyOS and Arch with an isolated client and approved changes'
 arch=('x86_64')
 url='https://github.com/ultherego/ai-desktopv2'
@@ -31,6 +31,8 @@ package() {
     local src
     for src in "${root}"/ai_desktop/*.py; do
         [[ -f "${src}" && ! -L "${src}" ]] || return 1
+        # Development-only kernel-boundary probe: the repository's regressions run it, the installed runtime never imports it.
+        case "${src##*/}" in e2_boundary.py|e2_probe.py) continue ;; esac
         install -m644 "${src}" "${target}/ai_desktop/"
     done
     local skill

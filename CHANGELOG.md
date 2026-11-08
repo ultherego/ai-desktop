@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-121: smaller package
+
+- A development-only test probe (`e2_boundary`, `e2_probe`) is no longer installed. No visible change.
+
 ## 0.1.0-120: cleanup
 
 - No visible change. Shared code for `material` and `project`, an unused early network experiment removed from the package, and shorter documentation of the current state.

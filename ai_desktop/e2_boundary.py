@@ -1,6 +1,7 @@
 """E2: limited real-process sandbox for synthetic model/credential boundary probes.
 
 No Claude, OAuth, network proxy or generic task execution exists here.
+Development-only: kept for the kernel-boundary regressions and not installed by the package.
 """
 import json
 import os
