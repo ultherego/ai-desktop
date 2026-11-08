@@ -227,6 +227,7 @@ def client_command(action, execution=None):
     if action == "offline-logout":
         return common + ["auth", "logout"]
     if action == "web":
+        # No partial messages here: the strict web transcript check accepts only the documented one-shot events.
         return common + ["-p", "--output-format", "stream-json", "--verbose",
                          "--tools", "WebSearch", "--allowedTools", "WebSearch",
                          "--disallowedTools", "EndConversation", "mcp__*",
@@ -538,8 +539,9 @@ LIVE_MODES = {"assistant": True, "question": False}
 STREAM_RAW_LIMIT = 64 * 1024 * 1024     # everything one analysis may write, partial-message events included
 
 
-def run_client(action, report=b"", *, cancelled=None, mode="analysis", partial=None):
-    """One official login OR one approved analysis. No retries or fallback. `partial(text)` receives live answer text."""
+def run_client(action, report=b"", *, cancelled=None, mode="analysis", partial=None, status=None):
+    """One official login OR one approved analysis. No retries or fallback. `partial(text)` receives live answer text;
+    `status(code, number)` the progress of a web search. A web answer itself is never shown before its sources pass."""
     if (action not in ("login", "analyze", "web") or (action == "login" and report)
             or (action == "web") != (mode == "web")):
         raise AnalysisDenied("input")
@@ -588,11 +590,13 @@ def run_client(action, report=b"", *, cancelled=None, mode="analysis", partial=N
                 with failure_stage("analysis"):
                     analysis_connection_failed = proxy.begin_phase()
                     kept = 3 * MAX_PACKET_LARGE if mode == "workspace" else (512 * 1024 if action == "web" else 1024 * 1024)
+                    from .answer_stream import ClaudeStream
                     if action == "analyze":
-                        from .answer_stream import ClaudeStream
                         live = partial if mode in LIVE_MODES else None
                         options.update(stdout_filter=ClaudeStream(live, json_answer=LIVE_MODES.get(mode, True)),
                                        raw_limit=max(STREAM_RAW_LIMIT, kept))
+                    else:
+                        options.update(stdout_filter=ClaudeStream(on_status=status), raw_limit=max(STREAM_RAW_LIMIT, kept))
                     code, out, errors = _bound_run(bound, action, directory, online=True, **options,
                                                        input_bytes=report, timeout=request_seconds(request_effort(report)),
                                                        limit=kept, input_limit=MAX_PACKET_LARGE, cancelled=cancelled)

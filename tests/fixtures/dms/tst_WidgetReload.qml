@@ -79,12 +79,17 @@ Item {
                     compare(SessionService.lastLaunched, "ai-desktop-login-claude.desktop");
                     compare(Proc.changes.length, 0, "Managing another provider must preserve the active service");
                 }
-                account.auth_state = "unknown";
-                Proc.statusReply = JSON.stringify(snapshot);
-                widget.refresh();
             }
+            account.auth_state = "signed_out";
+            Proc.statusReply = JSON.stringify(snapshot);
+            widget.refresh();
             clickButton(popout, "Sign in…");
             compare(SessionService.lastLaunched, "ai-desktop-login-" + provider.id + ".desktop");
+            account.auth_state = "unknown";
+            Proc.statusReply = JSON.stringify(snapshot);
+            widget.refresh();
+            tryVerify(() => visibleButton(popout, "Check sign-in…"), 5000, "An unchecked sign-in offers the check");
+            verify(!visibleButton(popout, "Sign in…"), "An unchecked sign-in is not shown as signed out");
             clickButton(popout, "Check sign-in…");
             compare(SessionService.lastLaunched, "ai-desktop-check-sign-in.desktop");
             compare(JSON.stringify(SessionService.lastArgs), JSON.stringify([provider.id, account.account]));

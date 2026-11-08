@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.1.0-127: no repeated answer
+
+- An answer shown while it was written was sometimes printed again under "The final answer differs…" although nothing differed (when the model also updated the conversation memory). It is now printed once.
+
+## 0.1.0-126: an unchecked sign-in is not shown as signed out
+
+- In the DMS widget a service whose sign-in AI Desktop has not checked yet (for example a Claude login made before the desktop recorded it) shows only "Check sign-in…", not "Sign in…". After the check the card shows "Sign out…" or "Sign in…".
+
+## 0.1.0-125: fewer refused web answers
+
+- A web answer is no longer refused (`web-answer-references`) only because one of its listed sources is not cited in the text. The source still has to come from the search; a reference to a missing source, an answer without references or an address in the text is still refused (the last now as `web-answer-url`).
+
+## 0.1.0-124: web search progress
+
+- Candidate 123 refused web answers (`web-event-type`); this one keeps the web search as before and only shows its progress.
+
+## 0.1.0-123: web search progress (withdrawn)
+
+- While Claude searches the web, the waiting line shows what it is doing: "Searching the web (1)", "Reading search results (1)". The answer itself still appears only after its sources are checked, so an answer with sources the search did not return is never shown.
+
 ## 0.1.0-122: the answer while it is written
 
 - In a conversation with Claude the answer appears paragraph by paragraph while it is being written, instead of all at once at the end. The checked final answer still decides; if it differs from what was shown, the program says so and prints it whole.

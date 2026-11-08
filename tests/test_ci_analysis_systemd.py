@@ -243,7 +243,11 @@ class CiAnalysisGuardTests(unittest.TestCase):
                 with self.subTest(key=key), self.assertRaises(AssertionError):
                     namespace["validate_web_payload"]({**web_data, key: {}})
             def transcript(mode="success"):
-                return ("\n".join(json.dumps(event) for event in namespace["web_events"](mode)) + "\n").encode()
+                # As in the supervisor: partial-message events are filtered out before the transcript checks.
+                from ai_desktop.answer_stream import ClaudeStream
+                raw = ("\n".join(json.dumps(event) for event in namespace["web_events"](mode)) + "\n").encode()
+                stream = ClaudeStream()
+                return stream(raw) + stream(None)
             answer = web_text(transcript())
             self.assertIn("SYNTHETIC WEB: metadata=PASS", answer)
             self.assertIn("https://www.python.org/downloads/", answer)

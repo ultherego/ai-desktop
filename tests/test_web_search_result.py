@@ -227,6 +227,15 @@ class WebSearchResultTests(unittest.TestCase):
             with self.subTest(update=update):
                 self.assert_refused(events)
 
+    def test_a_listed_source_the_text_does_not_cite_stays_listed(self):
+        events = web_events()
+        second = "https://www.python.org/doc/"
+        events[2]["tool_use_result"]["results"][0]["content"].append({"title": "Docs", "url": second})
+        final_answer(events, answer="Opis [1].", sources=["https://www.python.org/about/", second])
+        result = web_text(stream(events))
+        self.assertIn("[1] About Python", result)
+        self.assertIn("[2] Docs", result)
+
     def test_native_completion_requires_success_no_denials_and_bounded_turns(self):
         for key, value in (("subtype", "error_max_turns"), ("is_error", True), ("num_turns", 0),
                            ("num_turns", 5), ("num_turns", True), ("permission_denials", ["WebSearch"]),

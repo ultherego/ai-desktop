@@ -122,7 +122,11 @@ class WebDiagnosticContractTests(unittest.TestCase):
                              (json.dumps({"answer": "Text [1]", "sources": ["https://unobserved.example/"]}),
                               "web-answer-provenance"),
                              (json.dumps({"answer": "Text [99]", "sources": ["https://www.python.org/"]}),
-                              "web-answer-references")):
+                              "web-answer-references"),
+                             (json.dumps({"answer": "Text without a reference", "sources": ["https://www.python.org/"]}),
+                              "web-answer-references"),
+                             (json.dumps({"answer": "Text [1] at https://www.python.org/", "sources": ["https://www.python.org/"]}),
+                              "web-answer-url")):
             items = events()
             items[-1]["result"] = value
             with self.subTest(check=check):

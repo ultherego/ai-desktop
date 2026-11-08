@@ -117,7 +117,8 @@ def request(question, args, reader, *, context=None, access=None, task=None, wri
             if live is not None:
                 live.attach(progress.stop)
             try:
-                answer = send_once(approval, **({"on_partial": live.feed} if live is not None else {}))
+                answer = send_once(approval, **({"on_partial": live.feed, "on_status": progress.status}
+                                                if live is not None else {}))
             finally:
                 progress.phase("cleanup")
     if question_consent is not None:

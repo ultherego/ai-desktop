@@ -30,7 +30,7 @@ from ai_desktop.permissions import Limits
 profile = {'provider': 'claude', 'model': 'default', 'effort': 'default', 'instructions': '', 'profile': 'default',
            'access': 'changes'}
 count = 0
-def send(approval, on_partial=None):
+def send(approval, on_partial=None, **_):
     global count
     count += 1
     data = json.loads(approval.payload)
