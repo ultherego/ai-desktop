@@ -161,6 +161,14 @@ jobs:
           sudo apt-get install -y xdg-dbus-proxy
           python -m pip install 'rich>=13.7,<15' 'cryptography>=44'
           test -S /run/dbus/system_bus_socket
+          # TEMPORARY diagnosis: does the proxy reach the runner's system bus outside any sandbox?
+          ( xdg-dbus-proxy unix:path=/run/dbus/system_bus_socket "$RUNNER_TEMP/bus" --filter \
+              '--call=org.freedesktop.systemd1=org.freedesktop.DBus.Properties.Get@/*' --log & echo $! > "$RUNNER_TEMP/proxy.pid" ) || true
+          sleep 1
+          ls -l "$RUNNER_TEMP/bus" || true
+          busctl --address="unix:path=$RUNNER_TEMP/bus" get-property org.freedesktop.systemd1 /org/freedesktop/systemd1 org.freedesktop.systemd1.Manager Version || true
+          busctl --system get-property org.freedesktop.systemd1 /org/freedesktop/systemd1 org.freedesktop.systemd1.Manager Version || true
+          kill "$(cat "$RUNNER_TEMP/proxy.pid")" || true
           for module in test_command_ops test_command_sockets test_dbus_filter test_ask_operations; do
             python -B -m unittest discover -s tests -p "$module.py" -v
           done
