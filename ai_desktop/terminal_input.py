@@ -70,6 +70,9 @@ class TypeAhead:
         self._original = termios.tcgetattr(self.fd)
         self._stop, self._pause, self._paused = threading.Event(), threading.Event(), threading.Event()
         self._question, self._answer, self._answered = None, None, threading.Event()
+        # Input generation: a consent question starts a new one. A key sequence (an escape, a paste, a multi-byte
+        # character) begun in an earlier generation is never completed into the answer.
+        self._epoch, self._sequence_epoch = 0, 0
         self._thread = None
         self._output = None
 
@@ -173,13 +176,18 @@ class TypeAhead:
             self._pause.clear()
             self.draw()
 
-    def ask(self, prompt, max_bytes):
-        """A consent question in the band; returns the line typed after it appeared."""
-        plain = _ANSI.sub("", prompt).rstrip()
+    def _open_question(self, plain, max_bytes):
+        """Nothing typed or pasted before the question counts as its answer: the kernel's queue is flushed, and a
+        sequence the reader already began (a paste whose end is still to come) is cut off by the new generation."""
         with self.lock:
-            termios.tcflush(self.fd, termios.TCIFLUSH)  # nothing typed before the question counts as its answer
+            self._epoch += 1                           # first, so the reader sees it before it sees the question
+            termios.tcflush(self.fd, termios.TCIFLUSH)
             self._answer, self._question = _Line(max_bytes), plain
             self._answered.clear()
+
+    def ask(self, prompt, max_bytes):
+        """A consent question in the band; returns the line typed after it appeared."""
+        self._open_question(_ANSI.sub("", prompt).rstrip(), max_bytes)
         self.draw()
         try:
             while not self._answered.wait(timeout=0.1):
@@ -230,6 +238,13 @@ class TypeAhead:
         """One byte from the terminal."""
         target = self._answer if self._question is not None else self.line
         sequence = getattr(self, "_sequence", None)
+        if sequence is not None and self._sequence_epoch != self._epoch:
+            # Begun before a consent question appeared: never completed into the answer. A paste (or an escape that
+            # may still become one) is dropped up to its end marker; a cut key or character is just abandoned.
+            pasting = sequence[0] in ("paste", "discard") or (
+                sequence[0] == "escape" and _PASTE_START.startswith(bytes(sequence[1])))
+            sequence = self._sequence = ("discard", bytearray()) if pasting else None
+            self._sequence_epoch = self._epoch
         if sequence is not None:
             kind, buffer = sequence[0], sequence[1]
             self._sequence_at = time.monotonic()
@@ -269,12 +284,14 @@ class TypeAhead:
             return
         if value == b"\x1b":
             self._sequence, self._sequence_at = ("escape", bytearray()), time.monotonic()
+            self._sequence_epoch = self._epoch
             return
         if value[0] >= 0x80:
             number = value[0]
             length = 2 if 0xC2 <= number <= 0xDF else 3 if 0xE0 <= number <= 0xEF else 4 if 0xF0 <= number <= 0xF4 else 0
             if length:
                 self._sequence, self._sequence_at = ("char", bytearray(value), length), time.monotonic()
+                self._sequence_epoch = self._epoch
             return
         self._key(value)
 

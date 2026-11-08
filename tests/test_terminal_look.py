@@ -224,6 +224,45 @@ class LiveInputTests(unittest.TestCase):
         self.type(owner, "/model\r")
         self.assertEqual(owner.queue, ["/model"])
 
+    def question(self, owner):
+        with patch.object(terminal_input.termios, "tcflush") as flushed:
+            owner._open_question("Run it? [y/n]:", 64)
+        flushed.assert_called_once()
+
+    def test_a_paste_begun_before_a_consent_question_never_becomes_its_answer(self):
+        """Review finding 1: the kernel queue was flushed, but a paste the reader had already begun was completed
+        into the new answer field."""
+        for begun in ("\x1b[200~ye", "\x1b[200~", "\x1b[20", "\x1b"):
+            with self.subTest(begun=begun):
+                owner = self.owner(None)
+                for byte in begun.encode():
+                    owner._feed(bytes([byte]))
+                self.question(owner)
+                rest = "\x1b[200~yes\x1b[201~"[len(begun):] if begun != "\x1b" else "[200~yes\x1b[201~"
+                for byte in rest.encode():
+                    owner._feed(bytes([byte]))
+                self.assertEqual(owner._answer.text, "")             # nothing of the earlier paste
+                self.assertEqual(owner.line.text, "")
+                for byte in b"yes":                                   # what is typed after the question counts
+                    owner._feed(bytes([byte]))
+                self.assertEqual(owner._answer.text, "yes")
+
+    def test_a_cut_key_or_character_is_abandoned_and_typing_after_the_question_counts_at_once(self):
+        for begun in (b"\x1bO", "ż".encode()[:1]):
+            with self.subTest(begun=begun):
+                owner = self.owner(None)
+                for byte in begun:
+                    owner._feed(bytes([byte]))
+                self.question(owner)
+                for byte in b"n":
+                    owner._feed(bytes([byte]))
+                self.assertEqual(owner._answer.text, "n")
+        owner = self.owner(None)
+        self.question(owner)
+        for byte in "\x1b[200~y\x1b[201~".encode():                   # a paste after the question is the user's
+            owner._feed(bytes([byte]))
+        self.assertEqual(owner._answer.text, "y")
+
     def test_the_end_of_a_turn_waits_for_a_menu_still_open_before_giving_the_terminal_back(self):
         import threading, time
         owner = self.owner(None)
