@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-126: an unchecked sign-in is not shown as signed out
+
+- In the DMS widget a service whose sign-in AI Desktop has not checked yet (for example a Claude login made before the desktop recorded it) shows only "Check sign-in…", not "Sign in…". After the check the card shows "Sign out…" or "Sign in…".
+
 ## 0.1.0-125: fewer refused web answers
 
 - A web answer is no longer refused (`web-answer-references`) only because one of its listed sources is not cited in the text. The source still has to come from the search; a reference to a missing source, an answer without references or an address in the text is still refused (the last now as `web-answer-url`).

@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** CachyOS check of candidate 125 (several web searches answer with their sources), then Codex deltas, then Codex deltas, then the S9 task flow with fewer approvals and task continuity, and a real Codex request under the client's system-call filter (candidate 114) once the maintainer's Codex limit resets. S0 and S7 remain deferred.
+**Next step:** CachyOS check of candidate 126 (several web searches answer with their sources; the Claude card offers only the sign-in check until it is checked), then Codex deltas, then Codex deltas, then the S9 task flow with fewer approvals and task continuity, and a real Codex request under the client's system-call filter (candidate 114) once the maintainer's Codex limit resets. S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -270,6 +270,7 @@ Earlier dated entries preserve the evidence and status at that point. The latest
 - CachyOS run of candidate 124 (`CYCLE=0`): the waiting line changed from the phase to "Searching the web (1)", and two web answers arrived with their sources; one earlier attempt was refused as `result, web-answer-references`.
 - That refusal is older than this work: the citation check required the text to cite **every** listed source as exactly `[1]`…`[n]`, so a model that listed one verified source without citing it lost the whole answer. Candidate **0.1.0-125** keeps every safety part of the check (each reference must name a listed source, at least one reference, no address or link syntax in the text, now with its own code `web-answer-url`) and keeps an uncited, provenance-checked source in the list instead of refusing.
 - The DMS widget's "Reconnect live limits…" on both Codex cards is expected after the Codex sign-out/sign-in done for the login reproduction: a sign-out marks the native live-limits link stale, because a new sign-in may be another account. Reconnecting once restores the limits; no code change.
+- Widget, candidate **0.1.0-126**: the Claude card showed "Sign in…" next to "Check sign-in…" for an account that was signed in. The widget never reads credentials, so a sign-in made before the desktop recorded receipts is `unknown`, and the card presented `unknown` like `signed_out`. With an unchecked state the card now offers only "Check sign-in…"; after the local check it reads "Sign out…" or "Sign in…". The QML reload test covers both states.
 
 ### 2026-11-08 — Candidate 122: the answer while it is written (S2, first part)
 

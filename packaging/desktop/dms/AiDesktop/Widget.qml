@@ -512,7 +512,9 @@ PluginComponent {
                                 width: parent.width
                                 spacing: Theme.spacingS
                                 DButton {
-                                    visible: serviceCard.provider !== "local"
+                                    // An unchecked sign-in is not a signed-out one: only "Check sign-in…" is offered until the
+                                    // local check records the state, then this button reads Sign out… or Sign in….
+                                    visible: serviceCard.provider !== "local" && serviceCard.selectedAccount?.auth_state !== "unknown"
                                     enabled: !root.switching && (serviceCard.signedIn || serviceCard.modelData.client_present === true)
                                     text: serviceCard.signedIn ? "Sign out…" : serviceCard.selectedAccount?.requires_new_alias ? "Add account…" : "Sign in…"
                                     iconName: serviceCard.signedIn ? "logout" : "login"
