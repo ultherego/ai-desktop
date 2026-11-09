@@ -174,6 +174,65 @@ class AnalysisServiceTests(unittest.TestCase):
                     self.assertEqual(run.call_args.kwargs["mode"], "workspace" if task else "analysis")
                     self.assertEqual(response["text"], text if success else "")
 
+    def conversation_worker(self, run, **kwargs):
+        """A real SOCK_SEQPACKET connection to receive_once running in a thread, as one conversation."""
+        import threading
+        from ai_desktop.analysis_framing import receive_message, send_message
+        server, client = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        self.addCleanup(client.close)
+        listener = Mock()
+        listener.__enter__ = Mock(return_value=listener)
+        listener.__exit__ = Mock(return_value=False)
+        listener.fileno = Mock(return_value=server.fileno())
+        listener.accept = Mock(return_value=(server, None))
+        stack = [patch.object(service, "activation_listener", return_value=listener),
+                 patch.object(service.e2_ipc, "_peer_uid"), patch.object(service, "supervisor_ready"),
+                 patch.object(service.os, "geteuid", return_value=2000),
+                 patch.object(service, "run_client", side_effect=run)]
+        for item in stack:
+            self.enterContext(item)
+        real_select = service.select.select
+        # The listener has already "accepted" this connection; every other select is the real one.
+        self.enterContext(patch.object(service.select, "select",
+                                       side_effect=lambda r, w, x, t=None: ([listener], [], []) if listener in r
+                                       else real_select(r, w, x, t)))
+        worker = threading.Thread(target=service.receive_once, args=(1000,), kwargs=kwargs, daemon=True)
+        worker.start()
+        self.assertEqual(service.packet(client), service.READY)
+
+        def ask(auth):
+            send_message(client, auth.payload.encode(), kind="request")
+            return json.loads(receive_message(client, kind="response", timeout=10, partial=lambda body: None))
+        return client, worker, ask
+
+    def test_one_connection_carries_a_conversation_and_each_request_is_checked_alone(self):
+        answers = iter(["first", "second"])
+        client, worker, ask = self.conversation_worker(lambda *a, **k: next(answers))
+        one, two = approval(), approval()
+        first, second = ask(one), ask(two)
+        self.assertEqual((first["text"], first["request_sha256"]), ("first", one.sha256))
+        self.assertEqual((second["text"], second["request_sha256"]), ("second", two.sha256))
+        self.assertEqual(service.supervisor_ready.call_count, 3)       # at the connection and again per request
+        client.close()
+        worker.join(5)
+        self.assertFalse(worker.is_alive())                            # the desktop closed: the worker ends
+
+    def test_the_connection_ends_when_idle_or_too_old(self):
+        with patch.object(service, "CONVERSATION_IDLE_SECONDS", 0.3):
+            client, worker, ask = self.conversation_worker(lambda *a, **k: "only")
+            self.assertEqual(ask(approval())["text"], "only")
+            worker.join(5)
+            self.assertFalse(worker.is_alive())                        # idle: no second request was awaited forever
+        now = [0.0]
+        with patch.object(service, "CONVERSATION_SECONDS", 10):
+            def run(*args, **kwargs):
+                now[0] += 11                                           # the request took the rest of the lifetime
+                return "late"
+            client, worker, ask = self.conversation_worker(run, clock=lambda: now[0])
+            self.assertEqual(ask(approval())["text"], "late")
+            worker.join(5)
+            self.assertFalse(worker.is_alive())
+
     def test_worker_rejects_arbitrary_commands_and_uid_switches(self):
         with patch.object(service, "receive_once") as receive, patch.object(service, "run_client") as run:
             for args in ([], ["0"], ["01000"], ["1000", "sh"], ["../1000"], ["-1"]):

@@ -4,8 +4,9 @@ import json
 import re
 import select
 import socket
+import time
 
-from .analysis_contract import (SERVICE_MARGIN, request_seconds, AnalysisDenied, Approval, MAX_PACKET, REASONS,
+from .analysis_contract import (CONVERSATION_IDLE_SECONDS, CONVERSATION_SECONDS, SERVICE_MARGIN, request_seconds, AnalysisDenied, Approval, MAX_PACKET, REASONS,
                                 digest, parse_request, read_result, result_packet)
 from .analysis_sandbox import run_client, transport_supervisor_ready as supervisor_ready
 from .analysis_framing import PARTIAL_BYTES, send_message, send_partial, receive_message
@@ -182,7 +183,10 @@ def activation_listener(uid):
     return activation_socket.listener(socket_path(uid), "analysis")
 
 
-def receive_once(uid):
+def receive_once(uid, *, clock=time.monotonic):
+    """One authenticated desktop connection: READY, then requests one after another until the desktop closes it, it
+    stays idle for CONVERSATION_IDLE_SECONDS, CONVERSATION_SECONDS pass or a request is cancelled. Each request has
+    its own approval digest, checks and sandbox, exactly as a connection carrying a single request."""
     socket_path(uid)
     with activation_listener(uid) as listener:
         if not select.select([listener], [], [], 5)[0]:
@@ -199,40 +203,69 @@ def receive_once(uid):
                 send_packet(conn, REFUSED + reason.encode("ascii"))
                 return
             send_packet(conn, READY)
-            model_input, sha256 = parse_request(receive_message(conn, kind="request"))
-            parsed = json.loads(model_input)
-            mode = parsed["mode"]
-            selected = parsed.get("execution")
-            provider = selected["provider"] if selected is not None else "claude"
+            ends = clock() + CONVERSATION_SECONDS
+            first = True
+            while first or _next_request(conn, min(CONVERSATION_IDLE_SECONDS, ends - clock())):
+                first = False
+                if not _serve(conn, uid):
+                    return
 
-            def cancelled():
-                # After the single request, closure OR a second packet cancels.
-                return bool(select.select([conn], [], [], 0)[0])
 
-            try:
-                if cancelled():
-                    raise AnalysisDenied("cancelled")
-                if provider == "local":
-                    # Only the owner controller can consult its policy and reach the loopback endpoint.
-                    raise AnalysisDenied("authorization")
-                action = "web" if mode == "web" else "analyze"
-                from contextlib import nullcontext
-                from . import account_runtime
-                account = (selected or {}).get("account")
-                with (account_runtime.selected(uid, provider, account) if account else nullcontext()):
-                    if selected is not None and selected["provider"] == "codex":
-                        from .codex_runtime import run_client as run_codex
-                        result = run_codex(action, model_input.encode("utf-8"), cancelled=cancelled, mode=mode)
-                    else:
-                        live = _live_sender(conn)
-                        result = run_client(action, model_input.encode("utf-8"), cancelled=cancelled, mode=mode,
-                                            partial=live.text, status=live.status)
-                response = result_packet(sha256, text=result, mode=mode, meta=getattr(result, "meta", None))
-            except (AnalysisDenied, OSError, ValueError, KeyError) as exc:
-                reason = exc.reason if isinstance(exc, AnalysisDenied) else "internal"
-                diagnostic = exc.diagnostic if isinstance(exc, AnalysisDenied) else None
-                response = result_packet(sha256, reason=reason, mode=mode, diagnostic=diagnostic, provider=provider)
-            send_message(conn, response, kind="response")
+def _next_request(conn, seconds):
+    """True when the desktop sent another request in time; False on closure, idle time or the end of the lifetime."""
+    if seconds <= 0 or not select.select([conn], [], [], seconds)[0]:
+        return False
+    try:
+        return conn.recv(1, socket.MSG_PEEK) != b""
+    except OSError:
+        return False
+
+
+def _serve(conn, uid):
+    """One request on the connection. False when the connection must end (the request was cancelled)."""
+    model_input, sha256 = parse_request(receive_message(conn, kind="request"))
+    parsed = json.loads(model_input)
+    mode = parsed["mode"]
+    selected = parsed.get("execution")
+    provider = selected["provider"] if selected is not None else "claude"
+    stopped = []
+
+    def cancelled():
+        # During a request, closure OR another packet cancels it, and the connection ends with it.
+        if select.select([conn], [], [], 0)[0]:
+            stopped.append(True)
+            return True
+        return False
+
+    try:
+        supervisor_ready()
+        if cancelled():
+            raise AnalysisDenied("cancelled")
+        if provider == "local":
+            # Only the owner controller can consult its policy and reach the loopback endpoint.
+            raise AnalysisDenied("authorization")
+        action = "web" if mode == "web" else "analyze"
+        from contextlib import nullcontext
+        from . import account_runtime
+        account = (selected or {}).get("account")
+        with (account_runtime.selected(uid, provider, account) if account else nullcontext()):
+            if selected is not None and selected["provider"] == "codex":
+                from .codex_runtime import run_client as run_codex
+                result = run_codex(action, model_input.encode("utf-8"), cancelled=cancelled, mode=mode)
+            else:
+                live = _live_sender(conn)
+                result = run_client(action, model_input.encode("utf-8"), cancelled=cancelled, mode=mode,
+                                    partial=live.text, status=live.status)
+        response = result_packet(sha256, text=result, mode=mode, meta=getattr(result, "meta", None))
+    except (AnalysisDenied, OSError, ValueError, KeyError) as exc:
+        reason = exc.reason if isinstance(exc, AnalysisDenied) else "internal"
+        diagnostic = exc.diagnostic if isinstance(exc, AnalysisDenied) else None
+        response = result_packet(sha256, reason=reason, mode=mode, diagnostic=diagnostic, provider=provider)
+    try:
+        send_message(conn, response, kind="response")
+    except AnalysisDenied:
+        return False
+    return not stopped
 
 
 def worker_main(argv):
