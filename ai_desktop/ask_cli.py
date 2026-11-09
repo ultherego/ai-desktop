@@ -58,6 +58,9 @@ def build_parser():
     parser.add_argument("--no-save", action="store_true",
                         help="Do not create or update a local saved conversation")
     parser.add_argument("--format", choices=("auto", "plain", "markdown"), default="auto")
+    parser.add_argument("--inline", action="store_true",
+                        help="Keep the conversation in the terminal's own screen instead of the full-screen view "
+                             "(or put 'inline' in ~/.config/ai-desktop/view)")
     add_arguments(parser, session=True)
     return parser
 
@@ -449,7 +452,8 @@ def _main(argv, *, reader, link):
         if question is None:
             if reader is input:
                 from . import run_controls, terminal_frame
-                frame = terminal_frame.start(sys.stdout, run_controls.label())
+                frame = terminal_frame.start(sys.stdout, run_controls.label(),
+                                             **({"fullscreen": False} if args.inline else {}))
                 if frame is not None:
                     def repaint():
                         from .session_cli import print_thread
@@ -457,6 +461,7 @@ def _main(argv, *, reader, link):
                         if talk.transcript:
                             print_thread(talk.transcript, output_format=args.format)
                     frame.repaint = repaint
+                    frame.begin()                  # the full-screen view starts empty: its head is drawn there
             greeted = False                    # the greeting is shown once, not again after each local command
             while True:
                 question = (_read_message(prompt_session, greeted) if reader is input else reader(QUESTION_PROMPT))

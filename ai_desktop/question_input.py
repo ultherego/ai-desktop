@@ -251,6 +251,26 @@ def _without_locks(key):
     return key
 
 
+SCROLL_KEYS = (b"page-up", b"page-down", b"wheel-up", b"wheel-down", b"scroll-end")
+_MOUSE = re.compile(rb"\[<(\d{1,3});\d{1,5};\d{1,5}[Mm]")
+
+
+def scroll_key(key):
+    """PgUp/PgDn (also with Shift) and the mouse wheel (SGR mouse reports) move the full-screen view; any other mouse
+    report is ignored. None for every other key."""
+    if key in (b"[5~", b"[5;2~"):
+        return b"page-up"
+    if key in (b"[6~", b"[6;2~"):
+        return b"page-down"
+    if key in (b"[1;2F",):
+        return b"scroll-end"
+    match = _MOUSE.fullmatch(key)
+    if match:
+        button = int(match.group(1)) & ~(4 | 8 | 16)              # without Shift/Alt/Ctrl
+        return b"wheel-up" if button == 64 else b"wheel-down" if button == 65 else b"ignore"
+    return None
+
+
 def _escape_ext(fd):
     """One escape sequence for a PromptSession: known keys, `newline` (Alt/Shift/Ctrl+Enter), `ctrl-c`/`ctrl-d`
     reported by the keyboard protocol, otherwise `ignore`. Unknown keys never abort the prompt."""
@@ -273,6 +293,9 @@ def _escape_ext(fd):
         if 0x40 <= byte[0] <= 0x7E:
             break
     key = b"[" + body
+    scroll = scroll_key(key)
+    if scroll is not None:
+        return scroll
     key = _without_locks(key)
     if key in _KEYS or key == _PASTE_START:
         return key
@@ -505,6 +528,7 @@ def read_question(*, max_bytes=MAX_QUESTION_BYTES, followup=False, prompt=None, 
         if frame is not None:
             frame.enter()
             output.write("\x1b[?2004h")
+            terminal_frame._call(frame, "mouse", True)
             redraw()
         else:
             output.write("\x1b[?2004h" + _styled_prompt(prompt if prompt is not None else FOLLOWUP_PROMPT if followup else PROMPT, output))
@@ -520,6 +544,12 @@ def read_question(*, max_bytes=MAX_QUESTION_BYTES, followup=False, prompt=None, 
                     extended = _escape_ext(fd)
                     if extended == b"ctrl-c":
                         raise KeyboardInterrupt()
+                if extended in SCROLL_KEYS:
+                    if frame is not None:
+                        terminal_frame._call(frame, "scroll", extended)                      # the full-screen view's history; the text stays
+                    continue
+                if frame is not None and extended != b"ignore":
+                    terminal_frame._call(frame, "scroll", b"scroll-end")                     # typing returns to the live conversation
             except KeyboardInterrupt:
                 if session is None:
                     raise
@@ -629,6 +659,8 @@ def read_question(*, max_bytes=MAX_QUESTION_BYTES, followup=False, prompt=None, 
             finally:
                 keys = "\x1b[<u" if pushed == "kitty" else "\x1b[>4;0m" if pushed == "xterm" else ""
                 if frame is not None:
+                    terminal_frame._call(frame, "mouse", False)
+                    terminal_frame._call(frame, "scroll", b"scroll-end")
                     output.write(keys + "\x1b[?2004l")
                     if result is not None:
                         frame.submitted(result)

@@ -7,6 +7,8 @@ else keeps the ordinary inline prompt.
 """
 import os
 import signal
+import sys
+import threading
 
 from .terminal_style import bar, enabled, paint
 
@@ -18,6 +20,85 @@ _PICKED = ((88, 140, 230), "44")
 HINT = "enter send · \\ enter new line · / commands · ctrl+c clear"
 
 _current = None
+HISTORY_HINT = "history · PgUp/PgDn or the wheel to move · End or any key: back to the conversation"
+_ENTER_FULL, _LEAVE_FULL = "\x1b[?1049h\x1b[H\x1b[2J", "\x1b[?1049l"
+_MOUSE_ON, _MOUSE_OFF = "\x1b[?1000h\x1b[?1006h", "\x1b[?1000l\x1b[?1006l"
+
+
+class Screen:
+    """sys.stdout in the full-screen view: every write reaches the terminal and the screen model (see screen_model).
+    While earlier rows are shown, writes only update the model; going back draws the live screen again from it."""
+
+    def __init__(self, stream, rows, columns):
+        from .screen_model import ScreenModel
+        self._stream = stream
+        self.model = ScreenModel(rows, columns)
+        self.offset = 0
+        self.lock = threading.RLock()
+
+    def write(self, text):
+        with self.lock:
+            self.model.feed(text)
+            if not self.offset:
+                self._stream.write(text)
+            return len(text)
+
+    def raw(self, text):
+        """Control sequences for the terminal only (screen mode, mouse): not part of what the model shows."""
+        with self.lock:
+            self._stream.write(text)
+            self._stream.flush()
+
+    def flush(self):
+        with self.lock:
+            self._stream.flush()
+
+    def show(self, offset, top_rows, columns):
+        """Show the conversation `offset` rows back (0 = live) in the first `top_rows` rows; the rows below stay."""
+        with self.lock:
+            offset = max(0, min(offset, len(self.model.history)))
+            if offset == self.offset:
+                return
+            self.offset = offset
+            if offset:
+                note = paint(HISTORY_HINT[:max(1, columns - 1)], "accent", stream=self._stream)
+                self._stream.write(self.model.view(top_rows, offset) + "\x1b[%d;1H\x1b[0m\x1b[2K%s" % (
+                    self.model.rows, note) + "\x1b[%d;%dH" % (self.model.row + 1, self.model.column + 1))
+            else:
+                self._stream.write(self.model.repaint(region=False))
+            self._stream.flush()
+
+    def resize(self, rows, columns):
+        with self.lock:
+            self.model.resize(rows, columns)
+            self.offset = 0
+            self._stream.write("\x1b[r\x1b[H\x1b[2J" + self.model.repaint())
+            self._stream.flush()
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+
+def view_setting(home=None):
+    """The chosen conversation view: "fullscreen" (the default) or "inline", from ~/.config/ai-desktop/view."""
+    from pathlib import Path
+    try:
+        path = Path(home or os.path.expanduser("~")) / ".config" / "ai-desktop" / "view"
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        try:
+            value = os.read(descriptor, 64).decode("ascii").strip()
+        finally:
+            os.close(descriptor)
+        return value if value in ("fullscreen", "inline") else "fullscreen"
+    except (OSError, ValueError):
+        return "fullscreen"
+
+
+def _call(frame, name, *args):
+    """A full-screen method of a frame that has it (a stand-in in tests may not)."""
+    method = getattr(frame, name, None)
+    if callable(method):
+        method(*args)
 
 
 def current():
@@ -34,7 +115,13 @@ def _size(stream):
 
 
 class Frame:
-    def __init__(self, stream, status):
+    def __init__(self, stream, status, *, fullscreen=False):
+        self.screen = None
+        self._plain = stream                       # the terminal itself (sys.stdout before the full-screen view)
+        if fullscreen:
+            rows, columns = _size(stream)
+            self.screen = Screen(stream, rows, columns)
+            stream = self.screen
         self.stream = stream
         self.status = status
         self.rows, self.columns = _size(stream)
@@ -51,6 +138,8 @@ class Frame:
         self.busy = None                           # the live input of a running turn, which redraws itself
         self.draft = ""                            # text typed during a turn, put back into the next prompt
         self._previous_handler = None
+        self._mouse = False
+        self._mark = 0                              # rows already on the ordinary screen before the full-screen view
 
     # -- region ------------------------------------------------------------------------------------------------------
     def _top(self):
@@ -90,6 +179,9 @@ class Frame:
         self.stream.write("\n" * RESERVED + "\x1b[%dA" % RESERVED + "\x1b7" + "\x1b[1;%dr" % top + "\x1b8")
 
     def start(self):
+        if self.screen is not None:
+            self.screen.raw(_ENTER_FULL)
+            sys.stdout = self.screen               # every print goes through the screen model
         self._region()
         try:
             self._previous_handler = signal.signal(signal.SIGWINCH, self._on_resize)
@@ -122,6 +214,10 @@ class Frame:
         if (rows, columns) != (self.rows, self.columns) or self._resized:
             self._resized = False
             old = self._top()
+            if self.screen is not None and (rows, columns) != (self.rows, self.columns):
+                # The model keeps the whole conversation: draw it again at the new size, never print it twice.
+                self.screen.resize(rows, columns)
+                typing = False
             self.rows, self.columns = rows, columns
             if typing and self.repaint is not None:
                 # A terminal that grows pulls old lines back in at the top and shifts everything down. Like Codex, draw
@@ -262,12 +358,57 @@ class Frame:
         self.stream.write(self._back())
         self.stream.flush()
 
+    # -- full-screen view ---------------------------------------------------------------------------------------------
+    def begin(self):
+        """Draw the head of the conversation into the full-screen view (it starts empty); a no-op otherwise."""
+        if self.screen is None or self.repaint is None:
+            return
+        try:
+            self.stream.write(self._back())
+            self.repaint()
+        except (OSError, ValueError, TypeError, KeyError):
+            pass
+        self.stream.write("\x1b7")
+        self._mark = self.screen.model.total(self._top())
+        self.stream.flush()
+
+    def mouse(self, on):
+        """Wheel reports while a reader of this program parses them; off for anyone else (sudo, a plain prompt)."""
+        if self.screen is None or bool(on) == self._mouse:
+            return
+        self._mouse = bool(on)
+        self.screen.raw(_MOUSE_ON if on else _MOUSE_OFF)
+
+    @property
+    def viewing(self):
+        return self.screen is not None and self.screen.offset > 0
+
+    def scroll(self, key):
+        """Move the full-screen view: a page, three rows for the wheel, or back to the live conversation."""
+        if self.screen is None:
+            return
+        page = max(1, self._top() - 1)
+        step = {b"page-up": page, b"page-down": -page, b"wheel-up": 3, b"wheel-down": -3}.get(key)
+        offset = 0 if step is None else self.screen.offset + step
+        self.screen.show(offset, self._top(), self.columns)
+
     def stop(self):
         try:
             if self._previous_handler is not None:
                 signal.signal(signal.SIGWINCH, self._previous_handler)
         except (ValueError, OSError):
             pass
+        if self.screen is not None:
+            self.scroll(b"scroll-end")
+            self.mouse(False)
+            lines = self.screen.model.transcript(self._top(), since=self._mark)
+            self.screen.raw("\x1b[r" + _LEAVE_FULL)
+            if sys.stdout is self.screen:
+                sys.stdout = self._plain
+            # The conversation stays in the terminal's own history after the full-screen view closes.
+            self._plain.write("".join(line + "\x1b[0m\n" for line in lines))
+            self._plain.flush()
+            return
         self.stream.write("\x1b[r\x1b[%d;1H\x1b[J" % (self._top() + 1))
         self.stream.flush()
 
@@ -293,14 +434,17 @@ def clear_view(stream):
     stream.flush()
 
 
-def start(stream, status):
-    """Pin the input to the bottom when the terminal can show it; return the frame or None."""
+def start(stream, status, *, fullscreen=None):
+    """Pin the input to the bottom when the terminal can show it; return the frame or None. The full-screen view is
+    the default (`fullscreen=None` reads the owner's setting)."""
     global _current
     if _current is not None:
         return _current
     if not usable(stream):
         return None
-    _current = Frame(stream, status)
+    if fullscreen is None:
+        fullscreen = view_setting() == "fullscreen"
+    _current = Frame(stream, status, fullscreen=bool(fullscreen))
     _current.start()
     return _current
 

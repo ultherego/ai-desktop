@@ -387,7 +387,7 @@ class PromptSessionTerminalTests(unittest.TestCase):
         colour = {key: value for key, value in os.environ.items() if key != "NO_COLOR"}
         colour.update(TERM="xterm-256color", COLORTERM="truecolor")
         body = ("import ai_desktop.terminal_frame as frame\n"
-                "frame.start(sys.stdout, 'SYNTHETIC status')\n" + self.READS.format(attach=True, count=2) +
+                "frame.start(sys.stdout, 'SYNTHETIC status', fullscreen=False)\n" + self.READS.format(attach=True, count=2) +
                 "frame.stop()\n")
         output = self.run_script(body, [b"abc\r", b"/he", b"\x03", b"\x03", b"\x03"], env=colour)
         # The frame draws without line breaks, so a result line starts after the last drawn bytes, not at a new line.
@@ -409,7 +409,7 @@ class PromptSessionTerminalTests(unittest.TestCase):
         colour.update(TERM="xterm-256color", COLORTERM="truecolor")
         body = ("import time\nimport ai_desktop.terminal_frame as frame, ai_desktop.terminal_input as live\n"
                 "from ai_desktop.terminal_consent import fresh_input\n"
-                "f = frame.start(sys.stdout, 'SYNTHETIC status')\n"
+                "f = frame.start(sys.stdout, 'SYNTHETIC status', fullscreen=False)\n"
                 "live.start(f, sys.stdout)\n"
                 "time.sleep(1.3)\n"
                 "answer = fresh_input('Send this request? [y/n]: ')\n"
@@ -429,7 +429,7 @@ class PromptSessionTerminalTests(unittest.TestCase):
         colour = {key: value for key, value in os.environ.items() if key != "NO_COLOR"}
         colour.update(TERM="xterm-256color", COLORTERM="truecolor")
         body = ("import time\nimport ai_desktop.terminal_frame as frame, ai_desktop.terminal_input as live\n"
-                "f = frame.start(sys.stdout, 'SYNTHETIC status')\n"
+                "f = frame.start(sys.stdout, 'SYNTHETIC status', fullscreen=False)\n"
                 "live.start(f, sys.stdout)\n"
                 "time.sleep(0.4)\n"
                 "with live.lease():\n"
@@ -450,7 +450,7 @@ class PromptSessionTerminalTests(unittest.TestCase):
         colour = {key: value for key, value in os.environ.items() if key != "NO_COLOR"}
         colour.update(TERM="xterm-256color", COLORTERM="truecolor")
         body = ("import time\nimport ai_desktop.terminal_frame as frame, ai_desktop.terminal_input as live\n"
-                "f = frame.start(sys.stdout, 'SYNTHETIC status')\n"
+                "f = frame.start(sys.stdout, 'SYNTHETIC status', fullscreen=False)\n"
                 "live.start(f, sys.stdout)\n"
                 "time.sleep(0.6)\n"
                 "with live.lease():\n"

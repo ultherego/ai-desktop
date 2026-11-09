@@ -24,7 +24,7 @@ import threading
 import time
 
 from .analysis_contract import MAX_MESSAGE_BYTES
-from .question_input import _KEYS, _PASTE_END, _PASTE_START, QuestionInputError, _Line, _safe_text
+from .question_input import _KEYS, _PASTE_END, _PASTE_START, QuestionInputError, _Line, _safe_text, scroll_key
 
 _ANSI = re.compile(r"\x1b\[[0-9;?<>]*[A-Za-z]")
 _current = None
@@ -35,6 +35,13 @@ _SLASH = "/"
 
 def current():
     return _current
+
+
+def _view(frame, name, *args):
+    """The full-screen view's scrolling and mouse, when the frame has them (an inline frame or a test stand-in does not)."""
+    method = getattr(frame, name, None)
+    if callable(method):
+        method(*args)
 
 
 class _Output:
@@ -139,6 +146,7 @@ class TypeAhead:
         sys.stdout = self._output
         self._raw()
         self.stream.write("\x1b[?2004h")               # a pasted block arrives marked, never as Enter
+        _view(self.frame, "mouse", True)
         self.draw()
         # The turn's context (the selected service, model and role) goes with the reader, so a `/` menu opened during
         # the answer offers that service's choices, not the defaults of an empty context.
@@ -156,6 +164,8 @@ class TypeAhead:
                 self._thread.join(timeout=0.1)
         with self.lock:
             self.frame.busy = None
+            _view(self.frame, "mouse", False)
+            _view(self.frame, "scroll", b"scroll-end")
             sys.stdout = self.stream
             try:
                 self._cooked()
@@ -214,6 +224,8 @@ class TypeAhead:
             self._pause.clear()                        # never hand over a keyboard someone else still reads
             raise OSError("the live input did not pause")
         with self.lock:
+            _view(self.frame, "scroll", b"scroll-end")
+            _view(self.frame, "mouse", False)                     # sudo or a menu reads keys itself: no wheel reports for it
             sys.stdout = self.stream
             self.stream.write("\x1b8")
             self.stream.flush()
@@ -225,6 +237,7 @@ class TypeAhead:
             with self.lock:
                 self.stream.write("\x1b7")
                 self._raw()
+                _view(self.frame, "mouse", True)
                 sys.stdout = self._output
             self._pause.clear()
             self.draw()
@@ -351,6 +364,7 @@ class TypeAhead:
                     self._sequence, self._paste_open = None, False   # the end of a paste whose sequence timed out
                 elif key in _KEYS:
                     self._sequence = None
+                    _view(self.frame, "scroll", b"scroll-end")      # a key: back to the live conversation
                     found = self._matches() if self._question is None else ()
                     if found and key in (b"[A", b"OA", b"[B", b"OB"):
                         self.pick = (self.pick + (-1 if key in (b"[A", b"OA") else 1)) % len(found)
@@ -358,8 +372,13 @@ class TypeAhead:
                     edit = _EDITS.get(key)
                     if edit:
                         target.edit(edit)
+                elif key[:1] == b"[" and not 0x40 <= key[-1] <= 0x7E and len(key) < 32:
+                    return                              # a longer sequence (a mouse report, PgUp) is still arriving
                 elif not any(known.startswith(key) for known in (*_KEYS, _PASTE_START, _PASTE_END[1:])):
                     self._sequence = None
+                    scroll = scroll_key(key)
+                    if scroll is not None and scroll != b"ignore":
+                        _view(self.frame, "scroll", scroll)       # the full-screen view's history; the draft stays
                 return
             if kind == "char" and len(buffer) == sequence[2]:
                 self._sequence = None
@@ -369,6 +388,7 @@ class TypeAhead:
             self._sequence, self._sequence_at = ("escape", bytearray()), time.monotonic()
             self._sequence_epoch = self._epoch
             return
+        _view(self.frame, "scroll", b"scroll-end")               # typing returns to the live conversation
         if value[0] >= 0x80:
             number = value[0]
             length = 2 if 0xC2 <= number <= 0xDF else 3 if 0xE0 <= number <= 0xEF else 4 if 0xF0 <= number <= 0xF4 else 0

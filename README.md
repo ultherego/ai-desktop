@@ -60,7 +60,7 @@ See [agent settings, accounts and sessions](docs/AGENT_MANAGEMENT.md), [verified
 
 This is a development version, not a 1.0 release.
 
-The current candidate package is **0.1.0-145** (changes: [CHANGELOG.md](CHANGELOG.md)).
+The current candidate package is **0.1.0-146** (changes: [CHANGELOG.md](CHANGELOG.md)).
 
 What each candidate changed is in [CHANGELOG.md](CHANGELOG.md); what was checked on CachyOS, and what was not, is in the progress log of [docs/ROADMAP.md](docs/ROADMAP.md).
 
@@ -225,6 +225,8 @@ ai-desktop ask --question "What is an inode?" --no-context
 ```
 
 Without `--question` this is one conversation: after each answer `>` comes back. You can run any number of conversations at the same time in different terminals; each has its own session. A Claude answer appears paragraph by paragraph while it is written; a web search shows its progress on the waiting line ("Searching the web (1)", "Reading search results (1)") and its answer appears once the sources are checked. Typing `/` lists the commands above the input; their menus (`/model`, `/effort`, `/skills`, `/agent`, `/provider`) open there too, also while an answer is being written, and a choice made during an answer applies after it. An empty line or two Ctrl-D end the conversation. It is saved locally after each completed turn; `--no-save` keeps it in memory only. `ai-desktop -c` (or `ai-desktop ask -c`) reopens the last conversation and first prints the whole thread. Only the newest turns that fit the request limits go to the model. Ctrl-C while waiting stops only the current turn. A message can be up to 128 KiB including pastes (a large paste appears as a placeholder).
+
+The conversation opens in a full-screen view: the input stays at the bottom, PgUp/PgDn or the mouse wheel move through earlier text, and End or any key brings back the live conversation. To select text with the mouse, hold Shift. When the conversation ends, its text is left in the terminal's own history. `ai-desktop ask --inline`, or the word `inline` in `~/.config/ai-desktop/view`, keeps the earlier view in the terminal's own screen.
 
 How consents work:
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-146: full-screen conversation view
+
+- A conversation opens in a full-screen view: the input never scrolls away. PgUp/PgDn or the mouse wheel show earlier text, End or any key returns to the live conversation, and text arriving meanwhile is shown when you return. Hold Shift to select text with the mouse. The conversation is left in the terminal's history when it ends.
+- `ai-desktop ask --inline` or `inline` in `~/.config/ai-desktop/view` keeps the previous view.
+
 ## 0.1.0-145: faster questions
 
 - Each question used to start the Claude client six times: four checks of its version and options, one login check and the answer itself. Checks already passed are now remembered for a while for the same client and account, so a following question starts the client once (Codex: the version checks too). Every question still runs in its own fresh sandbox, and a changed client or a login problem is checked again at once.
