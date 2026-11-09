@@ -755,6 +755,49 @@ def concurrent_session():
     daily_clean(os.geteuid())
 
 
+def conversation_connection():
+    """One conversation through the real service: two approved requests share one session and one connection (no
+    second helper or activation); ending the conversation closes both and cleans everything up."""
+    from contextlib import contextmanager
+    from ai_desktop import conversation_link
+    argv = ["sudo", "-n", "/usr/bin/python3", "-I", "-B", str(session_admin.BOOTSTRAP), "open"]
+    opened, connections = [], []
+
+    @contextmanager
+    def opener(**kwargs):
+        session = daily.Session(subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                                 stderr=subprocess.DEVNULL))
+        opened.append(session)
+        try:
+            session.start()
+            yield session
+        finally:
+            session.close()
+    original = service._open_connection
+
+    def counted(*args):
+        connections.append(True)
+        return original(*args)
+    service._open_connection = counted
+    question = "SYNTHETIC: analysis question"
+    try:
+        with conversation_link.held(opener) as link:
+            for _ in range(2):
+                with link.session():
+                    gate = AnalysisConsent(report_fixture(), question=question)
+                    approval = gate.authorize(report_fixture(), question=question, sha256=gate.sha256, nonce=gate.nonce)
+                    if "SYNTHETIC ANALYSIS: isolation=PASS" not in service.send_once(approval):
+                        raise ValueError("conversation-answer")
+            live = [unit for unit in session_units(os.geteuid())
+                    if session_admin.properties(unit).get("ActiveState") in session_admin.LIVE]
+            if len(opened) != 1 or len(connections) != 1 or len(live) != 1:
+                raise ValueError("conversation-reuse")
+    finally:
+        service._open_connection = original
+    daily_clean(os.geteuid())
+    print("CI CONVERSATION: PASS requests=2 sessions=1 connections=1 cleanup=PASS")
+
+
 def explicit_stop_session():
     """The public stop command stops a claimed session and is then idempotent."""
     proc = subprocess.Popen(daily.helper_command("open"), stdin=subprocess.PIPE,
@@ -978,6 +1021,9 @@ def main(argv=None):
                 daily_pty(["analyze", "--details"], expected=-signal.SIGKILL if interrupt == "ui-kill" else 2, interrupt=interrupt)
             stage = "daily-concurrent"
             concurrent_session()
+            stage = "daily-conversation"
+            mode(temp, "success")                  # the interrupt stages above left the fixture hanging
+            conversation_connection()
             stage = "daily-stop"
             explicit_stop_session()
             stage = "daily-recovery"

@@ -112,35 +112,68 @@ def send_once(approval, *, on_partial=None, on_status=None):
         if not e2_account.account_ready():
             raise AnalysisDenied("consent")
         before = endpoint(uid)
-        with socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET) as conn:
-            conn.settimeout(5)
-            conn.connect(socket_path(uid))
-            manager_peer(conn, uid)
-            if endpoint(uid) != before:
-                raise AnalysisDenied("endpoint")
-            ready = packet(conn)
-            if ready != READY:
-                if ready.startswith(REFUSED):
-                    reason = ready[len(REFUSED):].decode("ascii")
-                    if reason in REASONS:
-                        raise AnalysisDenied(reason)
-                raise AnalysisDenied("endpoint")
+        from . import conversation_link
+        link = conversation_link.current()
+        conn = link.take(before) if link is not None else None
+        reused, whole = conn is not None, False
+        try:
+            if conn is None:
+                conn = _open_connection(uid, before)
             approval.recheck_sources()
-            send_message(conn, body, kind="request")
-            result = read_result(receive_message(conn, kind="response", timeout=request_seconds(
-                                         selected["effort"] if selected else None) + SERVICE_MARGIN,
-                                         partial=_live_text(on_partial, on_status)), approval.sha256,
-                                 mode=mode, provider=provider)
-            send_once.last_meta = getattr(result, "meta", None)      # closed model metadata, kept apart from the text
-            if send_once.last_meta and ("quota" in send_once.last_meta or "plan" in send_once.last_meta):
-                from .account_cli import remember
-                remember(provider, (selected or {}).get("account", "default"), send_once.last_meta.get("quota"),
-                         plan=send_once.last_meta.get("plan"))
-            return str(result)                                       # callers get the plain text they always got
+            try:
+                send_message(conn, body, kind="request")
+            except AnalysisDenied as failed:
+                if not reused or failed.reason != "endpoint":
+                    raise
+                # The kept connection was closed in the meantime: the service never took this request (an unfinished
+                # one is discarded), so sending it once on a new connection does not repeat it.
+                conn.close()
+                conn = None
+                conn = _open_connection(uid, before)
+                send_message(conn, body, kind="request")
+            response = receive_message(conn, kind="response", timeout=request_seconds(
+                                       selected["effort"] if selected else None) + SERVICE_MARGIN,
+                                       partial=_live_text(on_partial, on_status))
+            whole = True                                             # the connection carries the next request
+        finally:
+            if conn is not None:
+                if whole and link is not None:
+                    link.keep(conn, before)
+                else:
+                    conn.close()                                     # also cancels a request still running
+        result = read_result(response, approval.sha256, mode=mode, provider=provider)
+        send_once.last_meta = getattr(result, "meta", None)          # closed model metadata, kept apart from the text
+        if send_once.last_meta and ("quota" in send_once.last_meta or "plan" in send_once.last_meta):
+            from .account_cli import remember
+            remember(provider, (selected or {}).get("account", "default"), send_once.last_meta.get("quota"),
+                     plan=send_once.last_meta.get("plan"))
+        return str(result)                                           # callers get the plain text they always got
     except socket.timeout:
         raise AnalysisDenied("timeout") from None
     except (OSError, ValueError, TypeError, KeyError):
         raise AnalysisDenied("endpoint") from None
+
+
+def _open_connection(uid, before):
+    """A new authenticated connection to this user's service, after its READY."""
+    conn = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+    try:
+        conn.settimeout(5)
+        conn.connect(socket_path(uid))
+        manager_peer(conn, uid)
+        if endpoint(uid) != before:
+            raise AnalysisDenied("endpoint")
+        ready = packet(conn)
+        if ready != READY:
+            if ready.startswith(REFUSED):
+                reason = ready[len(REFUSED):].decode("ascii")
+                if reason in REASONS:
+                    raise AnalysisDenied(reason)
+            raise AnalysisDenied("endpoint")
+        return conn
+    except BaseException:
+        conn.close()
+        raise
 
 
 PARTIAL_TIMEOUT = 2                     # seconds a live frame may wait for room before the preview stops

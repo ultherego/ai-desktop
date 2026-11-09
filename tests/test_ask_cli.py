@@ -17,7 +17,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-from ai_desktop import ask_cli as ask, assistant_flow, cli, diagnose, file_context, question_consent
+from ai_desktop import conversation_link, ask_cli as ask, assistant_flow, cli, diagnose, file_context, question_consent
 from ai_desktop.permissions import Limits, Scope
 from ai_desktop.analysis_contract import AnalysisConsent, AnalysisDenied, ContextBudgetExceeded, InputBudgetExceeded
 from ai_desktop.terminal_consent import PROMPTS
@@ -48,7 +48,9 @@ class AskCliTests(unittest.TestCase):
     def run_ui(self, argv=None, *, answers=("Co to jest DNS?", "yes"), gate=None,
                session=None, send=None, context=None, policy=None, access=None,
                sources=None, capture_error=None, uid=1000, tty=True, planner=None, collect_source=None,
-               context_gate_error=None, stay=False):
+               context_gate_error=None, stay=False, reopen=False):
+        """`reopen` makes the conversation open its session again for every request, as after the kept one expired
+        (see conversation_link), so checks made while a session starts are exercised for the second request too."""
         out = io.StringIO()
         out.isatty = lambda: tty
         if "--question" not in (argv or []) and "--preview" not in (argv or []) and not stay:
@@ -86,6 +88,8 @@ class AskCliTests(unittest.TestCase):
                                                        side_effect=collect_source))
             report = stack.enter_context(patch.object(diagnose, "collect", side_effect=AssertionError("implicit report")))
             started = stack.enter_context(patch.object(ask, "managed_session", side_effect=session or (lambda **_: nullcontext())))
+            if reopen:
+                stack.enter_context(patch.object(conversation_link.Link, "_session_usable", return_value=False))
             sent = stack.enter_context(patch.object(ask, "send_once", side_effect=send or default_send))
             stack.enter_context(patch.object(ask, "AnalysisConsent", side_effect=gate_factory))
             stack.enter_context(redirect_stdout(out))
@@ -314,11 +318,30 @@ class AskCliTests(unittest.TestCase):
         def session(**kwargs):
             yield
             raise AnalysisDenied("cleanup")
-        r = self.run_ui(session=session, send=lambda _: '{"action":"answer","text":"PRIVATE ANSWER"}')
+        r = self.run_ui(["--question", "Pytanie"], answers=("yes",), session=session,
+                        send=lambda _: '{"action":"answer","text":"PRIVATE ANSWER"}')
         self.assertEqual(r.code, 2)
         self.assertNotIn("PRIVATE ANSWER", r.output)
         self.assertNotIn("REFUSED reason=", r.output)
         self.assertIn("ai-desktop stop", r.output)
+
+    def test_a_conversation_keeps_one_session_and_reports_a_failed_cleanup_at_its_end(self):
+        events = []
+        @contextmanager
+        def session(**kwargs):
+            events.append("open")
+            yield
+            events.append("close")
+            raise AnalysisDenied("cleanup")
+        def send(_):
+            events.append("send")
+            return '{"action":"answer","text":"Odpowiedź"}'
+        r = self.run_ui(answers=("Pierwsze", "yes", "Drugie"), session=session, send=send)
+        self.assertEqual(events, ["open", "send", "send", "close"])
+        self.assertEqual(r.code, 2)
+        self.assertEqual(r.output.count("Odpowiedź"), 2)
+        self.assertNotIn("REFUSED reason=", r.output)
+        self.assertIn("Could not confirm that the AI Desktop session ended", r.output)
 
     def test_two_rounds_have_distinct_nonces_and_exact_separate_payloads(self):
         for details in (False, True):
@@ -327,7 +350,7 @@ class AskCliTests(unittest.TestCase):
                                 context=[FILES], answers=("Pytanie", "yes"))
                 self.assertEqual(r.code, 0, r.output)
                 self.assertEqual(r.sent.call_count, 2)
-                self.assertEqual(r.started.call_count, 2)
+                self.assertEqual(r.started.call_count, 1)    # one session for the conversation
                 self.assertEqual(len(r.gates), 2)
                 self.assertNotEqual(r.gates[0].nonce, r.gates[1].nonce)
                 self.assertNotEqual(r.gates[0].sha256, r.gates[1].sha256)
@@ -348,7 +371,7 @@ class AskCliTests(unittest.TestCase):
                                 planner=WEB_PLAN, answers=("Jakie są dzisiejsze wiadomości?", "y"))
                 self.assertEqual(r.code, 0, r.output)
                 self.assertEqual(r.sent.call_count, 2)
-                self.assertEqual(r.started.call_count, 2)
+                self.assertEqual(r.started.call_count, 1)    # one session for the conversation
                 self.assertEqual([c.args[0] for c in r.reader.call_args_list],
                                  [ask.QUESTION_PROMPT, PROMPTS["ask-question"]])
                 first, final = [json.loads(c.args[0].payload) for c in r.sent.call_args_list]
@@ -399,7 +422,7 @@ class AskCliTests(unittest.TestCase):
                     policy.recheck.side_effect = ValueError("PRIVATE POLICY")
                 return json.dumps(WEB_PLAN)
             with self.subTest(during_startup=during_startup):
-                r = self.run_ui(access=WEB_ACCESS, sources=WEB_SOURCES, policy=policy,
+                r = self.run_ui(reopen=True, access=WEB_ACCESS, sources=WEB_SOURCES, policy=policy,
                                 session=session, send=send)
                 self.assertEqual(r.code, 2)
                 self.assertEqual(sessions[0], 2 if during_startup else 1)
@@ -419,7 +442,7 @@ class AskCliTests(unittest.TestCase):
             finally:
                 cleanup.append(sessions[0])
         with _no_user_time_exemption(), patch.object(question_consent.time, "monotonic", side_effect=lambda: now[0]):
-            r = self.run_ui(access=WEB_ACCESS, sources=WEB_SOURCES, planner=WEB_PLAN, session=session)
+            r = self.run_ui(reopen=True, access=WEB_ACCESS, sources=WEB_SOURCES, planner=WEB_PLAN, session=session)
         self.assertEqual(r.code, 2)
         self.assertEqual(cleanup, [1, 2])
         self.assertEqual(r.started.call_count, 2)
@@ -456,7 +479,7 @@ class AskCliTests(unittest.TestCase):
         r = self.run_ui(access=WEB_ACCESS, sources=WEB_SOURCES, send=send, session=session)
         self.assertEqual(r.code, 2)
         self.assertEqual(r.sent.call_count, 2)
-        self.assertEqual(cleanup, [1, 2])
+        self.assertEqual(cleanup, [1])                # the conversation's one session, closed at its end
         self.assertIn("No confirmed search results came back", r.output)
         self.assertNotIn(ask.ANSWER_SEPARATOR, r.output)
         r.collect.assert_not_called()
@@ -515,7 +538,7 @@ class AskCliTests(unittest.TestCase):
             if calls[0] == 2:
                 context[0]["files"][0]["content"] = "changed"
             yield
-        r = self.run_ui(access=ACCESS, planner=PLAN, context=context, session=session,
+        r = self.run_ui(reopen=True, access=ACCESS, planner=PLAN, context=context, session=session,
                         answers=("Pytanie", "yes"))
         self.assertEqual(r.code, 2)
         r.sent.assert_called_once()
@@ -529,7 +552,7 @@ class AskCliTests(unittest.TestCase):
             if sessions[0] == 2:
                 policy.recheck.side_effect = ValueError("PRIVATE POLICY")
             yield
-        r = self.run_ui(access=ACCESS, planner=PLAN, context=[FILES], policy=policy,
+        r = self.run_ui(reopen=True, access=ACCESS, planner=PLAN, context=[FILES], policy=policy,
                         session=session, answers=("Pytanie", "yes"))
         self.assertEqual(r.code, 2)
         self.assertEqual(sessions[0], 2)
@@ -545,7 +568,7 @@ class AskCliTests(unittest.TestCase):
                 now[0] = 900                      # the user took a long time typing the sudo password
             yield
         with patch.object(question_consent.time, "monotonic", side_effect=lambda: now[0]):
-            r = self.run_ui(access=ACCESS, planner=PLAN, context=[FILES], session=session,
+            r = self.run_ui(reopen=True, access=ACCESS, planner=PLAN, context=[FILES], session=session,
                             answers=("Pytanie", "yes"))
         self.assertEqual(r.code, 0)
         self.assertEqual(r.started.call_count, 2)
@@ -562,7 +585,7 @@ class AskCliTests(unittest.TestCase):
             finally:
                 cleanup.append(sessions[0])
         with _no_user_time_exemption(), patch.object(question_consent.time, "monotonic", side_effect=lambda: now[0]):
-            r = self.run_ui(access=ACCESS, planner=PLAN, context=[FILES], session=session,
+            r = self.run_ui(reopen=True, access=ACCESS, planner=PLAN, context=[FILES], session=session,
                             answers=("Pytanie", "yes"))
         self.assertEqual(r.code, 2)
         self.assertEqual(cleanup, [1, 2])

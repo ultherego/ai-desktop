@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-137: a conversation keeps its session
+
+- A conversation (`ai-desktop ask`) opens its session once and keeps it, together with its connection to the service, for the following questions: no `sudo` and no service start before each question, so answers start sooner. Every question is still approved, checked and answered in a fresh sandbox on its own.
+- The kept session ends with the conversation, after 15 minutes without a question, after 4 hours in all, or when `ai-desktop stop` is run; the next question then opens a new one (and may ask for the `sudo` password again).
+- Other terminals keep their own sessions, so any number of conversations still work at the same time.
+- Ctrl+C stops the answer and keeps the conversation and its session. A single question (`ask --question`) still opens and closes its own session.
+
 ## 0.1.0-136: a follow-up edit without the file name
 
 - When the model writes a file reference the wrong way (for example after "change it so that…" without naming the file), it now gets one more chance to correct it in the same question instead of the question ending with `plan-files-…`.
