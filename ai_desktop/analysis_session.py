@@ -123,6 +123,10 @@ class Session:
             raise AnalysisDenied("endpoint")
         self.ready = True
 
+    def alive(self):
+        """False when the helper has ended (e.g. `ai-desktop stop` from another terminal); no I/O."""
+        return self.process.poll() is None
+
     def close(self):
         self.process.stdin.close()  # EOF is the only control message.
         try:
@@ -141,11 +145,12 @@ class Session:
 
 @contextmanager
 def managed_session(*, quiet=False):
+    """The privileged session for the duration of the block; yields its `Session` (None for a local recipient)."""
     if type(quiet) is not bool:
         raise AnalysisDenied("input")
     if _local_selected():
         identity(terminal=True)
-        yield
+        yield None
         return
     authenticate(quiet=True) if quiet else authenticate()
     process = subprocess.Popen(helper_command("open"), env=ENV, stdin=subprocess.PIPE,
@@ -154,7 +159,7 @@ def managed_session(*, quiet=False):
     session = Session(process)
     try:
         session.start()
-        yield
+        yield session
     finally:
         # A second Ctrl+C must not interrupt the cleanup acknowledgment.
         previous = signal.signal(signal.SIGINT, signal.SIG_IGN)

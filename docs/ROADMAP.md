@@ -97,7 +97,7 @@ Working and merged at `dd2daec3045c41662a722f4c6a3485dea14dd196` (PR #18, packag
 | Codex login/logout false error after a successful operation | done — not reproduced on candidate 121: `ai-desktop codex logout --allow-chatgpt-logout --v` and `codex login --allow-chatgpt-login --v` both ended `success` with exit 0 and the matching status line. Reopen with the full `--v` output if it returns |
 | Keep current documentation aligned with code and archive obsolete acceptance instructions | IN PROGRESS — candidate 120 trimmed README, the release checklist and KNOWN_LIMITATIONS; after candidate 127 README, the threat model (live preview, T31) and the S2 rows describe the live answer and web progress |
 | `task prune` with a list of entries and consent | done — candidate 119: `ai-desktop task prune --workspace DIR` lists only finished entries (saved with no stage left, undone, settled conflict, unlinked history, fully restored deletion), takes numbers or `all` and a separate consent, and re-checks each entry under the lock against the hash shown; unfinished saves, conflicts with stages left and deletions still in the trash always stay |
-| One client session per conversation, streaming answers | IN PROGRESS — candidates 122–127 stream Claude answers and show web progress; candidate 132 makes any number of terminals work at the same time (a session per terminal, a multi-connection service, a shared profile lock). Remaining: each conversation keeping its connection between questions, Codex deltas, then one native client process per conversation |
+| One client session per conversation, streaming answers | IN PROGRESS — candidates 122–127 stream Claude answers and show web progress; candidate 132 makes any number of terminals work at the same time (a session per terminal, a multi-connection service, a shared profile lock). candidate 137 keeps each conversation's session and service connection between questions. Remaining: Codex deltas, then one native client process per conversation |
 
 ## Agreed follow-up scope — 2026-11-06
 
@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** CachyOS check of candidate 136 (an edit while the file is changed elsewhere says so; if an edit request is refused, its `files-…` code), then each conversation keeping its connection between questions, then Codex answers while they are written (test after the maintainer's Codex limit resets around 2026-11-12), then one native client process per conversation, then the S9 task flow. S0 and S7 remain deferred.
+**Next step:** CachyOS check of candidate 137 (one conversation asks `sudo` once, several questions in a row and in several terminals, a pause over 15 minutes, `ai-desktop stop` from another terminal), then Codex answers while they are written (test after the maintainer's Codex limit resets around 2026-11-12), then one native client process per conversation, then the S9 task flow. S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -260,6 +260,17 @@ Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaini
 ## Progress log
 
 Earlier dated entries preserve the evidence and status at that point. The latest entry supersedes historical pending/next-step statements.
+
+### 2026-11-09 — Candidate 137: a conversation keeps its session and connection (S2)
+
+- PR #47 (candidates 133–136) was merged after CachyOS acceptance.
+- Before: every request in a conversation ran `sudo -v`, started a session helper unit (a `systemd-run`), opened a new connection and, when the worker had left, activated the service again; a question with several steps did that for each step. The root helper and the service already allowed a whole conversation (candidate 132: `HOLD_SECONDS`, several requests per connection, idle and lifetime limits); only the desktop side was missing.
+- **READY FOR TEST**, candidate **0.1.0-137**:
+  - `conversation_link`: inside an interactive `ask`, the first request opens the session and the connection; later requests reuse them. They are let go when the conversation ends (the helper's cleanup is confirmed; a failure is reported and the command exits with 2), after 15 minutes without a request or 4 hours in all (with a 30 s margin before the service's own limits), after a transport failure (the connection is closed, which cancels the request in the service), or when the helper ended or the service closed the connection (`ai-desktop stop` in another terminal, a service restart). A single question (`ask --question`), `analyze`, `task` and `material` keep their own lifecycles.
+  - `send_once` reuses the kept connection only when nothing is waiting on it and its endpoint is unchanged; a kept connection found closed while sending is replaced once (the service never took that request), any other failure is never repeated.
+  - Each conversation has its own session and connection, so terminals stay independent (the maintainer's requirement of 2026-11-09).
+  - Ctrl+C stops the answer and keeps the conversation and its session (before, it closed the session too).
+  - Tests: `tests/test_conversation_link.py` (one session for several questions, the `sudo` wait only around opening, idle and lifetime expiry, a helper ended elsewhere, cleanup failure, a failed or interrupted opening, connection reuse, closure by the service, unexpected data, a replaced endpoint, `send_once` reuse, a failed response, Ctrl+C, a refusal keeping the connection, the one safe resend and no resend otherwise); conversation tests now expect one session per conversation, and the earlier per-request checks (policy revoked, context changed or the deadline passing while a session starts) run with the session reopened for each request. CI real-systemd stage `daily-conversation`: two requests through the installed service share one session and one connection, then everything is cleaned up.
 
 ### 2026-11-09 — Candidate 133: second external review
 

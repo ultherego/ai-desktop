@@ -10,7 +10,8 @@ import test_ask_cli as existing
 
 
 class AskWaitingTests(unittest.TestCase):
-    def run_waiting(self, *, error=None, cleanup_error=None, web=False, decline=False, startup_error=None):
+    def run_waiting(self, *, error=None, cleanup_error=None, web=False, decline=False, startup_error=None,
+                    reopen=False, argv=None):
         events = []
 
         class Indicator:
@@ -48,23 +49,38 @@ class AskWaitingTests(unittest.TestCase):
             return "SYNTHETIC_ANSWER"
 
         with patch.object(ask, "WaitingIndicator", Indicator):
-            result = existing.AskCliTests().run_ui(session=session, send=send,
-                answers=("Pytanie", "no" if decline else "yes"),
+            result = existing.AskCliTests().run_ui(argv, session=session, send=send, reopen=reopen,
+                answers=("no" if decline else "yes",) if argv else ("Pytanie", "no" if decline else "yes"),
                 access=existing.WEB_ACCESS if web else None,
                 sources=existing.WEB_SOURCES if web else None)
         return result, events
 
-    def test_animation_starts_after_authorization_and_stops_after_cleanup(self):
+    def test_animation_starts_after_authorization_and_stops_before_the_kept_session_closes(self):
         result, events = self.run_waiting()
         self.assertEqual(result.code, 0)
-        self.assertEqual(events, ["idle", "authorization", "assistant", "send-assistant", "cleanup", "cleanup-done", "stopped"])
+        # The conversation keeps its session: it closes when the conversation ends, after the indicator stopped.
+        self.assertEqual(events, ["idle", "authorization", "assistant", "send-assistant", "cleanup", "stopped", "cleanup-done"])
         self.assertIn("SYNTHETIC_ANSWER", result.output)
 
-    def test_each_request_has_own_indicator_and_no_spinner_during_second_sudo(self):
+    def test_a_single_question_closes_its_session_before_the_indicator_stops(self):
+        result, events = self.run_waiting(argv=["--question", "Pytanie"])
+        self.assertEqual(result.code, 0)
+        self.assertEqual(events, ["idle", "authorization", "assistant", "send-assistant", "cleanup", "cleanup-done", "stopped"])
+
+    def test_each_request_has_own_indicator_and_the_second_reuses_the_session(self):
         result, events = self.run_waiting(web=True)
         self.assertEqual(result.code, 0)
-        self.assertEqual(events, ["idle", "authorization", "assistant", "send-assistant", "cleanup", "cleanup-done", "stopped",
-                                  "idle", "authorization", "web", "send-web", "cleanup", "cleanup-done", "stopped"])
+        self.assertEqual(events, ["idle", "authorization", "assistant", "send-assistant", "cleanup", "stopped",
+                                  "idle", "web", "send-web", "cleanup", "stopped", "cleanup-done"])
+        self.assertEqual(result.sent.call_count, 2)
+        self.assertEqual(result.reader.call_count, 2)  # question and one approval
+
+    def test_each_request_has_own_indicator_and_no_spinner_during_second_sudo(self):
+        result, events = self.run_waiting(web=True, reopen=True)       # the kept session had to be opened again
+        self.assertEqual(result.code, 0)
+        self.assertEqual(events, ["idle", "authorization", "assistant", "send-assistant", "cleanup", "stopped",
+                                  "idle", "cleanup-done", "authorization", "web", "send-web", "cleanup", "stopped",
+                                  "cleanup-done"])
         self.assertEqual(result.sent.call_count, 2)
         self.assertEqual(result.reader.call_count, 2)  # question and one approval
 
@@ -73,12 +89,12 @@ class AskWaitingTests(unittest.TestCase):
             with self.subTest(error=type(error).__name__):
                 result, events = self.run_waiting(error=error)
                 self.assertEqual(result.code, 2)
-                self.assertEqual(events[-3:], ["cleanup", "cleanup-done", "stopped"])
+                self.assertEqual(events[-3:], ["cleanup", "stopped", "cleanup-done"])
                 result.sent.assert_called_once()
                 self.assertNotIn("SYNTHETIC_ANSWER", result.output)
 
     def test_cleanup_failure_stops_animation_and_withholds_answer(self):
-        result, events = self.run_waiting(cleanup_error=AnalysisDenied("cleanup"))
+        result, events = self.run_waiting(cleanup_error=AnalysisDenied("cleanup"), argv=["--question", "Pytanie"])
         self.assertEqual(result.code, 2)
         self.assertEqual(events[-1], "stopped")
         self.assertNotIn("SYNTHETIC_ANSWER", result.output)

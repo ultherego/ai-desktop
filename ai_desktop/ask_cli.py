@@ -128,7 +128,15 @@ def request(question, args, reader, *, context=None, access=None, task=None, wri
 
 @contextmanager
 def _session(consent, **kwargs):
-    """Start the privileged session; the time spent typing the sudo password is the user's, not the question's."""
+    """Start the privileged session; the time spent typing the sudo password is the user's, not the question's.
+    Inside a conversation the session is kept for its next questions (see `conversation_link`)."""
+    from . import conversation_link
+    from .analysis_session import _local_selected
+    link = conversation_link.current()
+    if link is not None and not _local_selected():
+        with link.session(waiting=consent.waiting if consent is not None else None, **kwargs):
+            yield
+        return
     with ExitStack() as stack:
         with (consent.waiting() if consent is not None else nullcontext()):
             stack.enter_context(managed_session(**kwargs))
@@ -332,6 +340,25 @@ def _remember(talk, conversation, question, answer, ops, sources, phase, args, *
 
 @configured
 def main(argv=None, *, reader=input):
+    """The conversation; its kept session (see `conversation_link`) is closed and confirmed when it ends."""
+    link = ExitStack()
+    try:
+        code = _main(argv, reader=reader, link=link)
+    except BaseException:
+        try:
+            link.close()
+        except AnalysisDenied:
+            print("Could not confirm that the AI Desktop session ended. Check it with: ai-desktop stop")
+        raise
+    try:
+        link.close()
+    except AnalysisDenied:
+        print("Could not confirm that the AI Desktop session ended. Check it with: ai-desktop stop")
+        return 2
+    return code
+
+
+def _main(argv, *, reader, link):
     args = build_parser().parse_args(argv)
     interactive = args.question is None and not args.preview
     state = {"submitted": False, "execution": UNSET, "phase": "input"}
@@ -371,6 +398,11 @@ def main(argv=None, *, reader=input):
                 args.session = chosen[1]
         from .conversation_sessions import load_session
         from .execution import current
+        from . import conversation_link
+        if interactive:
+            # One session and service connection for the whole conversation: no sudo or service start per question.
+            # A single question keeps the stricter order: its session's cleanup is confirmed before the answer shows.
+            link.enter_context(conversation_link.held(lambda **kwargs: managed_session(**kwargs)))
         consent = ConversationConsent()
         talk = conversation_state.Conversation()
         if args.session not in (None, "new"):
@@ -497,7 +529,7 @@ def main(argv=None, *, reader=input):
             except LOCAL_REFUSALS as refusal:
                 if not interactive:
                     raise
-                _explain_refusal(refusal)          # a local refusal loses that turn too; the session already closed
+                _explain_refusal(refusal)          # a local refusal loses that turn too; the conversation goes on
                 keep_actions()
                 answer, code = None, 2
             except AnalysisDenied as denied:
@@ -512,8 +544,8 @@ def main(argv=None, *, reader=input):
             except KeyboardInterrupt:
                 if not interactive:
                     raise
-                # The turn's own cleanup (session, consent, process) has already run in the flow's finally blocks;
-                # a failure there would have raised instead of landing here.
+                # The turn's own cleanup (consent, process, its service connection) has already run in the flow's
+                # finally blocks; the conversation's session stays for the next question (see conversation_link).
                 print("\nCancelled. This turn was stopped." + (" Data already sent cannot be taken back; the question will not be retried."
                                                 if state["submitted"] else ""))
                 keep_actions()

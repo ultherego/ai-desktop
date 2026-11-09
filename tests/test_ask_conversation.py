@@ -253,7 +253,7 @@ class ConversationLoopTests(unittest.TestCase):
         self.assertEqual(calls, [0, 1, 1])             # the interrupted turn is not part of the third turn's history
         self.assertIn("This turn was stopped", text)
 
-    def test_a_failed_cleanup_after_an_interrupt_ends_the_command_with_the_real_error(self):
+    def test_an_interrupt_keeps_the_conversation_and_its_session_and_a_failed_cleanup_is_reported_at_the_end(self):
         from ai_desktop.analysis_contract import AnalysisDenied
         class BrokenCleanup:
             def __enter__(self):
@@ -263,7 +263,7 @@ class ConversationLoopTests(unittest.TestCase):
         out = io.StringIO(); out.isatty = lambda: True
         policy = Mock(); policy.limits.return_value = Limits()
         snapshot = assistant_flow.AccessSnapshot(policy, {"claude": True, "systemd": [], "weather": False}, dict(EMPTY))
-        queue = ["Jeden", "yes", "MUST-NOT-BE-READ"]
+        queue = ["Jeden", "yes", "", "MUST-NOT-BE-READ"]
         with ExitStack() as stack:
             stack.enter_context(patch("ai_desktop.agent_profiles.resolve", return_value=PROFILE))
             stack.enter_context(patch.object(ask.os, "geteuid", return_value=1000))
@@ -276,7 +276,9 @@ class ConversationLoopTests(unittest.TestCase):
             stack.enter_context(redirect_stdout(out))
             code = ask.main([], reader=lambda prompt: queue.pop(0))
         self.assertEqual(code, 2)
-        self.assertEqual(queue, ["MUST-NOT-BE-READ"])   # the loop did not return to the prompt
+        self.assertEqual(queue, ["MUST-NOT-BE-READ"])   # the stopped turn returned to the prompt; "" ended it
+        self.assertIn("This turn was stopped", out.getvalue())
+        self.assertIn("Could not confirm that the AI Desktop session ended", out.getvalue())
 
     def test_a_bad_plan_loses_only_that_turn_and_prose_is_shown_as_an_answer(self):
         replies = {1: json.dumps({"action": "read", "files": [], "systemd": [{"scope": "nope", "view": "x"}],
