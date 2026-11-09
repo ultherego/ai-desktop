@@ -247,6 +247,36 @@ class LiveInputTests(unittest.TestCase):
                     owner._feed(bytes([byte]))
                 self.assertEqual(owner._answer.text, "yes")
 
+    def test_a_paste_stalled_before_the_question_is_cut_off_when_the_question_opens(self):
+        """Review of 132: a paste paused longer than its quiet time lost its sequence, so its delayed rest (with a
+        newline) was read as a fresh answer and approved the question."""
+        owner = self.owner(None)
+        for byte in "\x1b[200~ye".encode():
+            owner._feed(bytes([byte]))
+        owner._sequence = None                                    # what the reader does after 2 s of silence
+        self.assertTrue(owner._paste_open)
+        self.question(owner)
+        self.assertEqual(owner._sequence[0], "stale")             # cut off at once, before any further byte
+        for byte in "s\r".encode():
+            owner._feed(bytes([byte]))
+        self.assertFalse(owner._answered.is_set())                # the pasted newline does not answer
+        for byte in "\x1b[201~".encode():
+            owner._feed(bytes([byte]))
+        self.assertEqual((owner._answer.text, owner._paste_open, owner._sequence), ("", False, None))
+        for byte in b"yes\r":                                     # typed after the question: that is the answer
+            owner._feed(bytes([byte]))
+        self.assertTrue(owner._answered.is_set())
+        self.assertEqual(owner._answer.text, "yes")
+
+    def test_the_end_of_a_timed_out_paste_closes_it_without_typing_anything(self):
+        owner = self.owner(None)
+        for byte in "\x1b[200~ab".encode():
+            owner._feed(bytes([byte]))
+        owner._sequence = None
+        for byte in "\x1b[201~".encode():
+            owner._feed(bytes([byte]))
+        self.assertFalse(owner._paste_open)
+
     def test_a_slow_end_of_an_earlier_paste_is_still_dropped(self):
         owner = self.owner(None)
         for byte in "\x1b[200~ye".encode():

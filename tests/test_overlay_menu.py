@@ -129,6 +129,26 @@ class LiveMenuTests(unittest.TestCase):
         self.assertEqual(result, [1])
 
 
+class ReaderContextTests(unittest.TestCase):
+    def test_the_reader_sees_the_turns_selected_service(self):
+        """Review of 132: a menu opened during a Codex answer offered Claude's choices (empty context in the reader)."""
+        import contextvars
+        selected = contextvars.ContextVar("selected_for_test", default="claude")
+        selected.set("codex")
+        read, write = os.pipe()
+        self.addCleanup(os.close, read)
+        self.addCleanup(os.close, write)
+        owner = live_owner(read)
+        seen = []
+        owner._run = lambda: seen.append(selected.get())
+        saved = terminal_input.sys.stdout
+        self.addCleanup(setattr, terminal_input.sys, "stdout", saved)  # start() routes stdout through the band
+        with patch.object(owner, "_raw"), patch.object(owner, "draw"):
+            owner.start()
+            owner._thread.join(2)
+        self.assertEqual(seen, ["codex"])
+
+
 class IdleMenuTests(unittest.TestCase):
     def test_between_turns_the_menu_is_drawn_above_the_band_and_the_terminal_mode_is_restored(self):
         master, slave = pty.openpty()

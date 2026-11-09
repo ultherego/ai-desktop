@@ -194,6 +194,11 @@ def _explain_refusal(refusal):
     elif isinstance(refusal, InputBudgetExceeded):
         print(f"Not sent: the whole JSON request is over the limit of {MAX_PACKET} bytes. "
               + recipient("This request was not sent to Claude."))
+    elif isinstance(refusal, ask_edit.EditConflict):
+        print("Not saved: the file changed after it was read (in another window or an editor), so nothing was "
+              "overwritten. Ask again to prepare a fresh change.")
+    elif isinstance(refusal, ask_edit.EditBusy):
+        print("Not saved: another window is saving in this directory right now. Ask again in a moment.")
     elif isinstance(refusal, ask_edit.EditDenied):
         print("Nothing was saved. Check files.read and files.write in permissions.toml, and that the directory and files exist.")
     # FileReadDenied: the local collector has already explained it; session diagnostics would obscure the cause.

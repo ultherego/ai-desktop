@@ -231,6 +231,28 @@ class AskEditTests(unittest.TestCase):
                 ask_edit.finish(prepared, "untrusted", self.args, Mock())
             self.assertNotIn("PRIVATE", str(refused.exception))
 
+    def test_a_version_conflict_or_a_busy_directory_ends_only_this_proposal(self):
+        """Review of 132: another window or an editor changing the file ended the whole conversation."""
+        from ai_desktop import conversation_state
+        prepared = self.prepare()
+        for error, kind in ((ValueError("workspace changed"), ask_edit.EditConflict),
+                            (ValueError("changed target"), ask_edit.EditConflict),
+                            (BlockingIOError(), ask_edit.EditBusy)):
+            with self.subTest(error=error), conversation_state.recording() as recorder, \
+                    patch.object(task_cli, "finish_task", side_effect=error), self.assertRaises(kind):
+                ask_edit.finish(prepared, "untrusted", self.args, Mock())
+            self.assertTrue(any("NOT saved" in fact for fact in recorder.actions))     # remembered as not applied
+            self.assertTrue(issubclass(kind, ask_cli_refusals()))
+        with patch.object(task_cli, "finish_task", side_effect=ValueError("other")), self.assertRaises(ValueError):
+            ask_edit.finish(prepared, "untrusted", self.args, Mock())                   # unexpected stays unexpected
+        from ai_desktop import ask_cli
+        import contextlib, io
+        for refusal, words in ((ask_edit.EditConflict("input"), "changed after it was read"),
+                               (ask_edit.EditBusy("input"), "another window is saving")):
+            with contextlib.redirect_stdout(io.StringIO()) as said:
+                ask_cli._explain_refusal(refusal)
+            self.assertIn(words, said.getvalue())
+
     def test_workspace_is_second_exact_payload_and_cannot_replay_or_change_instruction(self):
         self.planner()
         prepared = self.prepare()
@@ -313,3 +335,9 @@ class AskEditTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def ask_cli_refusals():
+    """The refusals after which `ask` keeps the conversation going."""
+    from ai_desktop import ask_cli
+    return ask_cli.LOCAL_REFUSALS

@@ -20,6 +20,18 @@ class EditDenied(AnalysisDenied):
     """A local edit selection or its bound state was refused."""
 
 
+class EditConflict(EditDenied):
+    """The file changed after it was read (another terminal or an editor): nothing was overwritten."""
+
+
+class EditBusy(EditDenied):
+    """Another terminal is saving in this directory right now: nothing was written."""
+
+
+# Expected version conflicts of a write; each ends only this proposal, never the conversation.
+CONFLICTS = frozenset({"workspace changed", "source changed", "changed target", "changed file"})
+
+
 class CreateCollision(EditDenied):
     """A validated creation path exists; never includes its contents."""
 
@@ -254,6 +266,14 @@ def finish(prepared, response, args, reader):
                            write_guard=prepared.write_grant.check, project_test=prepared.project_test)
     except (ExecutionDenied, RecursionError):
         raise EditDenied("input") from None
+    except BlockingIOError:
+        conversation_state.note_action("Change NOT saved: another terminal was saving in this directory")
+        raise EditBusy("input") from None
+    except ValueError as exc:
+        if not (exc.args and exc.args[0] in CONFLICTS):
+            raise
+        conversation_state.note_action("Change NOT saved: the file changed after it was read; nothing was overwritten")
+        raise EditConflict("input") from None
     conversation_state.note_action(_change_fact(response, code, prepared.check))
     return CompletedTask(code)
 

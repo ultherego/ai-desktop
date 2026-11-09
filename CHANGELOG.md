@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-133: fixes from the second review
+
+- A consent question never accepts the rest of a paste that started before it, even when that paste paused for a few seconds.
+- Upgrading while a conversation of the previous version is open no longer leaves later conversations refused as "busy"; `ai-desktop stop` also ends such a session.
+- When another window or an editor changes a file while a change is being prepared, only that change is refused ("Not saved … Ask again"); the conversation continues and nothing is overwritten.
+- A `/` menu during a Codex answer shows Codex's choices; the service no longer uses a full core when every connection is taken.
+
 ## 0.1.0-132: many terminals at once
 
 - AI Desktop works in any number of terminals at the same time, each fully: two terminals asking at once no longer get "busy". Each terminal has its own session; up to four answers are prepared at once and a further question waits for its turn.

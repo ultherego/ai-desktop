@@ -361,13 +361,61 @@ class MultiSessionTests(unittest.TestCase):
         self.assertEqual(caught.exception.reason, "busy")
         run.assert_not_called()
 
-    def test_a_session_of_the_previous_design_keeps_the_socket_until_it_ends(self):
-        admin.legacy_claim(1000).write_text("e" * 32)
-        with self.assertRaises(AnalysisDenied):
-            admin.hold(1000, "f" * 32)
-        self.assertEqual(self.systemd.calls, [])
-        admin.cleanup(1000, "f" * 32)
-        self.assertEqual(self.systemd.calls, [])                      # never stops what the old session owns
+    def legacy_session(self, nonce="e" * 32):
+        """A running session of candidate 131's single-claim layout, as left by an upgrade."""
+        path = admin.legacy_claim(1000)
+        path.write_text(nonce)
+        path.chmod(0o600)
+        self.systemd.active.update({admin.legacy_unit(1000), admin.units(1000)[0]})
+        return nonce
+
+    def test_an_upgrade_during_a_session_of_the_previous_layout_does_not_leave_it_busy(self):
+        """Review of 132: the old session's own cleanup now comes from this version and left its claim behind."""
+        old = self.legacy_session()
+        with self.assertRaises(AnalysisDenied) as caught:
+            self.hold("f" * 32)                                    # while it runs, it still owns the socket
+        self.assertEqual(caught.exception.reason, "busy")
+        self.systemd.active.discard(admin.legacy_unit(1000))      # the old session ends ...
+        admin.cleanup(1000, old)                                  # ... and its ExecStopPost runs this version
+        self.assertFalse(admin.legacy_claim(1000).exists())
+        self.assertEqual(self.systemd.calls[-1], ("stop", *admin.units(1000)))
+        self.hold("a" * 32)                                       # the next terminal is not refused
+        self.assertEqual(admin.claims(1000), ["a" * 32])
+
+    def test_a_stale_claim_of_the_previous_layout_is_pruned(self):
+        self.legacy_session()
+        self.systemd.active.discard(admin.legacy_unit(1000))      # its helper died without cleanup
+        self.hold("b" * 32)
+        self.assertFalse(admin.legacy_claim(1000).exists())
+
+    def test_stop_also_ends_a_session_of_the_previous_layout(self):
+        old = self.legacy_session()
+
+        def stopped(*args):
+            self.systemd.command(*args)
+            if args[1:] == ("stop", admin.legacy_unit(1000)):
+                admin.cleanup(1000, old)                          # its ExecStopPost
+        with patch.object(admin, "command", side_effect=stopped):
+            admin.stop_session(1000)
+        self.assertFalse(admin.legacy_claim(1000).exists())
+        self.assertNotIn(admin.units(1000)[0], self.systemd.active)
+        self.assertIn(admin.STOPPED, self.written)
+
+    def test_another_cleanup_never_removes_a_running_old_sessions_claim(self):
+        self.legacy_session("e" * 32)
+        admin.cleanup(1000, "d" * 32)
+        self.assertTrue(admin.legacy_claim(1000).exists())
+        self.assertNotIn(("stop", *admin.units(1000)), self.systemd.calls)
+
+    def test_the_session_limit_is_rechecked_under_the_lock(self):
+        for index in range(admin.MAX_SESSIONS):
+            nonce = "%032x" % (index + 1)
+            admin.create_claim(1000, nonce)
+            self.systemd.active.add(admin.manager_unit(1000, nonce))
+        with self.assertRaises(AnalysisDenied) as caught:
+            self.hold("f" * 32)                                    # passed open's look, refused before its claim
+        self.assertEqual(caught.exception.reason, "busy")
+        self.assertEqual(len(admin.claims(1000)), admin.MAX_SESSIONS)
 
     def test_stop_ends_every_session_of_the_user(self):
         one, two = "1" * 32, "2" * 32

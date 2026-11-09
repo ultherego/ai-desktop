@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** CachyOS check of candidate 132 with two or three terminals asking at the same time, then each conversation keeping its connection between questions, then Codex answers while they are written (test after the maintainer's Codex limit resets around 2026-11-12), then one native client process per conversation, then the S9 task flow. S0 and S7 remain deferred.
+**Next step:** CachyOS check of candidate 133 (several terminals, a consent question, an edit while another window changes the same file), then each conversation keeping its connection between questions, then Codex answers while they are written (test after the maintainer's Codex limit resets around 2026-11-12), then one native client process per conversation, then the S9 task flow. S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -260,6 +260,17 @@ Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaini
 ## Progress log
 
 Earlier dated entries preserve the evidence and status at that point. The latest entry supersedes historical pending/next-step statements.
+
+### 2026-11-09 — Candidate 133: second external review
+
+The reviewer checked `main` at `4ae1873` (candidate 132) and confirmed the earlier fixes, the multi-terminal design and no mixing of accounts, answers or permissions. Three findings for 1.0 and three smaller ones; each was checked in the code first and all were confirmed:
+
+- **P1, consent:** candidate 128 cut off an earlier paste only at its next byte; after 2 s of silence the reader had already forgotten it, so a delayed rest (with a pasted newline) answered the question (reproduced by the reviewer on a real pty with `confirm("run-change")`). The reader now remembers an open paste until its end marker (`_paste_open`), independent of the sequence's quiet time; opening a question turns it into a dropped "stale" paste at once. The end marker of a timed-out paste also closes it. Tests: a paste stalled before the question, its newline not answering, typing after the question answering.
+- **P2, upgrade during a session of the previous layout:** an old session's `ExecStopPost` runs the installed (new) cleanup, which ignored the old single claim and left every later session "busy"; `stop` reported success without stopping it. Cleanup now removes the old claim when its nonce matches, a stale old claim is pruned, and `stop` stops the old unit too. Tests cover the 131 → 132 sequence, pruning, `stop` and another cleanup never removing a running old session's claim.
+- **P2, write conflict:** a file changed by another terminal or an editor between the proposal and the write (`workspace changed`, `changed target`…) or another terminal holding the directory's write lock ended the whole conversation (`prepare-edit-review`). They now end only that proposal (`EditConflict`, `EditBusy`), are recorded as not saved, and say to ask again; nothing is retried automatically and nothing is overwritten.
+- The 16-session limit is rechecked under the lock (two opens at 15 could make 17); at `MAX_CONNECTIONS` the worker waits for a connection to end instead of spinning on a core; the live input's reader starts with a copy of the turn's context, so a `/` menu during a Codex answer offers Codex's choices.
+- Precise scale, as the reviewer asked: up to 16 terminal sessions per user and four model requests at once; a further request waits.
+- **READY FOR TEST**, candidate **0.1.0-133**.
 
 ### 2026-11-09 — Candidate 132: any number of terminals at the same time (S2)
 
