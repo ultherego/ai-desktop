@@ -254,6 +254,24 @@ class WebSearchResultTests(unittest.TestCase):
                 self.assertIn("\nSources:\n[1] About Python", text)
                 self.assertNotIn("other.example", text)
 
+    def test_indexes_in_code_are_not_source_numbers(self):
+        answer = ("Sito Eratostenesa [1]:\n\n```python\nsieve = [True] * (n + 1)\nsieve[0] = sieve[1] = False\n"
+                  "print(primes[25])\n```\n\nW tekście `a[7]` to kod, a matrix[2][3] też.")
+        events = web_events()
+        final_answer(events, answer=answer)
+        text = web_text(stream(events))
+        self.assertIn("sieve[0] = sieve[1] = False", text)
+        events = web_events()
+        code = "Wywołanie [1]:\n\n```python\nhandlers[0](event)\nurl = \"https://example.org/api\"\n```"
+        final_answer(events, answer=code)
+        self.assertIn('handlers[0](event)\nurl = "https://example.org/api"', web_text(stream(events)))
+        self.assertIn("[1] About Python", text)
+        for wrong in ("Wynik [2].", "Wynik [1] [99999]."):           # a prose number outside the list still refuses
+            events = web_events()
+            final_answer(events, answer=wrong)
+            with self.subTest(answer=wrong):
+                self.assert_refused(events)
+
     def test_a_reference_followed_by_a_colon_inside_a_sentence_is_text(self):
         events = web_events()
         final_answer(events, answer="Nowości w wydaniu [1]: nowe jądro i instalator.\n- Pakiety [1]: zaktualizowane.")

@@ -281,11 +281,32 @@ def _without_addresses(answer, sources):
             url, tail = url[:-1], url[-1] + tail
         return (number(url) or "(address removed)") + tail
 
-    answer = _INLINE_LINK.sub(inline, answer)
-    answer = _DEFINITION.sub("", answer)
-    answer = re.sub(r"<((?i:[a-z][a-z0-9+.-]*://|www\.)[^<>\s]*)>", r"\1", answer)   # autolinks
-    answer = _ADDRESS.sub(bare, answer)
-    return answer.strip()
+    def clean(prose):
+        prose = _INLINE_LINK.sub(inline, prose)
+        prose = _DEFINITION.sub("", prose)
+        prose = re.sub(r"<((?i:[a-z][a-z0-9+.-]*://|www\.)[^<>\s]*)>", r"\1", prose)   # autolinks
+        return _ADDRESS.sub(bare, prose)
+
+    parts, last = [], 0
+    for code in _CODE.finditer(answer):                   # code stays exactly as written
+        parts += [clean(answer[last:code.start()]), code.group(0)]
+        last = code.end()
+    parts.append(clean(answer[last:]))
+    return "".join(parts).strip()
+
+
+_CODE = re.compile(r"(?ms)^ {0,3}(```|~~~).*?(?:^ {0,3}\1[^\n]*$|\Z)|`[^`\n]*`")
+
+
+def _prose(answer):
+    """The answer without its code (fenced blocks and inline code): code is shown as written, never rewritten or
+    read as citations (CachyOS check of candidate 141: a prime-number script was refused for `sieve[0]`)."""
+    return _CODE.sub("", answer)
+
+
+def _references(answer):
+    """Source numbers the prose cites. An index right after a name or a bracket (`a[1][2]`) is not a citation."""
+    return {int(number) for number in re.findall(r"(?<![\w\])\]])\[([0-9]+)\]", _prose(answer))}
 
 
 def _answer(raw, observed):
@@ -309,16 +330,16 @@ def _answer(raw, observed):
         # the text is removed instead of refusing the whole answer: a listed source becomes its number, anything else
         # is dropped.
         answer = _without_addresses(answer, sources)
-        if re.search(r"(?i)[a-z][a-z0-9+.-]*://|www\.", answer):
+        if re.search(r"(?i)[a-z][a-z0-9+.-]*://|www\.", _prose(answer)):
             raise ValueError("references")
         check = "web-answer-link"
-        if re.search(r"\]\(", answer) or re.search(r"^ {0,3}\[[0-9]+\]:", answer, re.M):
+        if re.search(r"\]\(", _prose(answer)) or re.search(r"^ {0,3}\[[0-9]+\]:", _prose(answer), re.M):
             raise ValueError("references")
         check = "web-answer-references"
         # Every reference must name a listed source. A text that cites none is still shown with the list below it
         # (CachyOS check of candidate 140: an answer with code and no numbers was refused): every listed address was
         # already proven to come from this search.
-        references = {int(number) for number in re.findall(r"\[([0-9]+)\]", answer)}
+        references = _references(answer)
         if not references <= set(range(1, len(sources) + 1)):
             raise ValueError("references")
         check = "web-answer-render"

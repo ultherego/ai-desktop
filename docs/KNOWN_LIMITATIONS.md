@@ -18,6 +18,7 @@ The maintainer uses real Claude logins and requests on CachyOS, including long `
 - The read-back thread of a saved conversation holds up to 2000 turns and 256 KiB per question or answer; beyond that, or when the record reaches 16 MiB, the oldest turns are no longer shown. Only the newest turns that fit the request limits are sent to the model, so the model does not remember the whole thread.
 
 - When a question searches first and then works locally, what the search found reaches the local planning as data: a page could try to steer the model. It still can only use your allowed commands and reads, and any write needs its exact diff approved; review a diff after a web search as carefully as any other. The search runs at most once per question and only before anything local was collected.
+- An address inside a code example of a web answer is shown as part of the code, unchecked; only addresses in the list of sources are proven to come from the search.
 - A web search receives the latest exchanges of the conversation, so details an earlier answer quoted (a log line, a path) reach that request too. Claude is told to keep personal details out of search queries; nothing enforces it.
 
 - A `host_sockets` entry is bound only if it is a socket when the command starts; a process able to write in that part of `/run` could still swap the path between that check and Bubblewrap's bind.
