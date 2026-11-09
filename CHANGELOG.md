@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-136: a follow-up edit without the file name
+
+- When the model writes a file reference the wrong way (for example after "change it so that…" without naming the file), it now gets one more chance to correct it in the same question instead of the question ending with `plan-files-…`.
+
 ## 0.1.0-135: the last two review findings
 
 - While a consent question is open, the rest of an earlier paste is never taken as the answer, however long it pauses; Ctrl+C stops the turn.

@@ -446,7 +446,9 @@ class CollisionFilesystemTests(unittest.TestCase):
 
     def test_write_grant_does_not_create_read_permission(self):
         code, sent = self.run_flow(deny_read=True)
-        self.assertEqual(code, 2); self.assertEqual(sent.call_count, 2)
+        # The read selector names no read scope (files-scope): the model gets its two plan corrections, then the turn
+        # ends; nothing is read either way.
+        self.assertEqual(code, 2); self.assertEqual(sent.call_count, 4)
         self.assertEqual(self.target.read_text(), OLD)
         self.assertNotIn(OLD, json.dumps(self.payloads))
 

@@ -29,6 +29,10 @@ from .terminal_style import card, paint, size_label, symbol
 lenient_prose = ContextVar("ai_desktop_lenient_prose", default=False)
 
 
+# File-selector refusals the model may correct within the owner's plan_corrections budget (nothing is read first).
+FILE_SELECTION_CHECKS = frozenset({"files-scope", "files-path", "files-directory", "files-selector"})
+
+
 def _plan(response, access):
     try:
         return parse_plan(response, access)
@@ -531,6 +535,13 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
             def corrected(error):
                 """A command that breaks the word rules (spaces, a shell script, too many words) is refused with
                 command-invalid; the model may correct it within the owner's correction budget. Anything else ends."""
+                if error.check in FILE_SELECTION_CHECKS and snapshot.policy is not None and ledger.correction(
+                        ask_discovery.Recoverable(error.check, [], None)):
+                    # The file it means is often clear from the conversation, only written the wrong way (a write
+                    # scope's id, ~/name, a directory): the code lets it write the same selection correctly.
+                    print(paint("  %s The proposed file selection was not valid (%s); the model may correct it."
+                                % (symbol("skip"), error.check), "muted"))
+                    return
                 if error.check != "command" or snapshot.policy is None or not ledger.correction(
                         ask_discovery.Recoverable("command-invalid", [], None)):
                     raise error

@@ -62,7 +62,7 @@ class AskPreparationDiagnosticsTests(unittest.TestCase):
                     self.assertEqual(result.collect.call_count, 1)
                     self.assertIn('output "Virtual-1" {}', result.output)
 
-    def test_invalid_model_plans_have_finite_reason_without_read_or_retry(self):
+    def test_invalid_model_plans_have_finite_reason_without_read_and_only_selector_errors_are_corrected(self):
         cases = [
             # Plain prose is refused here (one-shot strictness is covered in test_ask_conversation); inside the interactive
             # conversation it is shown as an answer, so this case is not part of the interactive list.
@@ -83,12 +83,18 @@ class AskPreparationDiagnosticsTests(unittest.TestCase):
                 with self.subTest(provider=provider, check=check):
                     result, requests, replies, sent = self.run_native_plan(provider, raw)
                     self.assertEqual(result.code, 2)
-                    self.assertIn("plan-" + check, result.output)
+                    if not check.startswith("files-"):
+                        self.assertIn("plan-" + check, result.output)
                     self.assertNotIn("Check the content", result.output)
                     self.assertNotIn(PRIVATE, result.output)
                     self.assertNotIn(raw, result.output)
-                    self.assertEqual(len(requests), 1)
-                    self.assertEqual(sent.call_count, 1)
+                    if check.startswith("files-"):
+                        # A malformed file selector is offered a correction (the real-policy round trip is covered in
+                        # test_ask_operations); this harness's stand-in policy cannot run discovery, so it ends there.
+                        self.assertIn("file selection was not valid (%s)" % check, result.output)
+                    else:
+                        self.assertEqual(len(requests), 1)
+                        self.assertEqual(sent.call_count, 1)
                     result.collect.assert_not_called()
 
     def test_verbose_model_plan_error_uses_closed_check_without_native_prose(self):
