@@ -207,7 +207,9 @@ def run_client(action, report=b"", *, cancelled=None, mode="analysis", partial=N
         env = {"PATH": "/usr/bin", "LANG": "C.UTF-8"}
         # The complete compatibility probe has no proxy socket or profile.
         with failure_stage("version"):
-            compatibility(directory, binding, cancelled=cancelled)
+            from . import check_memory
+            check_memory.compatible(getattr(binding, "fingerprint", None),
+                                    lambda: compatibility(directory, binding, cancelled=cancelled))
         if cancelled is not None and cancelled():
             raise AnalysisDenied("cancelled")
         try:

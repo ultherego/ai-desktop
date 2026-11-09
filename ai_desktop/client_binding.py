@@ -237,6 +237,14 @@ class BoundClient:
         self._closed = False
 
     @property
+    def fingerprint(self):
+        """This exact client: its path, file identity (device, inode, size, modification and change times) and resource
+        tree. Any change of the client gives a different fingerprint; used only to remember checks already passed."""
+        import hashlib
+        return hashlib.sha256(repr((self.provider, self._inspection.path, self._inspection.identity,
+                                    self._trees)).encode("utf-8")).hexdigest()
+
+    @property
     def pass_fds(self):
         if self._closed:
             raise AnalysisDenied("client-changed")

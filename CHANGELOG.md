@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-145: faster questions
+
+- Each question used to start the Claude client six times: four checks of its version and options, one login check and the answer itself. Checks already passed are now remembered for a while for the same client and account, so a following question starts the client once (Codex: the version checks too). Every question still runs in its own fresh sandbox, and a changed client or a login problem is checked again at once.
+
 ## 0.1.0-144: the search knows the question goes on
 
 - When a question searches first and then continues locally, the search answer no longer says it cannot create the file or gives a command to save it by hand: it explains, shows code in code blocks, and the next step proposes the change with the usual diff.
