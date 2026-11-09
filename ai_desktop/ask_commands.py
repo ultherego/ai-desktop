@@ -53,7 +53,10 @@ def _pick(title, options, default=0):
             shown.append(_PREVIOUS)
         try:
             answer = choose(title, shown, default=default - start if start <= default < start + count else 0)
-        except MenuInputError:
+        except MenuInputError as failed:
+            # Never silently: say why the menu did not open (a fixed code), then the caller shows the typed form.
+            print("The menu could not open (%s)." % (failed.args[0] if failed.args and type(failed.args[0]) is str
+                                                      and failed.args[0].startswith("menu-") else "menu"))
             return None
         if answer is None:
             return None

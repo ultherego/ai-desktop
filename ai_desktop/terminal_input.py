@@ -66,10 +66,18 @@ class _Output:
 
     def __init__(self, stream, owner):
         self._stream, self._owner = stream, owner
+        self._redrawn = False          # the last write was a line redrawn in place (the waiting indicator)
 
     def write(self, text):
         with self._owner.lock:
-            self._stream.write("\x1b8" + text + "\x1b7" + self._owner.band_cursor())
+            prefix = ""
+            if text and self._redrawn and not text.startswith("\r"):
+                # A message printed while the waiting indicator's line is on screen starts on a clean line instead
+                # of being glued after it; the indicator draws itself again on its next tick.
+                prefix = "\r\x1b[2K"
+            if text:
+                self._redrawn = text.startswith("\r") and not text.endswith("\n")
+            self._stream.write("\x1b8" + prefix + text + "\x1b7" + self._owner.band_cursor())
             return len(text)
 
     def flush(self):

@@ -95,33 +95,37 @@ class WebStreamTelemetryTests(unittest.TestCase):
         value[3]["tool_use_result"]["results"] = []
         self.refused(value, "web-no-results")
 
-    def test_progress_requires_pending_same_session_websearch(self):
-        changes = ({"session_id": "other"}, {"tool_use_id": "not-called"},
-                   {"tool_use_id": []}, {"tool_name": "Bash"}, {"tool_name": "WebFetch"},
-                   {"parent_tool_use_id": "parent"}, {"task_id": "background"},
-                   {"agent_id": "subagent"}, {"subagent_type": "general-purpose"},
-                   {"subagent_retry": {}}, {"isReplay": True}, {"heartbeat": "true"},
-                   {"heartbeat": 1}, {"uuid": "\x1b[31m"})
-        for update in changes:
+    def test_progress_is_accepted_only_for_websearch_of_this_session_and_never_for_a_subagent(self):
+        refused = ({"session_id": "other"}, {"tool_use_id": []}, {"tool_name": "Bash"}, {"tool_name": "WebFetch"},
+                   {"parent_tool_use_id": "parent"}, {"task_id": "background"}, {"agent_id": "subagent"},
+                   {"subagent_type": "general-purpose"}, {"isReplay": True}, {"heartbeat": "true"},
+                   {"heartbeat": 1}, {"uuid": "\x1b[31m"}, {"subagent_retry": {}}, {"extra": "x" * 300})
+        for update in refused:
             value = events()
             value.insert(2, progress(**update))
             with self.subTest(update=update):
                 self.refused(value)
-        for position in (1, 5):                    # before its call, or after the final result
+        value = events()
+        value.insert(len(value), progress())                    # after the final result: the result must be last
+        self.refused(value)
+        # CachyOS check of candidate 153 (`max` reasoning): progress that carries no evidence is accepted even for a call
+        # id this transcript has not announced, before its call, without a parent field, or with a new simple field.
+        accepted = ({"tool_use_id": "not-called"}, {"new_counter": 3}, {"phase": "searching"})
+        for update in accepted:
+            value = events()
+            value.insert(2, progress(**update))
+            with self.subTest(update=update, accepted=True):
+                self.assertEqual(parse(value), parse(events()))
+        for position in (1, 3, 4):
             value = events()
             value.insert(position, progress())
             with self.subTest(position=position):
-                self.refused(value)
-        for position in (3, 4):                    # a heartbeat just after its search finished (long `max` reasoning)
-            value = events()
-            value.insert(position, progress())
-            with self.subTest(position=position, late=True):
                 self.assertEqual(parse(value), parse(events()))
         value = events()
         notice = progress()
         del notice["parent_tool_use_id"]
         value.insert(2, notice)
-        self.refused(value)
+        self.assertEqual(parse(value), parse(events()))
 
     def test_thinking_rejects_other_session_subagents_and_unknown_payload(self):
         for update in ({"session_id": "other"}, {"subtype": "hook_progress"},

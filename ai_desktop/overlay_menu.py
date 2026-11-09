@@ -9,9 +9,11 @@ import os
 import select
 import termios
 import threading
+import time
 
 from . import terminal_frame, terminal_menu
 from .question_input import _byte
+SETTLE_SECONDS = 0.12
 from .terminal_menu import MAX_OPTIONS, MenuInputError, _escape, _label
 
 HINT = "↑/↓ choose · enter selects · esc cancels"
@@ -99,7 +101,10 @@ def _idle(frame, picker):
     raw[6][termios.VMIN], raw[6][termios.VTIME] = 1, 0     # output processing stays on: lines still end properly
     try:
         termios.tcsetattr(fd, termios.TCSANOW, raw)
-        termios.tcflush(fd, termios.TCIFLUSH)      # nothing typed before the menu appeared chooses in it
+        # Nothing typed before the menu appeared chooses in it: also what is still on its way from the key that
+        # opened it (some terminals and multiplexers send an Enter's keyboard-protocol report a moment later).
+        time.sleep(SETTLE_SECONDS)
+        termios.tcflush(fd, termios.TCIFLUSH)
         frame.stream.write("\x1b[?2004h")          # a paste arrives marked and is ignored, never as Enter
         while True:
             frame.show_commands(picker.rows(), picker.pick)

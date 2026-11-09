@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-154: menus in a terminal and a multiplexer, a clean waiting line, web search with `max`
+
+- `/model`, `/effort`, `/agent` and the other menus no longer close the moment they open in some terminals (a terminal inside a multiplexer): a key still arriving from the command that opened the menu is ignored. If a menu still cannot open, the message says why (`menu-…`).
+- A message printed while an answer is being written no longer sticks to the end of the waiting line.
+- A web search with `max` reasoning is no longer refused because of the search's progress signals (`web-telemetry-tool`); they never count as search results. If one is still refused, the message names the part (`web-telemetry-tool-name`, `-parent`, `-call`, `-heartbeat` or `-field`).
+
 ## 0.1.0-153: a full review of the project, fixed
 
 A review of the whole program found places where one failure ended more than it should, where two parts disagreed, and where several terminals could get in each other's way. All of them are fixed here.

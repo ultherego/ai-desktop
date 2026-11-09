@@ -496,3 +496,43 @@ class EdgeScrollTests(unittest.TestCase):
         self.assertEqual(self.frame.screen.offset, 3)
         self.event("m", 0, 4, 6)
         self.assertTrue(self.copied)
+
+
+class TurnOutputTests(unittest.TestCase):
+    """CachyOS check of candidate 153: a message printed during an answer was glued to the waiting indicator's line."""
+
+    def test_a_message_after_the_indicator_line_starts_on_a_clean_line(self):
+        stream = io.StringIO()
+
+        class Owner:
+            lock = __import__("threading").RLock()
+
+            def band_cursor(self):
+                return ""
+        out = terminal_input._Output(stream, Owner())
+        out.write("\r\x1b[2K⠦ Searching (2)")
+        out.write("Claude · profile\n")
+        out.write("next line\n")
+        text = stream.getvalue()
+        self.assertIn("\r\x1b[2KClaude · profile\n", text)
+        self.assertNotIn("\r\x1b[2Knext line", text)               # an ordinary line after it is left alone
+
+
+class MenuSettleTests(unittest.TestCase):
+    def test_a_key_still_arriving_from_the_command_that_opened_the_menu_is_dropped(self):
+        import pty
+        import threading
+        from types import SimpleNamespace
+        from ai_desktop import overlay_menu
+        master, slave = pty.openpty()
+        self.addCleanup(os.close, master)
+        self.addCleanup(os.close, slave)
+        frame = SimpleNamespace(stream=io.StringIO(), note="", show_commands=lambda rows, pick: None,
+                                draw=lambda *a, **k: None, leave=lambda: None)
+        # The Enter that submitted "/model", reported again a moment later in the kitty keyboard protocol form,
+        # must not choose; the user's own Down + Enter afterwards does.
+        threading.Timer(0.03, os.write, (master, b"\x1b[13u")).start()
+        threading.Timer(0.4, os.write, (master, b"\x1b[B\r")).start()
+        with patch.object(sys, "stdin", SimpleNamespace(fileno=lambda: slave)):
+            answer = overlay_menu._idle(frame, overlay_menu.Picker("/model", ["Auto", "Opus 5.5"]))
+        self.assertEqual(answer, 1)

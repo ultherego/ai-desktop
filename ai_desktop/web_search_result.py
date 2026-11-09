@@ -196,17 +196,28 @@ def _telemetry(event, pending, done=()):
         if "user_message_uuid" in event:
             _string(event["user_message_uuid"], 256)
     elif kind == "tool_progress":
+        # Inert progress of a search: it never supplies a result, a URL or a turn, so only what would mean other
+        # activity is refused: another tool, a subagent's work, or a malformed value. Extra simple fields (a newer client)
+        # are ignored, and so is a call id this transcript has not announced (long `max` reasoning, CachyOS check of
+        # candidate 153); the answer's sources still come only from paired WebSearch results.
         allowed = {"type", "session_id", "uuid", "tool_use_id", "tool_name",
                    "parent_tool_use_id", "elapsed_time_seconds", "heartbeat"}
         numbers = ("elapsed_time_seconds",)
-        call_id = event.get("tool_use_id")
-        # A heartbeat may still arrive just after its search's result (long `max` reasoning): a finished call of
-        # this transcript is accepted too. It carries no result and proves nothing.
-        if (set(event) - allowed or event.get("tool_name") != "WebSearch"
-                or type(call_id) is not str or (call_id not in pending and call_id not in done)
-                or event.get("parent_tool_use_id", "missing") is not None
-                or ("heartbeat" in event and type(event["heartbeat"]) is not bool)):
-            raise TelemetryRefused("tool")
+        if event.get("tool_name") != "WebSearch":
+            raise TelemetryRefused("tool-name")
+        if event.get("parent_tool_use_id", None) is not None or any(
+                name in event for name in ("agent_id", "task_id", "subagent_type", "isReplay")):
+            raise TelemetryRefused("tool-parent")
+        if type(event.get("tool_use_id")) is not str:
+            raise TelemetryRefused("tool-call")
+        _string(event["tool_use_id"], 256)
+        if "heartbeat" in event and type(event["heartbeat"]) is not bool:
+            raise TelemetryRefused("tool-heartbeat")
+        for name in set(event) - allowed:
+            if (type(name) is not str or len(name) > 64
+                    or type(event[name]) not in (bool, int, float, str, type(None))
+                    or type(event[name]) is str and len(event[name]) > 256):
+                raise TelemetryRefused("tool-field")
     else:
         return False
     if "uuid" in event:
