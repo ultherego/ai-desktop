@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** CachyOS check of candidate 145 (a second question in a conversation starts sooner), the full-screen conversation view as the default, a real Codex request with its answer while written (after the maintainer's Codex limit resets around 2026-11-12), then the S9 task flow. S0 and S7 remain deferred.
+**Next step:** merge PR #50 (candidates 138–148), then a real Codex request with its answer while written (after the maintainer's Codex limit resets around 2026-11-12), then the S9 task flow. S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -299,6 +299,7 @@ Done together in one PR, as the maintainer asked ("rób całość, nie rozdziela
   - Web transcript limits raised to what the service keeps (512 KiB, 512 events); every event is still validated.
   - Tests in `tests/test_fullscreen_view.py`: refit (grow, shrink, short), the frame without a gap after a resize, selection (drag, held live text, single and double click, a key ending it), wrapped rows, OSC 52 and `wl-copy`, every editing operation and key form in both readers. **READY FOR TEST**.
 - CachyOS check of candidate 147: a 27+10-command question about the computer, search then create `~/a.py`, and with `max` reasoning search then edit it (two modes with argparse) all worked; text was selected and copied out of the terminal. One gap: dragging a selection past the top or bottom did not scroll as it does in a terminal. Candidate **0.1.0-148**: a drag held on the top row scrolls back one row at a time (a short timer, so holding still keeps scrolling), a drag over the input rows scrolls forward, and the selection grows with it; the wheel during a drag scrolls and keeps the selection. Tests: `EdgeScrollTests`. **READY FOR TEST**.
+- CachyOS acceptance of candidate 148: three web questions (the longest road with a km to miles conversion, a public-domain poem with its sources) and a 21-command summary of the computer answered in the full-screen view; the text was selected (including past the edge) and copied out of the terminal.
 - CachyOS acceptance of candidate 144: "search the web and create ~/a.py with a prime-number script" in one question: the search answer explained the method with its code in a fenced block and seven checked sources listed at the end, said the program could create the file in the next step (no `echo` command, no "cannot create"); the local part proposed the new file, the copy test passed, the diff was approved and saved, and the closing step finished the task. The Codex live answer is still to be checked with a real request after the Codex limit resets.
 
 ### 2026-11-09 — Candidate 133: second external review
