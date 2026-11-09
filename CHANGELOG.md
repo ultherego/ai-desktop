@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-149: the login is checked for every question again
+
+- The login check is no longer remembered between questions (it was for 2 minutes since 0.1.0-145): it also confirms that the subscription login is used and never an API key, and an account may change at any time. Only the client's version checks are remembered, so a following question starts the client twice instead of six times.
+
 ## 0.1.0-148: a selection scrolls at the edge
 
 - Dragging a selection to the top of the conversation scrolls back through earlier text while the button is held there, and dragging down over the input scrolls forward; the selection grows with it. The mouse wheel during a drag scrolls without losing the selection.

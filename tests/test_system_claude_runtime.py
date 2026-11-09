@@ -44,7 +44,7 @@ class SystemClaudeRuntimeTests(unittest.TestCase):
                 self.assertNotIn("input_bytes", kwargs)
                 reply = replies[action]
             elif action in ("status", "offline-status"):
-                reply = SIGNED_OUT if state["logged_out"] else AUTH
+                reply = SIGNED_OUT if state["logged_out"] else replies.get(action, AUTH)
             elif action == "offline-logout":
                 state["logged_out"] = True
                 reply = (0, b"signed out", b"")

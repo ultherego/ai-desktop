@@ -60,7 +60,7 @@ See [agent settings, accounts and sessions](docs/AGENT_MANAGEMENT.md), [verified
 
 This is a development version, not a 1.0 release.
 
-The current candidate package is **0.1.0-148** (changes: [CHANGELOG.md](CHANGELOG.md)).
+The current candidate package is **0.1.0-149** (changes: [CHANGELOG.md](CHANGELOG.md)).
 
 What each candidate changed is in [CHANGELOG.md](CHANGELOG.md); what was checked on CachyOS, and what was not, is in the progress log of [docs/ROADMAP.md](docs/ROADMAP.md).
 

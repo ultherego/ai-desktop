@@ -590,8 +590,6 @@ def run_client(action, report=b"", *, cancelled=None, mode="analysis", partial=N
                         bound.recheck()
                         if done.returncode:
                             raise AnalysisDenied("client")
-                from . import check_memory
-
                 def status_check():
                     status_connection_failed = proxy.begin_phase()
                     code, out, errors = _bound_run(bound, "status", directory, online=True, **options,
@@ -604,12 +602,9 @@ def run_client(action, report=b"", *, cancelled=None, mode="analysis", partial=N
                         raise child_failure(errors, "client")
                     return check_auth(code, out, connection_failed=status_connection_failed.is_set())
                 with failure_stage("auth-status"):
-                    if action == "login":
-                        check_memory.forget_account(str(account_path))
-                        plan = status_check()
-                    else:
-                        # A login confirmed moments ago for this account and client is not asked again (check_memory).
-                        plan = check_memory.signed_in((str(account_path), getattr(bound, "fingerprint", None)), status_check)
+                    # Every request: the login and its method (a subscription, never an API key) are a boundary, and an
+                    # account can change in another process at any time. Only offline compatibility is remembered.
+                    plan = status_check()
                 if action == "login":
                     account_runtime.connected(account_path)
                     return "claude.ai"
@@ -633,10 +628,7 @@ def run_client(action, report=b"", *, cancelled=None, mode="analysis", partial=N
                             reason = web_failure(code, out)
                             if reason is not None:
                                 raise AnalysisDenied(reason)
-                        failure = analysis_failure(code, out, errors, analysis_connection_failed.is_set())
-                        if failure.reason == "auth-required":
-                            check_memory.forget_account(str(account_path))     # the next request asks again
-                        raise failure
+                        raise analysis_failure(code, out, errors, analysis_connection_failed.is_set())
                     answer = web_text(out) if action == "web" else model_text(code, out, mode=mode)
                     if type(plan) is str:
                         return ModelText(answer, {**(getattr(answer, "meta", None) or {"models": []}), "plan": plan})
