@@ -16,7 +16,19 @@ MODEL_LABELS = {"default": "Auto (client default)", "best": "Best available", "f
 def model_choices(provider):
     """(values, labels, note). Claude: the client's aliases. Codex: Auto, the client's own catalog, free text."""
     if provider == "claude":
-        return profiles.MODELS, tuple(MODEL_LABELS[key] for key in profiles.MODELS), None
+        # The client's own list, as its /model menu shows it ("Opus 5.5 — Best for everyday, complex tasks"); the
+        # aliases it did not list stay available after it.
+        print("Getting the model list from the Claude client…", flush=True)
+        try:
+            entries = model_catalog.fetch_claude()
+        except model_catalog.CatalogUnavailable:
+            return profiles.MODELS, tuple(MODEL_LABELS[key] for key in profiles.MODELS), (
+                "The client's model list is unavailable; these are its aliases.")
+        listed = tuple(alias for alias, _, _ in entries)
+        values = listed + tuple(key for key in profiles.MODELS if key not in listed)
+        labels = tuple(label + (" — " + note if note else "") for _, label, note in entries) + tuple(
+            MODEL_LABELS[key] for key in profiles.MODELS if key not in listed)
+        return values, labels, None
     if provider == "local":
         return ("default", "custom"), ("Current server model", MODEL_LABELS["custom"]), None
     print("Getting the model list from the Codex client…", flush=True)

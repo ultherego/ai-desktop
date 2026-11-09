@@ -175,12 +175,15 @@ class MenuTests(unittest.TestCase):
         self.assertEqual(values, ("default", "custom"))
         self.assertIn("unavailable", note)
 
-    def test_claude_uses_the_client_aliases_without_starting_anything(self):
-        with patch.object(management_cli.model_catalog, "fetch", side_effect=AssertionError("must not run")):
+    def test_claude_falls_back_to_the_client_aliases_without_its_list(self):
+        # The Claude list comes from the client (tests/test_claude_model_catalog.py); never from the Codex catalog.
+        with patch.object(management_cli.model_catalog, "fetch", side_effect=AssertionError("must not run")), \
+                patch.object(management_cli.model_catalog, "fetch_claude",
+                             side_effect=management_cli.model_catalog.CatalogUnavailable()):
             values, labels, note = management_cli.model_choices("claude")
         self.assertEqual(values, ("default", "best", "fable", "opus", "sonnet", "haiku", "opusplan"))
         self.assertEqual(len(values), len(labels))
-        self.assertIsNone(note)
+        self.assertIn("unavailable", note)
 
 
 if __name__ == "__main__":

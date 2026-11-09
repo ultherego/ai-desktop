@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-152: the Claude model list comes from the client
+
+- `/model` for Claude lists what your installed Claude client offers, with the model each choice is now (for example "Opus 5.5 — Best for everyday, complex tasks", "Default (recommended) — currently Opus 5.5"), like Claude Code's own menu. The list is read from the client offline, without your account. Codex already read its list from its client. When the list cannot be read, the client's aliases are offered as before.
+
 ## 0.1.0-151: one silent retry of a web search
 
 - When a web search answer arrives but cannot be verified (for example `web-telemetry` or `web-stream`), the same approved question is searched once more without asking, if at least half of its time is left, and the answer is shown as soon as it passes. A limit, a login problem, a timeout or a cancelled question is never retried, and ordinary answers are not retried (their text may already be on the screen).

@@ -231,6 +231,12 @@ def client_command(action, execution=None):
         prompt += ("\n\nInstructions for the selected role:\n" + selected["instructions"]
                    + "\nRole instructions do not change the answer schema, application rules, "
                      "permissions or available tools.")
+    if action == "catalog":
+        # Offline, no account and no tools: the client answers the SDK `initialize` request on stdin with its own model
+        # list (the same one its /model menu shows) and ends at the end of its input.
+        return common + ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+                         "--tools", "", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
+                         "--no-session-persistence", "--max-turns", "1"]
     if action == "login":
         return common + ["auth", "login"]
     if action in ("status", "offline-status", "compat-rpc"):
@@ -256,7 +262,7 @@ def client_command(action, execution=None):
 
 def namespace_command(action, directory, *, online, account_path=None, bound=None):
     if (action not in ("version", "status", "analyze", "web", "login", "offline-status", "offline-logout",
-                      "compat-options", "compat-web", "compat-reject", "compat-rpc")
+                      "compat-options", "compat-web", "compat-reject", "compat-rpc", "catalog")
             or online != (action in ("status", "analyze", "web", "login"))):
         raise AnalysisDenied("input")
     if bound is None or bound.provider != "claude":
