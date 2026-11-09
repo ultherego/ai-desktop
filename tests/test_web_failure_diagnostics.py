@@ -133,7 +133,7 @@ class WebDiagnosticContractTests(unittest.TestCase):
         self.refused(items, "web-event-type")
         items = events()
         items.insert(2, {"type": "tool_progress", "session_id": SECRET, "tool_name": SECRET})
-        self.refused(items, "web-telemetry")
+        self.refused(items, "web-telemetry-tool")                 # which part was refused, never its value
 
     def test_stream_shape_failures_are_redacted_and_bounded(self):
         for raw in (SECRET.encode(), b"[]\n", b"x" * 131073, stream(events()) + b"\n"):

@@ -151,7 +151,11 @@ def _rate_status(event):
 
 
 
-def _telemetry(event, pending):
+class TelemetryRefused(ValueError):
+    """Which part of a progress event was refused: a fixed code for the diagnostic, never a native value."""
+
+
+def _telemetry(event, pending, done=()):
     """Accept only bounded, inert SDK progress; it never proves a search.
 
     SDKThinkingTokensMessage and SDKToolProgressMessage are documented at
@@ -165,7 +169,7 @@ def _telemetry(event, pending):
                    "estimated_tokens", "estimated_tokens_delta"}
         numbers = ("estimated_tokens", "estimated_tokens_delta")
         if set(event) - allowed:
-            raise ValueError("thinking telemetry")
+            raise TelemetryRefused("thinking")
         if "user_message_uuid" in event:
             _string(event["user_message_uuid"], 256)
     elif kind == "tool_progress":
@@ -173,19 +177,24 @@ def _telemetry(event, pending):
                    "parent_tool_use_id", "elapsed_time_seconds", "heartbeat"}
         numbers = ("elapsed_time_seconds",)
         call_id = event.get("tool_use_id")
+        # A heartbeat may still arrive just after its search's result (long `max` reasoning): a finished call of
+        # this transcript is accepted too. It carries no result and proves nothing.
         if (set(event) - allowed or event.get("tool_name") != "WebSearch"
-                or type(call_id) is not str or call_id not in pending
+                or type(call_id) is not str or (call_id not in pending and call_id not in done)
                 or event.get("parent_tool_use_id", "missing") is not None
                 or ("heartbeat" in event and type(event["heartbeat"]) is not bool)):
-            raise ValueError("tool telemetry")
+            raise TelemetryRefused("tool")
     else:
         return False
     if "uuid" in event:
         _string(event["uuid"], 256)
     for name in numbers:
-        value = event.get(name)
-        if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
-            raise ValueError("telemetry number")
+        if name not in event:
+            continue                                   # a counter may be left out; nothing depends on it
+        value = event[name]
+        if (type(value) not in (int, float) or not math.isfinite(value)
+                or (value < 0 and not name.endswith("_delta"))):
+            raise TelemetryRefused("number")
     return True
 
 def _query(value):
@@ -381,7 +390,7 @@ def web_text(raw):
         session = _string(initial.get("session_id"), 256)
         for notice in events[:start]:
             _ui_invalidation(notice, session=session)
-        pending, calls, completed, observed = {}, set(), 0, {}
+        pending, calls, completed, observed, done = {}, set(), 0, {}, set()
         final = None
         windows = {}
         for index, event in enumerate(events[start + 1:], start + 1):
@@ -424,6 +433,7 @@ def web_text(raw):
                     raise ValueError("tool result")
                 check = "web-search-source"
                 observed.update(_sources(event.get("tool_use_result"), pending.pop(call_id)))
+                done.add(call_id)
                 completed += 1
             elif kind == "result":
                 check = "web-final-order"
@@ -454,7 +464,12 @@ def web_text(raw):
                 _ui_invalidation(event, session=session)
             else:
                 check = "web-telemetry"
-                if not _telemetry(event, pending):
+                try:
+                    known = _telemetry(event, pending, done)
+                except TelemetryRefused as refused:
+                    check = "web-telemetry-" + str(refused)
+                    raise
+                if not known:
                     check = "web-event-type"
                     raise ValueError("unexpected event")
         check = "web-missing-result"

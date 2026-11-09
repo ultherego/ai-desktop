@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-150: web search with long reasoning
+
+- A web search with `max` reasoning is no longer refused as `web-telemetry` when a progress signal of a search arrives just after its result, or a thinking counter is left out or goes down. Progress signals never count as search results. When such a signal is still refused, the message now says which part (`web-telemetry-thinking`, `-tool` or `-number`).
+
 ## 0.1.0-149: the login is checked for every question again
 
 - The login check is no longer remembered between questions (it was for 2 minutes since 0.1.0-145): it also confirms that the subscription login is used and never an API key, and an account may change at any time. Only the client's version checks are remembered, so a following question starts the client twice instead of six times.

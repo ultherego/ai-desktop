@@ -107,11 +107,16 @@ class WebStreamTelemetryTests(unittest.TestCase):
             value.insert(2, progress(**update))
             with self.subTest(update=update):
                 self.refused(value)
-        for position in (1, 3, 4, 5):
+        for position in (1, 5):                    # before its call, or after the final result
             value = events()
             value.insert(position, progress())
             with self.subTest(position=position):
                 self.refused(value)
+        for position in (3, 4):                    # a heartbeat just after its search finished (long `max` reasoning)
+            value = events()
+            value.insert(position, progress())
+            with self.subTest(position=position, late=True):
+                self.assertEqual(parse(value), parse(events()))
         value = events()
         notice = progress()
         del notice["parent_tool_use_id"]
@@ -128,11 +133,14 @@ class WebStreamTelemetryTests(unittest.TestCase):
             with self.subTest(update=update):
                 self.refused(value)
 
-    def test_numeric_telemetry_rejects_bool_missing_negative_and_nonfinite(self):
+    def test_numeric_telemetry_rejects_bool_negative_and_nonfinite_and_allows_a_missing_counter(self):
         for factory, position, keys in ((thinking, 1, ("estimated_tokens", "estimated_tokens_delta")),
                                         (progress, 2, ("elapsed_time_seconds",))):
             for key in keys:
-                for invalid in (None, True, "1", -1, float("nan"), float("inf"), [], {}):
+                invalid_values = (None, True, "1", float("nan"), float("inf"), [], {})
+                if not key.endswith("_delta"):
+                    invalid_values += (-1,)
+                for invalid in invalid_values:
                     value = events()
                     value.insert(position, factory(**{key: invalid}))
                     with self.subTest(key=key, invalid=repr(invalid)):
@@ -141,7 +149,11 @@ class WebStreamTelemetryTests(unittest.TestCase):
                 notice = factory()
                 notice.pop(key)
                 value.insert(position, notice)
-                self.refused(value)
+                with self.subTest(key=key, missing=True):
+                    self.assertEqual(parse(value), parse(events()))
+        value = events()
+        value.insert(1, thinking(estimated_tokens_delta=-30))     # a count may go down
+        self.assertEqual(parse(value), parse(events()))
 
     def test_telemetry_does_not_relax_source_or_tool_validation(self):
         value = events()
