@@ -39,6 +39,7 @@ WEB_DIAGNOSTICS = frozenset({
     'web-answer-sources',
     'web-answer-provenance',
     'web-answer-url',
+    'web-answer-link',
     'web-answer-references',
     'web-answer-render',
 })
