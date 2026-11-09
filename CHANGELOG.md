@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-148: a selection scrolls at the edge
+
+- Dragging a selection to the top of the conversation scrolls back through earlier text while the button is held there, and dragging down over the input scrolls forward; the selection grows with it. The mouse wheel during a drag scrolls without losing the selection.
+
 ## 0.1.0-147: selecting, editing keys, resizing
 
 - Select text in the conversation with the mouse: drag with the left button, and releasing copies it to the clipboard (through the terminal, which also works inside Zellij or tmux, and with `wl-copy` on Wayland when it is installed). A double click selects a word or a path. Rows the window wrapped are copied as one line.

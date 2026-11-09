@@ -446,3 +446,53 @@ class WebLimitTests(unittest.TestCase):
         from ai_desktop import web_search_result
         self.assertGreaterEqual(web_search_result.MAX_EVENTS, 512)
         self.assertGreaterEqual(web_search_result.MAX_STREAM_BYTES, 512 * 1024)
+
+
+class EdgeScrollTests(unittest.TestCase):
+    """CachyOS check of candidate 147: dragging a selection past the edge must scroll, as in any terminal."""
+
+    def setUp(self):
+        self.frame, self.terminal = FrameTests.frame(self)
+        self.copied = []
+        self.enterContext(patch.object(terminal_frame, "copy_to_clipboard",
+                                       side_effect=lambda text, stream, **_: self.copied.append(text) or True))
+        self.frame.EDGE_STEP = 0.001
+        for number in range(80):
+            print("row %02d" % number)
+
+    def event(self, kind, button, column, row):
+        self.frame.mouse_event(b"[<%d;%d;%d%s" % (button, column, row, kind.encode()))
+
+    def wait(self, condition):
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline and not condition():
+            time.sleep(0.005)
+        return condition()
+
+    def test_holding_at_the_top_scrolls_back_and_the_selection_grows(self):
+        top = self.frame._top()
+        self.event("M", 0, 1, top - 1)
+        self.event("M", 32, 3, 1)                                    # dragged to the top row and held there
+        self.assertTrue(self.wait(lambda: self.frame.screen.offset >= 10))
+        self.event("m", 0, 3, 1)
+        self.assertTrue(self.copied)
+        self.assertGreater(self.copied[0].count("\n"), top)          # more rows than one screen
+
+    def test_dragging_below_over_the_input_scrolls_forward(self):
+        self.frame.scroll(b"page-up")
+        self.frame.scroll(b"page-up")
+        before = self.frame.screen.offset
+        self.event("M", 0, 1, 2)
+        self.event("M", 32, 1, self.frame._top() + 2)                # over the input rows
+        self.assertTrue(self.wait(lambda: self.frame.screen.offset < before))
+        self.event("m", 0, 1, self.frame._top() + 2)
+        self.assertTrue(self.copied)
+
+    def test_the_wheel_during_a_drag_keeps_the_selection(self):
+        self.event("M", 0, 1, 5)
+        self.event("M", 32, 4, 6)
+        self.frame.scroll(b"wheel-up")
+        self.assertTrue(self.frame.screen.selecting)
+        self.assertEqual(self.frame.screen.offset, 3)
+        self.event("m", 0, 4, 6)
+        self.assertTrue(self.copied)

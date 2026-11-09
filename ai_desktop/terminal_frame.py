@@ -464,6 +464,7 @@ class Frame:
             return
         button, column, row, kind = int(match.group(1)), int(match.group(2)) - 1, int(match.group(3)) - 1, match.group(4)
         top = self._top()
+        raw_row = row
         row = min(max(row, 0), top - 1)
         start, _ = self.screen.model.window(top, self.screen.offset)
         point = (start + row, max(0, min(column, self.columns - 1)))
@@ -484,9 +485,17 @@ class Frame:
             self.screen.highlight(top, self._selection["anchor"], self._selection["point"])
         elif kind == "M" and button & ~(4 | 8 | 16) == 32 and state is not None and not state["released"]:
             state["point"], state["moved"] = point, True                # a drag with the left button held
+            state["column"] = point[1]
+            # At the top row, or below the conversation (over the input): the view scrolls while the button is held
+            # there, as in a terminal, and the selection follows.
+            state["edge"] = 1 if raw_row <= 0 else -1 if raw_row >= top else 0
             self.screen.highlight(top, state["anchor"], point)
+            if state["edge"] and not state.get("scrolling"):
+                state["scrolling"] = True
+                threading.Thread(target=self._edge_scroll, args=(state,), name="ai-desktop-select-scroll",
+                                 daemon=True).start()
         elif kind == "m" and state is not None and not state["released"]:
-            state["released"], state["at"] = True, time.monotonic()
+            state["released"], state["at"], state["edge"] = True, time.monotonic(), 0
             if not state["moved"]:
                 self.screen.unfreeze(top, columns=self.columns)         # a single click: nothing selected
                 return
@@ -495,9 +504,38 @@ class Frame:
             self.screen.unfreeze(top, "copied %d characters to the clipboard" % len(text) if copied else None,
                                  columns=self.columns)
 
+    EDGE_STEP = 0.06                                                    # seconds between rows while held at an edge
+
+    def _edge_scroll(self, state):
+        """Scroll one row at a time while a drag is held at the top edge or over the input; the selection grows."""
+        try:
+            while True:
+                time.sleep(self.EDGE_STEP)
+                with self.screen.lock:
+                    if getattr(self, "_selection", None) is not state or state["released"] or not state["edge"]:
+                        return
+                    top = self._top()
+                    offset = max(0, min(self.screen.offset + state["edge"], len(self.screen.model.history)))
+                    if offset == self.screen.offset:
+                        continue                                        # at the start or the end: wait for a move
+                    self.screen.show(offset, top, self.columns)
+                    start, _ = self.screen.model.window(top, offset)
+                    state["point"] = (start + (0 if state["edge"] > 0 else top - 1), state["column"])
+                    self.screen.highlight(top, state["anchor"], state["point"])
+        finally:
+            state["scrolling"] = False
+
     def scroll(self, key):
         """Move the full-screen view: a page, three rows for the wheel, or back to the live conversation."""
         if self.screen is None:
+            return
+        state = getattr(self, "_selection", None)
+        if self.screen.selecting and key in (b"wheel-up", b"wheel-down", b"page-up", b"page-down") and state:
+            # The wheel during a drag scrolls and keeps the selection, like a terminal.
+            step = {b"wheel-up": 3, b"wheel-down": -3}.get(key, max(1, self._top() - 1) * (1 if key == b"page-up" else -1))
+            with self.screen.lock:
+                self.screen.show(self.screen.offset + step, self._top(), self.columns)
+                self.screen.highlight(self._top(), state["anchor"], state["point"])
             return
         if self.screen.selecting:
             self._selection = None
