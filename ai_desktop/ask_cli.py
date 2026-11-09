@@ -543,7 +543,7 @@ def _main(argv, *, reader, link):
                 _explain_denied(denied, args, state)
                 if denied.reason == "rate-limit":
                     print("Use /provider to choose another recipient and review the conversation transfer.")
-                print("The conversation continues; the question was not retried. You can ask it again.")
+                print("The conversation continues. You can ask the question again.")
                 keep_actions()
                 answer, code = None, 2
             except KeyboardInterrupt:

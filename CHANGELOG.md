@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-151: one silent retry of a web search
+
+- When a web search answer arrives but cannot be verified (for example `web-telemetry` or `web-stream`), the same approved question is searched once more without asking, if at least half of its time is left, and the answer is shown as soon as it passes. A limit, a login problem, a timeout or a cancelled question is never retried, and ordinary answers are not retried (their text may already be on the screen).
+
 ## 0.1.0-150: web search with long reasoning
 
 - A web search with `max` reasoning is no longer refused as `web-telemetry` when a progress signal of a search arrives just after its result, or a thinking counter is left out or goes down. Progress signals never count as search results. When such a signal is still refused, the message now says which part (`web-telemetry-thinking`, `-tool` or `-number`).

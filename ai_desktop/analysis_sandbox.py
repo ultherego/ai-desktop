@@ -556,6 +556,17 @@ LIVE_MODES = {"assistant": True, "question": False}
 STREAM_RAW_LIMIT = 64 * 1024 * 1024     # everything one analysis may write, partial-message events included
 
 
+WEB_RETRIES = 1                         # the maintainer's choice (2026-11-09): one silent retry of an unverifiable web answer
+
+
+def _retry_web(action, refused, attempt, elapsed, budget, cancelled):
+    """A web answer that arrived but did not pass the transcript or answer checks (reason `result`) is asked once more
+    with the same approved request, while at least half of its time is left. Never for a limit, a login, a timeout,
+    a cancellation or an ordinary answer (whose text may already be on the screen)."""
+    return (action == "web" and refused.reason == "result" and attempt <= WEB_RETRIES
+            and elapsed < budget / 2 and not (cancelled is not None and cancelled()))
+
+
 def run_client(action, report=b"", *, cancelled=None, mode="analysis", partial=None, status=None):
     """One official login OR one approved analysis. No retries or fallback. `partial(text)` receives live answer text;
     `status(code, number)` the progress of a web search. A web answer itself is never shown before its sources pass."""
@@ -609,27 +620,40 @@ def run_client(action, report=b"", *, cancelled=None, mode="analysis", partial=N
                     account_runtime.connected(account_path)
                     return "claude.ai"
                 with failure_stage("analysis"):
-                    analysis_connection_failed = proxy.begin_phase()
                     kept = 3 * MAX_PACKET_LARGE if mode == "workspace" else (512 * 1024 if action == "web" else 1024 * 1024)
                     from .answer_stream import ClaudeStream
-                    if action == "analyze":
-                        live = partial if mode in LIVE_MODES else None
-                        options.update(stdout_filter=ClaudeStream(live, json_answer=LIVE_MODES.get(mode, True),
-                                                                  max_line=kept),
-                                       raw_limit=max(STREAM_RAW_LIMIT, kept))
-                    else:
-                        options.update(stdout_filter=ClaudeStream(on_status=status, max_line=kept),
-                                       raw_limit=max(STREAM_RAW_LIMIT, kept))
-                    code, out, errors = _bound_run(bound, action, directory, online=True, **options,
-                                                       input_bytes=report, timeout=request_seconds(request_effort(report)),
-                                                       limit=kept, input_limit=MAX_PACKET_LARGE, cancelled=cancelled)
-                    if code:
-                        if action == "web" and child_failure(errors, "client").reason == "client":
-                            reason = web_failure(code, out)
-                            if reason is not None:
-                                raise AnalysisDenied(reason)
-                        raise analysis_failure(code, out, errors, analysis_connection_failed.is_set())
-                    answer = web_text(out) if action == "web" else model_text(code, out, mode=mode)
+                    budget = request_seconds(request_effort(report))
+                    began = time.monotonic()
+                    attempt = 0
+                    while True:
+                        attempt += 1
+                        analysis_connection_failed = proxy.begin_phase()
+                        if action == "analyze":
+                            live = partial if mode in LIVE_MODES else None
+                            options.update(stdout_filter=ClaudeStream(live, json_answer=LIVE_MODES.get(mode, True),
+                                                                      max_line=kept),
+                                           raw_limit=max(STREAM_RAW_LIMIT, kept))
+                        else:
+                            options.update(stdout_filter=ClaudeStream(on_status=status, max_line=kept),
+                                           raw_limit=max(STREAM_RAW_LIMIT, kept))
+                        left = budget - (time.monotonic() - began)
+                        code, out, errors = _bound_run(bound, action, directory, online=True, **options,
+                                                           input_bytes=report, timeout=max(1, left),
+                                                           limit=kept, input_limit=MAX_PACKET_LARGE, cancelled=cancelled)
+                        if code:
+                            if action == "web" and child_failure(errors, "client").reason == "client":
+                                reason = web_failure(code, out)
+                                if reason is not None:
+                                    raise AnalysisDenied(reason)
+                            raise analysis_failure(code, out, errors, analysis_connection_failed.is_set())
+                        try:
+                            answer = web_text(out) if action == "web" else model_text(code, out, mode=mode)
+                        except AnalysisDenied as refused:
+                            if not _retry_web(action, refused, attempt, time.monotonic() - began, budget, cancelled):
+                                raise
+                            bound.recheck()                 # the same sealed client, rechecked, runs it once more
+                            continue
+                        break
                     if type(plan) is str:
                         return ModelText(answer, {**(getattr(answer, "meta", None) or {"models": []}), "plan": plan})
                     return answer

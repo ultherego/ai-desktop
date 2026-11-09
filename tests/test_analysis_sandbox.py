@@ -155,20 +155,23 @@ class AnalysisSandboxTests(unittest.TestCase):
                                      close_fds=True, timeout=110, check=False)
         bridge.shutdown.assert_called_once()
 
-    def test_web_run_checks_transcript_before_return_and_never_retries(self):
+    def test_web_run_checks_transcript_and_retries_only_an_unverifiable_answer_once(self):
         success = web_stream(web_events())
         error = web_stream([{"type": "result", "subtype": "success", "is_error": True,
                             "api_error_status": 429, "result": "SECRET"}])
-        for code, native, errors, expected in ((0, success, b"", None), (1, error, b"", "rate-limit"),
-                                              (0, b"invalid stream", b"", "result"),
-                                              (1, error, b"CLIENT: REFUSED stage=boundary reason=sandbox", "sandbox")):
+        # (first answer, second answer or None, expected, client launches): only `result` is asked once more
+        for code, native, errors, again, expected, launches in (
+                (0, success, b"", None, None, 7), (1, error, b"", None, "rate-limit", 7),
+                (0, b"invalid stream", b"", (0, success, b""), None, 8),
+                (0, b"invalid stream", b"", (0, b"invalid again", b""), "result", 8),
+                (1, error, b"CLIENT: REFUSED stage=boundary reason=sandbox", None, "sandbox", 7)):
             proxy = Mock()
             proxy.begin_phase.return_value.is_set.return_value = False
             results = compatibility_results() + [(0, json.dumps({"loggedIn": True, "authMethod": "claude.ai",
                                        "configDirectory": sandbox.INNER_PROFILE}).encode(), b""),
-                       (code, native, errors)]
+                       (code, native, errors)] + ([again] if again else [])
             question = b'SYNTHETIC_PUBLIC_QUESTION'
-            with self.subTest(expected=expected), patch.object(sandbox, "supervisor_ready"), \
+            with self.subTest(expected=expected, again=again is not None), patch.object(sandbox, "supervisor_ready"), \
                     patch.object(sandbox, "profile_lock", return_value=contextlib.nullcontext()), \
                     patch.object(sandbox.client_binding, "bind", side_effect=lambda _: FakeBinding("claude")), \
                     patch.object(sandbox, "namespace_command", return_value=["fixed-web"]) as command, \
@@ -180,7 +183,7 @@ class AnalysisSandboxTests(unittest.TestCase):
                     with self.assertRaises(AnalysisDenied) as caught:
                         sandbox.run_client("web", question, mode="web")
                     self.assertEqual(caught.exception.reason, expected)
-            self.assertEqual(process.call_count, 7)
+            self.assertEqual(process.call_count, launches)
             self.assertEqual(command.call_args.args[0], "web")
             self.assertEqual(process.call_args.kwargs["input_bytes"], question)
             self.assertEqual(process.call_args.kwargs["limit"], 512 * 1024)
@@ -348,3 +351,16 @@ class ClaudeResultDiagnosticsTests(unittest.TestCase):
         with self.assertRaises(contract.AnalysisDenied) as caught:
             contract.read_result(packet, "a" * 64, mode="assistant")
         self.assertEqual(caught.exception.diagnostic, "claude-stream-lines")
+
+
+class WebRetryRuleTests(unittest.TestCase):
+    def test_only_an_unverifiable_web_answer_with_time_left_is_retried_once(self):
+        retry = sandbox._retry_web
+        result = AnalysisDenied("result")
+        self.assertTrue(retry("web", result, 1, 10, 300, None))
+        self.assertFalse(retry("web", result, 2, 10, 300, None))                  # once
+        self.assertFalse(retry("web", result, 1, 151, 300, None))                 # less than half the time left
+        self.assertFalse(retry("analyze", result, 1, 10, 300, None))              # an answer may be on the screen
+        self.assertFalse(retry("web", result, 1, 10, 300, lambda: True))          # cancelled
+        for reason in ("rate-limit", "auth-required", "timeout", "web-no-results", "cancelled"):
+            self.assertFalse(retry("web", AnalysisDenied(reason), 1, 10, 300, None))
