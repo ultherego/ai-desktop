@@ -36,6 +36,7 @@ class WebThenLocalTests(Base):
         web = self.wire[1]
         for local in ("access", "context", "discovery", "task", "files"):
             self.assertNotIn(local, web)                                              # the search carries nothing local
+        self.assertEqual(web["followup"], "local")                                 # it knows the question goes on
         self.assertEqual(self.wire[2]["discovery"]["steps"], [{"op": "web", "text": WEB_TEXT}])
         shown = self.output.getvalue()
         self.assertIn("Python 3.14", shown)
@@ -53,6 +54,7 @@ class WebThenLocalTests(Base):
     def test_a_plain_web_plan_still_ends_the_question_with_the_search_answer(self):
         self.assertEqual(self.run_flow([json.dumps({"action": "web"}), WEB_TEXT]), WEB_TEXT)
         self.assertEqual(self.modes(), ["assistant", "web"])
+        self.assertNotIn("followup", self.wire[1])
 
     def test_a_second_search_in_the_same_question_is_refused(self):
         for second in (CONTINUE, json.dumps({"action": "web"})):
@@ -75,6 +77,23 @@ class WebDisabledTests(Base):
 
 
 class ContractTests(unittest.TestCase):
+    def test_the_followup_mark_is_part_of_the_exact_payload_the_service_checks(self):
+        from ai_desktop import analysis_contract as contract
+        with contract.web_followup():
+            marked = contract.application_input(None, "Pytanie", web=True)
+        plain = contract.application_input(None, "Pytanie", web=True)
+        self.assertEqual(json.loads(marked)["followup"], "local")
+        self.assertNotIn("followup", json.loads(plain))
+        for payload in (marked, plain):
+            model_input, sha = contract.parse_request(payload.encode())
+            self.assertEqual(sha, contract.digest(payload))
+            self.assertEqual(json.loads(model_input).get("followup"), json.loads(payload).get("followup"))
+        forged = json.loads(plain)
+        forged["followup"] = "anything"
+        with self.assertRaises(contract.AnalysisDenied):
+            contract.parse_request(contract.canonical(forged).encode())
+
+
     def test_the_web_plan_takes_only_a_true_continue(self):
         access = {"files": [], "systemd": [], "weather": False, "web": True}
         self.assertEqual(plans.parse_plan(CONTINUE, access), {"action": "web", "continue": True})

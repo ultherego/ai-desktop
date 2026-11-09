@@ -587,7 +587,10 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                     # next_plan never accepts another web step.
                     permit.continue_after_web()
                     progress("answer-request")
-                    found = request(question, args, reader, web=True, check=permit.check, question_consent=permit)
+                    from .analysis_contract import web_followup
+                    with web_followup():
+                        found = request(question, args, reader, web=True, check=permit.check,
+                                        question_consent=permit)
                     permit.check()
                     _show_web(found, args)
                     try:

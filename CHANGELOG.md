@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-144: the search knows the question goes on
+
+- When a question searches first and then continues locally, the search answer no longer says it cannot create the file or gives a command to save it by hand: it explains, shows code in code blocks, and the next step proposes the change with the usual diff.
+
 ## 0.1.0-143: source numbers never refuse a web answer
 
 - Source numbers in a web answer's text are optional; the checked sources are always listed at the end. A number that names no listed source is taken out of the text instead of refusing the answer.

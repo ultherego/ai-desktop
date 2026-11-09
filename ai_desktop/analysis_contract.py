@@ -4,6 +4,8 @@ This previews application input, not encrypted wire traffic or client-owned
 OAuth/protocol metadata. A+ deliberately trusts the official client with its
 own private profile. Model output never grants execution rights.
 """
+from contextlib import contextmanager, nullcontext
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 import hashlib
 import hmac
@@ -306,6 +308,10 @@ WEB_SYSTEM_PROMPT = (
     "Do not put URLs in answer; use [1], [2] according to sources. "
     "When reliable results do not settle the question, say so plainly. "
     "Do not claim you made changes, read files or whole pages. "
+    "Put code in fenced code blocks. "
+    "With followup=local the program continues this question locally after your answer (it may change files or run "
+    "commands with the owner's approval): research and explain what is needed, and do not say you cannot create or "
+    "change files and do not give commands for saving files by hand. "
 ) + RESPONSE_STYLE
 CLIENT_CONTEXT = (
     "Recipient: Anthropic through the official Claude Code and a separate claude.ai "
@@ -499,6 +505,8 @@ def application_input(report, question="", task=None, context=None, access=None,
         if report is not None or task is not None or context is not None or access is not None or not question.strip():
             raise ValueError("mixed or empty web question")
         data = {"mode": "web", "question": question}
+        if _WEB_FOLLOWUP.get():
+            data["followup"] = "local"          # the question goes on locally after this search
     elif access is not None:
         from .assistant_contract import validate_access
         if report is not None or task is not None or context is not None or not question.strip():
@@ -569,6 +577,20 @@ def application_input(report, question="", task=None, context=None, access=None,
     return result
 
 
+_WEB_FOLLOWUP = ContextVar("ai_desktop_web_followup", default=False)
+
+
+@contextmanager
+def web_followup():
+    """A web request made inside says the question continues locally after it (an edit, commands, reads), so the
+    search answer explains and does not tell the user to save files by hand. Part of the exact consented payload."""
+    token = _WEB_FOLLOWUP.set(True)
+    try:
+        yield
+    finally:
+        _WEB_FOLLOWUP.reset(token)
+
+
 def digest(payload):
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -598,8 +620,14 @@ def parse_request(raw):
                 return application_input(*args, **kwargs, execution=selected)
 
         if value["mode"] == "web":
-            expected = expected_input(None, value["question"], web=True)
+            followup = value.get("followup")
+            if followup not in (None, "local"):
+                raise ValueError()
+            with (web_followup() if followup else nullcontext()):
+                expected = expected_input(None, value["question"], web=True)
             data = {k: value[k] for k in ("mode", "question")}
+            if followup:
+                data["followup"] = followup
         elif value["mode"] == "analysis":
             expected = expected_input(value["report"], value["question"])
             data = {k: value[k] for k in ("mode", "report", "question")}
