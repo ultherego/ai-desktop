@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-134: a clearer conflict and plan refusal
+
+- If the file is changed elsewhere while its change is shown, the answer now says so ("Not saved: the file changed after it was read … Ask again") instead of a hint about permissions.
+- A refused plan that names files says what was wrong (`plan-files-scope`, `-path`, `-directory` or `-selector`).
+
 ## 0.1.0-133: fixes from the second review
 
 - A consent question never accepts the rest of a paste that started before it, even when that paste paused for a few seconds.

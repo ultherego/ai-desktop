@@ -84,11 +84,18 @@ class WriteGrant:
                 raise ValueError()
             if self._policy.require_write(self._targets, index=self._index) != self._targets:
                 raise ValueError()
-            task_workspace.unchanged(self._before)
+            try:
+                task_workspace.unchanged(self._before)
+            except ValueError as exc:
+                if exc.args and exc.args[0] in CONFLICTS:
+                    raise EditConflict("input") from None      # another terminal or an editor saved the file
+                raise
             self._snapshot.require_claude()
             if (self._snapshot.policy is not self._policy or self._binding() != self._state
                     or canonical({"access": self._snapshot.access, "sources": self._snapshot.sources}) != self._policy_state):
                 raise ValueError()
+        except EditConflict:
+            raise
         except (OSError, ValueError, TypeError, KeyError, AttributeError, ExecutionDenied):
             raise EditDenied("input") from None
 
@@ -264,6 +271,9 @@ def finish(prepared, response, args, reader):
     try:
         code = finish_task(prepared.before, prepared.source, response, SimpleNamespace(**values), reader,
                            write_guard=prepared.write_grant.check, project_test=prepared.project_test)
+    except EditConflict:
+        conversation_state.note_action("Change NOT saved: the file changed after it was read; nothing was overwritten")
+        raise
     except (ExecutionDenied, RecursionError):
         raise EditDenied("input") from None
     except BlockingIOError:

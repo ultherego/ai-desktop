@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** CachyOS check of candidate 133 (several terminals, a consent question, an edit while another window changes the same file), then each conversation keeping its connection between questions, then Codex answers while they are written (test after the maintainer's Codex limit resets around 2026-11-12), then one native client process per conversation, then the S9 task flow. S0 and S7 remain deferred.
+**Next step:** CachyOS check of candidate 134 (an edit while the file is changed elsewhere says so; if an edit request is refused, its `files-…` code), then each conversation keeping its connection between questions, then Codex answers while they are written (test after the maintainer's Codex limit resets around 2026-11-12), then one native client process per conversation, then the S9 task flow. S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -270,7 +270,9 @@ The reviewer checked `main` at `4ae1873` (candidate 132) and confirmed the earli
 - **P2, write conflict:** a file changed by another terminal or an editor between the proposal and the write (`workspace changed`, `changed target`…) or another terminal holding the directory's write lock ended the whole conversation (`prepare-edit-review`). They now end only that proposal (`EditConflict`, `EditBusy`), are recorded as not saved, and say to ask again; nothing is retried automatically and nothing is overwritten.
 - The 16-session limit is rechecked under the lock (two opens at 15 could make 17); at `MAX_CONNECTIONS` the worker waits for a connection to end instead of spinning on a core; the live input's reader starts with a copy of the turn's context, so a `/` menu during a Codex answer offers Codex's choices.
 - Precise scale, as the reviewer asked: up to 16 terminal sessions per user and four model requests at once; a further request waits.
-- **READY FOR TEST**, candidate **0.1.0-133**.
+- CachyOS check of candidate 133: writing "aaaaa" to the file while its diff was shown kept the newer file and the conversation, but printed the generic policy hint: the write approval's own check (`WriteGrant.check`, run right before the write) turned the version conflict into a plain refusal before `finish` could name it. Candidate **0.1.0-134** raises `EditConflict` there too, so the message says the file changed elsewhere and the turn is recorded as not saved.
+- In the same session two edit requests were refused as `plan-files` before any file was read (so the concurrent edit had no part in it). The policy allows `~/**` for reading and writing, so the model's selector itself was malformed; one code could not say how. `plan-files` is now split into closed codes: `files-scope` (an id not offered for reading, e.g. a write scope's), `files-path` (not a plain relative path, e.g. `~/a.py`), `files-directory` (a directory where a file is needed) and `files-selector` (malformed or repeated). Nothing more is accepted than before.
+- **READY FOR TEST**, candidate **0.1.0-134**.
 
 ### 2026-11-09 — Candidate 132: any number of terminals at the same time (S2)
 

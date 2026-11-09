@@ -253,6 +253,27 @@ class AskEditTests(unittest.TestCase):
                 ask_cli._explain_refusal(refusal)
             self.assertIn(words, said.getvalue())
 
+    def test_a_file_saved_elsewhere_before_the_yes_is_a_conflict_not_a_policy_problem(self):
+        """CachyOS check of 133: "aaaaa" written to the file while its diff was shown gave the generic policy hint,
+        because the write approval's own check turned the version conflict into a plain refusal."""
+        from ai_desktop import conversation_state
+        prepared = self.prepare()
+        with patch.object(ask_edit.task_workspace, "unchanged", side_effect=ValueError("workspace changed")):
+            with self.assertRaises(ask_edit.EditConflict):
+                prepared.write_grant.check()
+
+            def finish_task(*args, write_guard=None, **kwargs):
+                write_guard()                                    # the check right before the write
+            with conversation_state.recording() as recorder, \
+                    patch.object(task_cli, "finish_task", side_effect=finish_task), \
+                    self.assertRaises(ask_edit.EditConflict):
+                ask_edit.finish(prepared, "untrusted", self.args, Mock())
+        self.assertTrue(any("NOT saved" in fact for fact in recorder.actions))
+        with patch.object(ask_edit.task_workspace, "unchanged", side_effect=ValueError("other")), \
+                self.assertRaises(ask_edit.EditDenied) as refused:
+            prepared.write_grant.check()
+        self.assertNotIsInstance(refused.exception, ask_edit.EditConflict)
+
     def test_workspace_is_second_exact_payload_and_cannot_replay_or_change_instruction(self):
         self.planner()
         prepared = self.prepare()
