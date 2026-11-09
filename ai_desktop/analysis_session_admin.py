@@ -1,9 +1,14 @@
 """Fixed root-only session lifecycle. Never receives reports or credentials.
 
 sudo authenticates the caller; PID1 owns a bounded helper with ExecStopPost.
-The root-owned claim precedes activation and identifies exactly our cleanup.
-No user-supplied command, path, property, unit name or UID is accepted by open.
+Every open terminal of a user has its own session: its own root-owned claim (named by a random nonce), created
+before any activation, and its own helper unit. The first session starts the user's analysis socket, the last one
+stops it; these decisions are made under one root-owned lock per user, and claims whose helper unit is gone are
+pruned. No user-supplied command, path, property, unit name or UID is accepted by open.
 """
+from contextlib import contextmanager
+import fcntl
+import time
 import os
 from pathlib import Path
 import pwd
@@ -15,7 +20,7 @@ import stat
 import subprocess
 import sys
 
-from .analysis_contract import AnalysisDenied, SESSION_SECONDS
+from .analysis_contract import AnalysisDenied, HOLD_SECONDS
 from .analysis_sandbox import INSTALL, cloud_transport_ready, trusted_file
 from .analysis_service import endpoint, socket_path, UID
 from .process_io import bounded_process
@@ -47,9 +52,17 @@ def units(uid):
     return ["ai-desktop-analysis@" + str(uid) + suffix for suffix in (".socket", ".service")]
 
 
-def manager_unit(uid):
+MAX_SESSIONS = 16                  # open terminals of one user with a session at the same time
+_OWNER = (0, 0)                    # every claim, lock and claims directory belongs to root:root
+LIVE = ("active", "activating", "deactivating", "reloading")
+
+
+def manager_unit(uid, nonce):
+    """The helper unit of one terminal's session; its name comes only from the UID and our own random nonce."""
     socket_path(uid)
-    return "ai-desktop-session-" + str(uid) + ".service"
+    if type(nonce) is not str or not NONCE.fullmatch(nonce):
+        raise AnalysisDenied("input")
+    return "ai-desktop-session-%d-%s.service" % (uid, nonce[:16])
 
 
 def command(*args):
@@ -106,36 +119,97 @@ def state_directory():
         raise AnalysisDenied("identity")
 
 
-def claim_path(uid):
+def legacy_claim(uid):
+    """The single claim of the previous one-session design; while it exists that session still owns the socket."""
     socket_path(uid)
     return STATE / str(uid)
 
 
-def read_claim(uid):
+def claims_directory(uid):
+    socket_path(uid)
+    path = STATE / ("%d.d" % uid)
     try:
-        fd = os.open(claim_path(uid), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
-    except FileNotFoundError:
-        return None
+        os.mkdir(path, 0o700)
+    except FileExistsError:
+        pass
+    info = path.lstat()
+    if (not stat.S_ISDIR(info.st_mode) or (info.st_uid, info.st_gid) != _OWNER
+            or stat.S_IMODE(info.st_mode) != 0o700):
+        raise AnalysisDenied("identity")
+    return path
+
+
+def claim_path(uid, nonce):
+    if type(nonce) is not str or not NONCE.fullmatch(nonce):
+        raise AnalysisDenied("input")
+    return claims_directory(uid) / nonce
+
+
+@contextmanager
+def session_lock(uid, *, seconds=30):
+    """One root-owned lock per user orders the start of the first session and the stop after the last one."""
+    socket_path(uid)
+    fd = os.open(STATE / ("%d.lock" % uid), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
     try:
         info = os.fstat(fd)
-        if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != 0
+        if (not stat.S_ISREG(info.st_mode) or (info.st_uid, info.st_gid) != _OWNER
+                or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1):
+            raise AnalysisDenied("identity")
+        deadline = time.monotonic() + seconds
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() > deadline:
+                    raise AnalysisDenied("busy") from None
+                time.sleep(0.05)
+        yield
+    finally:
+        os.close(fd)
+
+
+def read_claim(path):
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    try:
+        info = os.fstat(fd)
+        if (not stat.S_ISREG(info.st_mode) or (info.st_uid, info.st_gid) != _OWNER
                 or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1):
             raise AnalysisDenied("identity")
         nonce = os.read(fd, 33).decode("ascii", "strict")
-        if not NONCE.fullmatch(nonce):
+        if not NONCE.fullmatch(nonce) or nonce != path.name:
             raise AnalysisDenied("identity")
         return nonce
     finally:
         os.close(fd)
 
 
+def claims(uid):
+    """The nonces of this user's sessions; anything else in the directory is refused."""
+    found = []
+    for name in sorted(os.listdir(claims_directory(uid))):
+        if not NONCE.fullmatch(name):
+            raise AnalysisDenied("identity")
+        found.append(read_claim(claims_directory(uid) / name))
+    if len(found) > MAX_SESSIONS:
+        raise AnalysisDenied("identity")
+    return found
+
+
 def create_claim(uid, nonce):
-    fd = os.open(claim_path(uid), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    fd = os.open(claim_path(uid, nonce), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
     try:
         if os.write(fd, nonce.encode("ascii")) != 32:
             raise AnalysisDenied("cleanup")
     finally:
         os.close(fd)
+
+
+def prune(uid):
+    """Forget claims whose helper unit no longer runs (its cleanup was interrupted); call under session_lock."""
+    for nonce in claims(uid):
+        if properties(manager_unit(uid, nonce)).get("ActiveState") not in LIVE:
+            claim_path(uid, nonce).unlink()
 
 
 def cleaned(uid):
@@ -149,31 +223,39 @@ def cleaned(uid):
 
 
 def cleanup(uid, nonce):
+    """ExecStopPost of one session's helper: forget its claim; after the last session, stop the user's units."""
     state_directory()
-    owner = read_claim(uid)
-    if owner is not None:
-        if owner != nonce:
-            raise AnalysisDenied("busy")
-        # Only our root-owned claim authorizes stopping these fixed units.
-        command("/usr/bin/systemctl", "stop", *units(uid))
-        cleaned(uid)
-        claim_path(uid).unlink()
+    with session_lock(uid):
+        path = claim_path(uid, nonce)
+        if os.path.lexists(path):
+            read_claim(path)
+            path.unlink()
+        prune(uid)
+        if not claims(uid) and not os.path.lexists(legacy_claim(uid)):
+            command("/usr/bin/systemctl", "stop", *units(uid))
+            cleaned(uid)
     os.write(1, STOPPED)
 
 
 def hold(uid, nonce):
     state_directory()
-    unit_policy(uid, inactive=True)
-    create_claim(uid, nonce)  # Before the first activation, including partial start.
-    # Inactive units may be garbage-collected between show and reset-failed;
-    # reset-failed then refuses an unloaded unit. Starting is sufficient and
-    # must not silently reset the installed activation rate limits.
-    command("/usr/bin/systemctl", "start", units(uid)[0])
-    endpoint(uid)
+    if os.path.lexists(legacy_claim(uid)):
+        raise AnalysisDenied("busy")               # a session of the previous version still owns the socket
+    with session_lock(uid):
+        prune(uid)
+        first = not claims(uid)
+        unit_policy(uid, inactive=first)
+        create_claim(uid, nonce)  # Before any activation, including a partial start.
+        if first:
+            # Inactive units may be garbage-collected between show and reset-failed;
+            # reset-failed then refuses an unloaded unit. Starting is sufficient and
+            # must not silently reset the installed activation rate limits.
+            command("/usr/bin/systemctl", "start", units(uid)[0])
+        endpoint(uid)
     os.write(1, READY)
     # The UI owns the write end. EOF, including SIGKILL of the UI, releases the
     # session. PID1's RuntimeMaxSec and ExecStopPost also cover this helper dying.
-    if not select.select([0], [], [], SESSION_SECONDS)[0]:
+    if not select.select([0], [], [], HOLD_SECONDS)[0]:
         raise AnalysisDenied("timeout")
     if os.read(0, 1) != b"":
         raise AnalysisDenied("input")
@@ -182,7 +264,8 @@ def hold(uid, nonce):
 def session_command(uid, nonce):
     stop = "/usr/bin/python3 -I -B " + str(BOOTSTRAP) + " cleanup " + str(uid) + " " + nonce
     return ["/usr/bin/systemd-run", "--quiet", "--wait", "--collect", "--pipe", "--service-type=exec",
-            "--unit=" + manager_unit(uid), "--property=RuntimeMaxSec=%d" % (SESSION_SECONDS + 20), "--property=TimeoutStopSec=30",
+            "--unit=" + manager_unit(uid, nonce), "--property=RuntimeMaxSec=%d" % (HOLD_SECONDS + 20),
+            "--property=TimeoutStopSec=60",
             "--property=ExecStopPost=" + stop, "--property=KillMode=control-group",
             "--property=User=root", "--property=Group=root", "--property=UMask=0077",
             "--property=NoNewPrivileges=yes", "--property=CapabilityBoundingSet=",
@@ -195,46 +278,41 @@ def session_command(uid, nonce):
 
 
 def open_session(uid):
-    unit_policy(uid, inactive=True)
+    unit_policy(uid)
     state_directory()
-    if read_claim(uid) is not None or properties(manager_unit(uid)).get("LoadState") != "not-found":
-        raise AnalysisDenied("busy")
+    with session_lock(uid):
+        prune(uid)
+        if len(claims(uid)) >= MAX_SESSIONS:
+            raise AnalysisDenied("busy")
     nonce = secrets.token_hex(16)
     try:
-        # PID1 atomically rejects a competing invocation of the same unit name.
+        # Its own unit name: PID1 never mixes this session with another terminal's.
         result = subprocess.run(session_command(uid, nonce), env=ENV, check=False,
-                                close_fds=True, timeout=SESSION_SECONDS + 60, stderr=subprocess.DEVNULL)
+                                close_fds=True, timeout=HOLD_SECONDS + 60, stderr=subprocess.DEVNULL)
         return 0 if result.returncode == 0 else 2
     finally:
-        # Never stop a competing invocation. ExecStopPost owns normal cleanup;
-        # this path only handles an interrupted launcher with our own claim.
-        if read_claim(uid) == nonce:
-            command("/usr/bin/systemctl", "stop", manager_unit(uid))
-            if read_claim(uid) is not None:
+        # ExecStopPost owns normal cleanup; this path only handles an interrupted launcher with our own claim.
+        if os.path.lexists(claim_path(uid, nonce)):
+            command("/usr/bin/systemctl", "stop", manager_unit(uid, nonce))
+            if os.path.lexists(claim_path(uid, nonce)):
                 raise AnalysisDenied("cleanup")
 
 
 def stop_session(uid):
+    """`ai-desktop stop`: end every session of this user (each helper's own cleanup runs), then check the units."""
     state_directory()
-    nonce = read_claim(uid)
-    if nonce is None:
-        # Do not stop a manually administered or someone else's active socket.
-        if properties(manager_unit(uid)).get("ActiveState") not in ("inactive", "failed"):
-            raise AnalysisDenied("busy")
-        cleaned(uid)
-        os.write(1, STOPPED)
-        return
-    values = properties(manager_unit(uid))
-    if values.get("LoadState") != "not-found":
-        command("/usr/bin/systemctl", "stop", manager_unit(uid))
-    if read_claim(uid) is not None:
-        # Recovery of our stale claim after an interrupted cleanup only.
-        if properties(manager_unit(uid)).get("ActiveState") not in ("inactive", "failed"):
-            raise AnalysisDenied("busy")
-        cleanup(uid, nonce)
-    else:
-        cleaned(uid)
-        os.write(1, STOPPED)
+    with session_lock(uid):
+        prune(uid)
+        running = claims(uid)
+    for nonce in running:
+        command("/usr/bin/systemctl", "stop", manager_unit(uid, nonce))
+    with session_lock(uid):
+        prune(uid)
+        if claims(uid):
+            raise AnalysisDenied("busy")           # a terminal opened a new session meanwhile
+        if not os.path.lexists(legacy_claim(uid)):
+            cleaned(uid)
+    os.write(1, STOPPED)
 
 
 def main(argv=None):

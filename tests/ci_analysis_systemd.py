@@ -273,14 +273,24 @@ def mode(temp, value):
     prior._run("sudo", "-n", "/usr/bin/rm", "-f", "/var/lib/ai-desktop/claude/fixture-hanging")
 
 
+def session_units(uid):
+    """The helper units of this user's terminal sessions (one per open terminal), whatever their state."""
+    result = subprocess.run(["/usr/bin/systemctl", "list-units", "--all", "--plain", "--no-legend",
+                             "ai-desktop-session-%d-*" % uid], env=session_admin.ENV, capture_output=True,
+                            timeout=10, check=False)
+    return [line.split()[0] for line in result.stdout.decode("ascii", "replace").splitlines() if line.strip()]
+
+
 def daily_clean(uid):
     deadline = time.monotonic() + 20
     while time.monotonic() < deadline:
         try:
             session_admin.cleaned(uid)
-            values = session_admin.properties(session_admin.manager_unit(uid))
-            if values.get("ActiveState") in ("inactive", "failed") and values.get("MainPID") == "0":
-                prior._run("sudo", "-n", "/usr/bin/test", "!", "-e", str(session_admin.claim_path(uid)))
+            live = [unit for unit in session_units(uid)
+                    if session_admin.properties(unit).get("ActiveState") not in ("inactive", "failed")]
+            claims = subprocess.run(["sudo", "-n", "/usr/bin/find", str(session_admin.STATE / ("%d.d" % uid)),
+                                     "-mindepth", "1"], capture_output=True, timeout=10, check=False)
+            if not live and claims.returncode in (0, 1) and not claims.stdout.strip():
                 return
         except (AnalysisDenied, ValueError, subprocess.SubprocessError):
             pass
@@ -340,8 +350,9 @@ def daily_pty(action, *, expected=0, refusal=False, interrupt=None, reason=None,
                                         check=False, capture_output=True, timeout=5)
                 if marker.returncode == 0:
                     if interrupt == "manager-kill":
-                        prior._run("sudo", "-n", "/usr/bin/systemctl", "kill", "--kill-whom=main",
-                                   "--signal=SIGKILL", session_admin.manager_unit(os.geteuid()))
+                        for unit in session_units(os.geteuid()):
+                            prior._run("sudo", "-n", "/usr/bin/systemctl", "kill", "--kill-whom=main",
+                                       "--signal=SIGKILL", unit)
                     else:
                         os.kill(process.pid, signal.SIGKILL if interrupt == "ui-kill" else signal.SIGINT)
                     interrupted = True
@@ -719,19 +730,28 @@ def web_cycle(temp):
 
 
 def concurrent_session():
-    """A rejected second launch must not stop the first invocation's socket."""
+    """Two terminals open sessions at the same time: both are ready on the same socket; closing one keeps the
+    socket for the other, and closing the last one cleans everything up."""
     argv = ["sudo", "-n", "/usr/bin/python3", "-I", "-B", str(session_admin.BOOTSTRAP), "open"]
-    proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-    session = daily.Session(proc)
+    first = daily.Session(subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                           stderr=subprocess.DEVNULL))
+    second = None
     try:
-        session.start()
+        first.start()
         before = service.endpoint(os.geteuid())
-        second = subprocess.run(argv, input=b"", capture_output=True, timeout=10, check=False)
-        if (second.returncode != 2 or b"SESSION1 REFUSED busy" not in second.stdout
-                or service.endpoint(os.geteuid()) != before):
+        second = daily.Session(subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                                stderr=subprocess.DEVNULL))
+        second.start()                                           # no "busy": every terminal has its own session
+        if service.endpoint(os.geteuid()) != before or len(session_units(os.geteuid())) < 2:
             raise ValueError("concurrent-session")
+        first.close()
+        first = None
+        if service.endpoint(os.geteuid()) != before:           # the other terminal still has its socket
+            raise ValueError("concurrent-session-kept")
     finally:
-        session.close()
+        for session in (first, second):
+            if session is not None:
+                session.close()
     daily_clean(os.geteuid())
 
 
@@ -756,10 +776,21 @@ def explicit_stop_session():
     daily_pty(["stop"])
 
 
-def wait_inactive(unit):
+def wait_no_clients(unit):
+    """After a request the worker may stay for further connections, but nothing of that request may remain: the
+    unit's cgroup holds no process except the worker itself (no client, sandbox or proxy)."""
     deadline = time.monotonic() + 8
     while time.monotonic() < deadline:
-        if host._property(unit, "ActiveState") in ("inactive", "failed"):
+        state = host._property(unit, "ActiveState")
+        if state in ("inactive", "failed"):
+            return
+        main = host._property(unit, "MainPID")
+        group = host._property(unit, "ControlGroup")
+        try:
+            procs = Path("/sys/fs/cgroup" + group, "cgroup.procs").read_text().split()
+        except OSError:
+            procs = None
+        if procs is not None and set(procs) <= {main}:
             return
         time.sleep(.1)
     raise ValueError("still-running")
@@ -883,7 +914,7 @@ def main(argv=None):
             result = service.send_once(authorize())
             if result != "SYNTHETIC ANALYSIS: isolation=PASS proxy-denial=PASS profile=PASS\n\\u001b[31m":
                 raise ValueError("unexpected-result")
-            wait_inactive(units[1])
+            wait_no_clients(units[1])
             stage = "wrong-auth-method"
             mode(temp, "wrong-auth")
             try:
@@ -893,7 +924,7 @@ def main(argv=None):
                     raise
             else:
                 raise ValueError("auth-accepted")
-            wait_inactive(units[1])
+            wait_no_clients(units[1])
             stage = "malformed-request"
             with socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET) as conn:
                 conn.settimeout(5)
@@ -962,7 +993,7 @@ def main(argv=None):
         print("CI ANALYSIS: FAIL stage=" + stage + detail)
         if installed and stage.startswith("daily-"):
             # Fixed unit metadata only, never native stderr or profile.
-            for unit in (*units, session_admin.manager_unit(uid)):
+            for unit in (*units, *session_units(uid)):
                 result = subprocess.run(["/usr/bin/systemctl", "show", unit,
                                          "--property=ActiveState,SubState,Result,MainPID,ExecMainCode,ExecMainStatus"],
                                         env=session_admin.ENV, capture_output=True, timeout=10, check=False)
@@ -972,7 +1003,7 @@ def main(argv=None):
                         print(line)
             result = subprocess.run(["sudo", "-n", "/usr/bin/journalctl", "--no-pager", "-n", "40", "-o", "json",
                                      "--output-fields=SYSLOG_IDENTIFIER,_PID,MESSAGE_ID,UNIT,JOB_TYPE,JOB_RESULT,EXIT_CODE,EXIT_STATUS,CODE_FUNC",
-                                     "-u", units[0], "-u", units[1], "-u", session_admin.manager_unit(uid)],
+                                     "-u", units[0], "-u", units[1], "-u", "ai-desktop-session-%d-*" % uid],
                                     env=session_admin.ENV, capture_output=True, timeout=10, check=False)
             # Only manager event codes from this disposable synthetic fixture.
             # MESSAGE is intentionally absent, along with all client output.

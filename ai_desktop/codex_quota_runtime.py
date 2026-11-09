@@ -276,7 +276,7 @@ def run(action, uid, alias, *, challenge=None):
             except FileNotFoundError:
                 pass
             return None
-        with profile_lock():
+        with profile_lock(shared=action != "connect"):
             generation = _binding(uid, alias, enroll=action == "connect")
         old = _receipt(path, generation) if action == "read" else None
         # Refuse absent, stale and foreign grants before even starting --version.
@@ -321,6 +321,6 @@ def _commit_rotation(path, staging, uid, alias, generation, previous):
     # a concurrent SIWC operation prevents us from releasing the reading.
     if credential != previous:
         _write_json(path, {"generation": generation, "credential": credential})
-    with profile_lock():
+    with profile_lock(shared=True):
         if _binding(uid, alias) != generation:
             raise AnalysisDenied("auth-required")

@@ -97,7 +97,7 @@ Working and merged at `dd2daec3045c41662a722f4c6a3485dea14dd196` (PR #18, packag
 | Codex login/logout false error after a successful operation | done — not reproduced on candidate 121: `ai-desktop codex logout --allow-chatgpt-logout --v` and `codex login --allow-chatgpt-login --v` both ended `success` with exit 0 and the matching status line. Reopen with the full `--v` output if it returns |
 | Keep current documentation aligned with code and archive obsolete acceptance instructions | IN PROGRESS — candidate 120 trimmed README, the release checklist and KNOWN_LIMITATIONS; after candidate 127 README, the threat model (live preview, T31) and the S2 rows describe the live answer and web progress |
 | `task prune` with a list of entries and consent | done — candidate 119: `ai-desktop task prune --workspace DIR` lists only finished entries (saved with no stage left, undone, settled conflict, unlinked history, fully restored deletion), takes numbers or `all` and a separate consent, and re-checks each entry under the lock against the hash shown; unfinished saves, conflicts with stages left and deletions still in the trash always stay |
-| One client session per conversation, streaming answers | IN PROGRESS — candidate 122 streams Claude answers in ordinary conversation (finished Markdown blocks while the model writes; the final validated answer decides); candidate 123 shows web search progress (searches and results as counts), while a web answer itself still appears only after its sources pass. Remaining: Codex deltas, then one native session per conversation (lifecycle, revocation, the per-request sandbox and grants) |
+| One client session per conversation, streaming answers | IN PROGRESS — candidates 122–127 stream Claude answers and show web progress; candidate 132 makes any number of terminals work at the same time (a session per terminal, a multi-connection service, a shared profile lock). Remaining: each conversation keeping its connection between questions, Codex deltas, then one native client process per conversation |
 
 ## Agreed follow-up scope — 2026-11-06
 
@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** CachyOS check of candidate 131 (a few web searches, including "what is new in CachyOS"), then Codex answers while they are written (test after the maintainer's Codex limit resets around 2026-11-12, together with the real Codex request under the client's system-call filter from candidate 114), then one native client session per conversation (S2), then the S9 task flow. S0 and S7 remain deferred.
+**Next step:** CachyOS check of candidate 132 with two or three terminals asking at the same time, then each conversation keeping its connection between questions, then Codex answers while they are written (test after the maintainer's Codex limit resets around 2026-11-12), then one native client process per conversation, then the S9 task flow. S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -260,6 +260,18 @@ Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaini
 ## Progress log
 
 Earlier dated entries preserve the evidence and status at that point. The latest entry supersedes historical pending/next-step statements.
+
+### 2026-11-09 — Candidate 132: any number of terminals at the same time (S2)
+
+- PR #45 (candidate 131) was merged after CachyOS acceptance; every finding of the external review is closed.
+- **Maintainer's requirement (2026-11-09):** AI Desktop must work in any number of terminals at the same time, each fully, as Claude Code or Codex do; no design may assume one session per user or answer "busy" because another terminal is working. While planning one session per conversation it turned out that three things serialized terminals: one root claim per user (a second terminal's request was refused as busy), a service accepting one connection at a time, and an exclusive profile lock for every request.
+- **READY FOR TEST**, candidate **0.1.0-132**:
+  - Root session helper (`analysis_session_admin`): every terminal's session has its own claim (`/run/ai-desktop-sessions/UID.d/NONCE`, root 0600, created before any activation) and its own helper unit `ai-desktop-session-UID-NONCE16`. The first session starts the user's socket, the last one stops it; both under a root-owned lock per user (`UID.lock`). Claims whose helper unit no longer runs are pruned; a claim of the previous one-session layout keeps the socket until it ends. At most 16 sessions per user. `ai-desktop stop` ends every session of the user. The helper waits for its terminal for a whole conversation (`HOLD_SECONDS` = 4 h + the longest request); its unit may live 20 s longer.
+  - Service (`analysis_service.serve`): each connection in its own thread, several requests one after another on one connection (each approved, checked and sandboxed alone), at most four model requests at once (a further one waits, never "busy"), and the worker leaves after 60 s without any connection. The unit's limits follow: `MemoryMax=12G`, `TasksMax=384` (ceilings for four clients), `RuntimeMaxSec=15480`.
+  - Profile lock: requests (Claude, Codex, Codex limits reads) take it shared, so several terminals use one account at once as several native clients do; sign-in, sign-out, account and limits-connection changes take it exclusively. Either waits up to 30 s before "busy". The Codex token store waits up to 30 s for another terminal's read or refresh instead of failing at once.
+  - CI real-systemd stage `daily-concurrent` now opens two sessions at the same time, checks both are ready on one socket, that closing one keeps the socket and that closing the last one cleans everything. Unit tests: `test_analysis_session.MultiSessionTests`, `tests/test_concurrent_sessions.py` (shared and exclusive locks on a real `flock`, one terminal answered while another's slow request runs, a request beyond the parallel limit waits), multi-request connections in `test_analysis_service`.
+- CachyOS acceptance of candidate 132: several `ai-desktop` terminals asked at the same time and every one was answered, with no "busy" and no failed session start; the saved conversation history lists the right number of conversations.
+- Next in S2: each conversation keeps its connection and session between questions (no sudo or service start per question), then Codex deltas, then one native client process per conversation.
 
 ### 2026-11-08 — Candidate 128: external review findings
 

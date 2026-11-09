@@ -4,8 +4,10 @@ import json
 import re
 import select
 import socket
+import threading
+import time
 
-from .analysis_contract import (SERVICE_MARGIN, request_seconds, AnalysisDenied, Approval, MAX_PACKET, REASONS,
+from .analysis_contract import (CONVERSATION_IDLE_SECONDS, CONVERSATION_SECONDS, SERVICE_MARGIN, request_seconds, AnalysisDenied, Approval, MAX_PACKET, REASONS,
                                 digest, parse_request, read_result, result_packet)
 from .analysis_sandbox import run_client, transport_supervisor_ready as supervisor_ready
 from .analysis_framing import PARTIAL_BYTES, send_message, send_partial, receive_message
@@ -182,12 +184,53 @@ def activation_listener(uid):
     return activation_socket.listener(socket_path(uid), "analysis")
 
 
-def receive_once(uid):
+# Several terminals of one user work at the same time: each connection has its own thread, and up to this many
+# model requests run at once (each in its own sandbox); a further request waits for a free place, never "busy".
+MAX_CONNECTIONS = 16
+PARALLEL_REQUESTS = 4
+SERVER_IDLE_SECONDS = 60          # with no connection at all the worker leaves; the next connection starts it again
+_running = threading.BoundedSemaphore(PARALLEL_REQUESTS)
+
+
+def receive_once(uid, *, clock=time.monotonic):
+    """One authenticated desktop connection, handled to its end."""
     socket_path(uid)
     with activation_listener(uid) as listener:
         if not select.select([listener], [], [], 5)[0]:
             raise AnalysisDenied("timeout")
-        with listener.accept()[0] as conn:
+        _connection(listener.accept()[0], uid, clock)
+
+
+def serve(uid, *, clock=time.monotonic):
+    """The activated worker: accept the user's connections while any is open or one arrives within
+    SERVER_IDLE_SECONDS; each runs in its own thread, so one terminal never waits for another's conversation."""
+    socket_path(uid)
+    with activation_listener(uid) as listener:
+        if not select.select([listener], [], [], 5)[0]:
+            raise AnalysisDenied("timeout")
+        threads, idle_since = [], None
+        while True:
+            threads = [thread for thread in threads if thread.is_alive()]
+            if len(threads) < MAX_CONNECTIONS and select.select([listener], [], [], 0.5)[0]:
+                thread = threading.Thread(target=_connection, args=(listener.accept()[0], uid, clock), daemon=True)
+                thread.start()
+                threads.append(thread)
+                idle_since = None
+                continue
+            if threads:
+                idle_since = None
+            elif idle_since is None:
+                idle_since = clock()
+            elif clock() - idle_since >= SERVER_IDLE_SECONDS:
+                return
+
+
+def _connection(conn, uid, clock):
+    """READY, then requests one after another until the desktop closes the connection, it stays idle for
+    CONVERSATION_IDLE_SECONDS, CONVERSATION_SECONDS pass or a request is cancelled. Each request has its own approval
+    digest, checks and sandbox, exactly as a connection carrying a single request."""
+    with conn:
+        try:
             conn.settimeout(5)
             e2_ipc._peer_uid(conn, uid)
             try:
@@ -199,40 +242,84 @@ def receive_once(uid):
                 send_packet(conn, REFUSED + reason.encode("ascii"))
                 return
             send_packet(conn, READY)
-            model_input, sha256 = parse_request(receive_message(conn, kind="request"))
-            parsed = json.loads(model_input)
-            mode = parsed["mode"]
-            selected = parsed.get("execution")
-            provider = selected["provider"] if selected is not None else "claude"
+            ends = clock() + CONVERSATION_SECONDS
+            first = True
+            while first or _next_request(conn, min(CONVERSATION_IDLE_SECONDS, ends - clock())):
+                first = False
+                if not _serve(conn, uid):
+                    return
+        except (AnalysisDenied, OSError, ValueError, KeyError):
+            return                     # one terminal's broken connection never ends the others
 
-            def cancelled():
-                # After the single request, closure OR a second packet cancels.
-                return bool(select.select([conn], [], [], 0)[0])
 
-            try:
-                if cancelled():
-                    raise AnalysisDenied("cancelled")
-                if provider == "local":
-                    # Only the owner controller can consult its policy and reach the loopback endpoint.
-                    raise AnalysisDenied("authorization")
-                action = "web" if mode == "web" else "analyze"
-                from contextlib import nullcontext
-                from . import account_runtime
-                account = (selected or {}).get("account")
-                with (account_runtime.selected(uid, provider, account) if account else nullcontext()):
-                    if selected is not None and selected["provider"] == "codex":
-                        from .codex_runtime import run_client as run_codex
-                        result = run_codex(action, model_input.encode("utf-8"), cancelled=cancelled, mode=mode)
-                    else:
-                        live = _live_sender(conn)
-                        result = run_client(action, model_input.encode("utf-8"), cancelled=cancelled, mode=mode,
-                                            partial=live.text, status=live.status)
-                response = result_packet(sha256, text=result, mode=mode, meta=getattr(result, "meta", None))
-            except (AnalysisDenied, OSError, ValueError, KeyError) as exc:
-                reason = exc.reason if isinstance(exc, AnalysisDenied) else "internal"
-                diagnostic = exc.diagnostic if isinstance(exc, AnalysisDenied) else None
-                response = result_packet(sha256, reason=reason, mode=mode, diagnostic=diagnostic, provider=provider)
-            send_message(conn, response, kind="response")
+def _next_request(conn, seconds):
+    """True when the desktop sent another request in time; False on closure, idle time or the end of the lifetime."""
+    if seconds <= 0 or not select.select([conn], [], [], seconds)[0]:
+        return False
+    try:
+        return conn.recv(1, socket.MSG_PEEK) != b""
+    except OSError:
+        return False
+
+
+def _serve(conn, uid):
+    """One request on the connection. False when the connection must end (the request was cancelled)."""
+    model_input, sha256 = parse_request(receive_message(conn, kind="request"))
+    parsed = json.loads(model_input)
+    mode = parsed["mode"]
+    selected = parsed.get("execution")
+    provider = selected["provider"] if selected is not None else "claude"
+    stopped = []
+
+    def cancelled():
+        # During a request, closure OR another packet cancels it, and the connection ends with it.
+        if select.select([conn], [], [], 0)[0]:
+            stopped.append(True)
+            return True
+        return False
+
+    try:
+        supervisor_ready()
+        while not _running.acquire(timeout=0.2):          # a free place among the parallel requests, or a cancel
+            if cancelled():
+                raise AnalysisDenied("cancelled")
+    except (AnalysisDenied, OSError, ValueError, KeyError) as exc:
+        reason = exc.reason if isinstance(exc, AnalysisDenied) else "internal"
+        return _respond(conn, result_packet(sha256, reason=reason, mode=mode, provider=provider), stopped)
+    try:
+        if cancelled():
+            raise AnalysisDenied("cancelled")
+        if provider == "local":
+            # Only the owner controller can consult its policy and reach the loopback endpoint.
+            raise AnalysisDenied("authorization")
+        action = "web" if mode == "web" else "analyze"
+        from contextlib import nullcontext
+        from . import account_runtime
+        account = (selected or {}).get("account")
+        with (account_runtime.selected(uid, provider, account) if account else nullcontext()):
+            if selected is not None and selected["provider"] == "codex":
+                from .codex_runtime import run_client as run_codex
+                result = run_codex(action, model_input.encode("utf-8"), cancelled=cancelled, mode=mode)
+            else:
+                live = _live_sender(conn)
+                result = run_client(action, model_input.encode("utf-8"), cancelled=cancelled, mode=mode,
+                                    partial=live.text, status=live.status)
+        response = result_packet(sha256, text=result, mode=mode, meta=getattr(result, "meta", None))
+    except (AnalysisDenied, OSError, ValueError, KeyError) as exc:
+        reason = exc.reason if isinstance(exc, AnalysisDenied) else "internal"
+        diagnostic = exc.diagnostic if isinstance(exc, AnalysisDenied) else None
+        response = result_packet(sha256, reason=reason, mode=mode, diagnostic=diagnostic, provider=provider)
+    finally:
+        _running.release()
+    return _respond(conn, response, stopped)
+
+
+def _respond(conn, response, stopped):
+    try:
+        send_message(conn, response, kind="response")
+    except AnalysisDenied:
+        return False
+    return not stopped
 
 
 def worker_main(argv):
@@ -247,7 +334,7 @@ def worker_main(argv):
             return 0
         if len(argv) != 1 or not UID.fullmatch(argv[0]):
             raise AnalysisDenied("input")
-        receive_once(int(argv[0]))
+        serve(int(argv[0]))
         return 0
     except (AnalysisDenied, e2_ipc.HandoffDenied, OSError, ValueError, TypeError,
             KeyError, KeyboardInterrupt) as exc:

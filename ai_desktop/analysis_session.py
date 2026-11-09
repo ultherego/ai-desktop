@@ -9,7 +9,7 @@ import time
 
 from .analysis_contract import AnalysisDenied, REASONS
 from .analysis_sandbox import trusted_file
-from .analysis_session_admin import BOOTSTRAP, ENV, READY, STOPPED, REFUSED, unit_policy, properties, manager_unit
+from .analysis_session_admin import BOOTSTRAP, ENV, READY, STOPPED, REFUSED, unit_policy, properties, units
 from . import e2_account
 
 
@@ -51,7 +51,7 @@ def installation_ready(provider=None):
 def status(provider=None):
     try:
         installation_ready(provider)
-        values = properties(manager_unit(identity()))
+        values = properties(units(identity())[0])
         active = values.get("ActiveState") not in ("inactive", "failed")
         print("Files and units: ready. Analysis session: " + ("running." if active else "stopped."))
         print("Client version and login: not checked offline; they are checked when you approve an analysis.")

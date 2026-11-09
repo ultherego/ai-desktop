@@ -146,6 +146,9 @@ def _file_identity(info):
     return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
 
 
+LOCK_WAIT_SECONDS = 30
+
+
 class AuthStore:
     """Descriptor-based, private, atomic credential rotation under one lock.
 
@@ -274,10 +277,16 @@ class AuthStore:
             try:
                 lock = os.open("accounts.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, 0o600, dir_fd=directory)
                 self._secure_file(os.fstat(lock))
-                try:
-                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except BlockingIOError:
-                    raise AuthError("busy") from None
+                # Several terminals may need the token at once: wait a moment for the other one's read or refresh.
+                deadline = time.monotonic() + LOCK_WAIT_SECONDS
+                while True:
+                    try:
+                        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        break
+                    except BlockingIOError:
+                        if time.monotonic() >= deadline:
+                            raise AuthError("busy") from None
+                        time.sleep(0.05)
                 value, identity = self._read(directory)
                 if value is None:
                     value = {"schema": 1, "host_id": "urn:uuid:" + str(uuid.uuid4()), "active": None, "accounts": {}}

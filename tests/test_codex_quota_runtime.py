@@ -21,10 +21,14 @@ READING = {"plan": "plus", "windows": {"five_hour": {"percent": 37, "reset": 179
 
 class QuotaRuntimeTests(unittest.TestCase):
     def setUp(self):
+        # A contended lock now waits before "busy" (several terminals); a short wait keeps these tests quick.
+        from ai_desktop import analysis_sandbox as _sandbox, siwc_auth as _siwc
+        self.enterContext(patch.object(_sandbox, "PROFILE_WAIT_SECONDS", 0.2))
+        self.enterContext(patch.object(_siwc, "LOCK_WAIT_SECONDS", 0.2))
         self.home = Path(self.enterContext(tempfile.TemporaryDirectory(dir=Path.home())))
         self.enterContext(patch.object(quota_runtime, "HOME", self.home))
         self.enterContext(patch.object(quota_runtime, "service_identity"))
-        self.profile_lock = self.enterContext(patch.object(quota_runtime, "profile_lock", side_effect=nullcontext))
+        self.profile_lock = self.enterContext(patch.object(quota_runtime, "profile_lock", side_effect=lambda **kwargs: nullcontext()))
         self.enterContext(patch.object(codex_runtime, "runtime_ready"))
         self.binding = self.enterContext(patch.object(quota_runtime.client_binding, "bind", side_effect=lambda _: FakeBinding()))
         self.version = self.enterContext(patch.object(quota_runtime, "_version"))

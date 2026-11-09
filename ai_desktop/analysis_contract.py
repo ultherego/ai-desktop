@@ -341,6 +341,14 @@ SERVICE_MARGIN = 40
 # The privileged session helper stays open while the client holds the pipe, i.e. for a whole request: the longest
 # client wait plus 80 s for startup and cleanup. Its unit may live 20 s longer (RuntimeMaxSec).
 SESSION_SECONDS = REQUEST_SECONDS_LONG + SERVICE_MARGIN + 80
+# One conversation keeps its privileged session and its service connection between requests: each request is still
+# approved, checked and run in a fresh sandbox on its own. The link ends when the conversation ends, after
+# CONVERSATION_IDLE_SECONDS without a request, or after CONVERSATION_SECONDS in all (then the next request opens anew).
+CONVERSATION_IDLE_SECONDS = 15 * 60
+CONVERSATION_SECONDS = 4 * 3600
+# A terminal's privileged session helper waits for the terminal to close its pipe: a whole conversation, plus the
+# longest request started at its end. Its unit may live 20 s longer (RuntimeMaxSec).
+HOLD_SECONDS = CONVERSATION_SECONDS + SESSION_SECONDS
 
 
 def request_seconds(effort):

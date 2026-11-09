@@ -256,7 +256,7 @@ class WebDiagnosticIntegrationTests(unittest.TestCase):
         listener.__enter__.return_value = listener
         listener.accept.return_value = (conn, None)
         with patch.object(service, "activation_listener", return_value=listener), \
-                patch.object(service.select, "select", side_effect=[([listener], [], []), ([], [], [])]), \
+                patch.object(service.select, "select", side_effect=[([listener], [], []), ([], [], []), ([], [], [])]), \
                 patch.object(service.e2_ipc, "_peer_uid"), patch.object(service, "supervisor_ready"), \
                 patch.object(service.os, "geteuid", return_value=2000), \
                 patch.object(service, "send_packet"), patch.object(service, "receive_message"), \
