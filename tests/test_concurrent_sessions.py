@@ -135,7 +135,8 @@ class ServerTests(unittest.TestCase):
         worker = threading.Thread(target=self.service.serve, args=(1000,), daemon=True)
         one, two = self.connect(worker), self.connect()
         results = []
-        threading.Thread(target=self.ask, args=(one, results, "first"), daemon=True).start()
+        first = threading.Thread(target=self.ask, args=(one, results, "first"), daemon=True)
+        first.start()
         first_running.wait(5)
         waiting = threading.Thread(target=self.ask, args=(two, results, "second"), daemon=True)
         waiting.start()
@@ -143,6 +144,7 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(order, [])                                  # the second waits, it is not refused
         may_finish.set()
         waiting.join(5)
+        first.join(5)                                                # both answers are in before they are counted
         self.assertEqual((order, results.count("done")), (["first", "second"], 2))
         one.close()
         two.close()

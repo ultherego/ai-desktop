@@ -776,10 +776,21 @@ def explicit_stop_session():
     daily_pty(["stop"])
 
 
-def wait_inactive(unit):
+def wait_no_clients(unit):
+    """After a request the worker may stay for further connections, but nothing of that request may remain: the
+    unit's cgroup holds no process except the worker itself (no client, sandbox or proxy)."""
     deadline = time.monotonic() + 8
     while time.monotonic() < deadline:
-        if host._property(unit, "ActiveState") in ("inactive", "failed"):
+        state = host._property(unit, "ActiveState")
+        if state in ("inactive", "failed"):
+            return
+        main = host._property(unit, "MainPID")
+        group = host._property(unit, "ControlGroup")
+        try:
+            procs = Path("/sys/fs/cgroup" + group, "cgroup.procs").read_text().split()
+        except OSError:
+            procs = None
+        if procs is not None and set(procs) <= {main}:
             return
         time.sleep(.1)
     raise ValueError("still-running")
@@ -903,7 +914,7 @@ def main(argv=None):
             result = service.send_once(authorize())
             if result != "SYNTHETIC ANALYSIS: isolation=PASS proxy-denial=PASS profile=PASS\n\\u001b[31m":
                 raise ValueError("unexpected-result")
-            wait_inactive(units[1])
+            wait_no_clients(units[1])
             stage = "wrong-auth-method"
             mode(temp, "wrong-auth")
             try:
@@ -913,7 +924,7 @@ def main(argv=None):
                     raise
             else:
                 raise ValueError("auth-accepted")
-            wait_inactive(units[1])
+            wait_no_clients(units[1])
             stage = "malformed-request"
             with socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET) as conn:
                 conn.settimeout(5)
