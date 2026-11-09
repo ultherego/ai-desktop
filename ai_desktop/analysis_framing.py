@@ -40,6 +40,8 @@ def _receive_record(channel, size, deadline, clock):
     _remaining(channel, deadline, clock)
     raw, ancillary, flags, _ = channel.recvmsg(size + 1, 0)
     _remaining(channel, deadline, clock)
+    if not raw and not ancillary:
+        raise AnalysisDenied("endpoint")        # the peer closed the connection (e.g. `ai-desktop stop`), not bad data
     if len(raw) != size or ancillary or flags & (socket.MSG_TRUNC | socket.MSG_CTRUNC):
         raise AnalysisDenied("input")
     return raw
@@ -113,6 +115,8 @@ def receive_message(channel, *, kind, timeout=5, clock=time.monotonic, partial=N
                 _remaining(channel, deadline, clock)
                 raw, ancillary, flags, _ = channel.recvmsg(HEADER.size + PARTIAL_BYTES + 1, 0)
                 _remaining(channel, deadline, clock)
+                if not raw and not ancillary:
+                    raise AnalysisDenied("endpoint")
                 if (ancillary or flags & (socket.MSG_TRUNC | socket.MSG_CTRUNC)
                         or not HEADER.size <= len(raw) <= HEADER.size + PARTIAL_BYTES):
                     raise AnalysisDenied("input")

@@ -23,6 +23,31 @@ def incoming(packets):
 
 
 class AnalysisFramingTests(unittest.TestCase):
+    def test_a_connection_closed_by_the_peer_is_endpoint_not_bad_input(self):
+        """`ai-desktop stop` during an answer closes the service's end: that is a lost connection, which a conversation
+        survives, never malformed data (CachyOS check of candidate 138)."""
+        for partial in (None, lambda body: None):
+            with self.subTest(partial=partial is not None):
+                desktop, service = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+                try:
+                    service.close()
+                    with self.assertRaises(AnalysisDenied) as raised:
+                        wire.receive_message(desktop, kind="response", timeout=2,
+                                             **({"partial": partial} if partial else {}))
+                    self.assertEqual(raised.exception.reason, "endpoint")
+                finally:
+                    desktop.close()
+        sender, receiver = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        try:
+            body = b"x" * 10
+            sender.send(records(body, "response")[0])     # the header arrives, then the service goes away
+            sender.close()
+            with self.assertRaises(AnalysisDenied) as raised:
+                wire.receive_message(receiver, kind="response", timeout=2)
+            self.assertEqual(raised.exception.reason, "endpoint")
+        finally:
+            receiver.close()
+
     def test_largest_request_and_response_cross_real_small_packet_sockets_exactly(self):
         for kind, limit in (("request", MAX_PACKET), ("response", MAX_RESPONSE_BYTES)):
             with self.subTest(kind=kind):

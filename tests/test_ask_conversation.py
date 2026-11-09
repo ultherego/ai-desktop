@@ -143,7 +143,9 @@ class ConversationLoopTests(unittest.TestCase):
                 self.assertEqual(r.prompts, [Q, Q, Q])
 
     def test_a_service_failure_keeps_the_conversation_and_is_not_retried(self):
-        for reason in ("timeout", "network", "rate-limit", "provider-unavailable"):
+        # endpoint: the service went away mid-answer (e.g. `ai-desktop stop` in another terminal); the next question
+        # opens a new session and connection.
+        for reason in ("timeout", "network", "rate-limit", "provider-unavailable", "endpoint"):
             with self.subTest(reason=reason), \
                     patch.object(assistant_flow, "run", side_effect=[ask.AnalysisDenied(reason), "Dalej działam"]):
                 r = self.run_ui([], ["Jeden", "Dwa", ""])

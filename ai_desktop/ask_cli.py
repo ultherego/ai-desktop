@@ -37,7 +37,7 @@ CONTINUE_PREFIX = "Continue the task after the saved change. The user's task: "
 # The provider or the network failed one request and the session closed normally: the conversation can go on. Anything
 # else (cleanup, identity, sandbox, consent...) still ends it, because the next request could not be trusted to be safe.
 SERVICE_FAILURES = frozenset({"timeout", "network", "rate-limit", "provider-unavailable", "web-no-results", "output-limit",
-                              "result", "client"})
+                              "result", "client", "endpoint"})   # endpoint: the service went away; the next question reconnects
 LOCAL_REFUSALS = (ContextBudgetExceeded, InputBudgetExceeded, FileReadDenied, ask_edit.EditDenied)
 PREPARATION_PHASES = frozenset({"input", "session", "access", "plan-request", "plan", "collect", "answer-request",
                                 "edit-prepare", "edit-request", "edit-review", "display", "session-save", "internal"})

@@ -3,6 +3,7 @@
 ## 0.1.0-138: an unconfirmed session cleanup is never reported as success
 
 - If the kept session of a conversation ended without confirming its cleanup (for example its helper failed, or `ai-desktop stop` ran in another terminal), the conversation still goes on with a new session, but when it ends it says it could not confirm that the session ended, points to `ai-desktop stop` and exits with code 2.
+- `ai-desktop stop` in another terminal while a conversation is waiting for an answer no longer ends the whole conversation with `Could not get an answer (input)`: that question ends, the conversation continues, and the next question opens a new session.
 
 ## 0.1.0-137: a conversation keeps its session
 
