@@ -281,8 +281,13 @@ def _without_addresses(answer, sources):
             url, tail = url[:-1], url[-1] + tail
         return (number(url) or "(address removed)") + tail
 
+    def unknown(match):
+        return "" if not 1 <= int(match.group(2)) <= len(sources) else match.group(0)
+
     def clean(prose):
         prose = _INLINE_LINK.sub(inline, prose)
+        # A number that names no listed source is taken out; the sources are listed below the answer anyway.
+        prose = re.sub(r"( ?)(?<![\w\])\]])\[([0-9]+)\](?!\()", unknown, prose)
         prose = _DEFINITION.sub("", prose)
         prose = re.sub(r"<((?i:[a-z][a-z0-9+.-]*://|www\.)[^<>\s]*)>", r"\1", prose)   # autolinks
         return _ADDRESS.sub(bare, prose)
@@ -336,11 +341,9 @@ def _answer(raw, observed):
         if re.search(r"\]\(", _prose(answer)) or re.search(r"^ {0,3}\[[0-9]+\]:", _prose(answer), re.M):
             raise ValueError("references")
         check = "web-answer-references"
-        # Every reference must name a listed source. A text that cites none is still shown with the list below it
-        # (CachyOS check of candidate 140: an answer with code and no numbers was refused): every listed address was
-        # already proven to come from this search.
-        references = _references(answer)
-        if not references <= set(range(1, len(sources) + 1)):
+        # Source numbers in the text are optional (the maintainer: the sources at the end are enough); one that names
+        # no listed source was already taken out above, so this only guards that removal.
+        if not _references(answer) <= set(range(1, len(sources) + 1)):
             raise ValueError("references")
         check = "web-answer-render"
         lines = [answer, "", "Sources:"]

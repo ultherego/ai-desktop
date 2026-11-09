@@ -217,7 +217,6 @@ class WebSearchResultTests(unittest.TestCase):
     def test_answer_requires_exact_schema_bounded_unique_sources_and_references(self):
         for update in ({"sources": []}, {"sources": ["https://www.python.org/about/"] * 2},
                        {"sources": "https://www.python.org/about/"}, 
-                       {"answer": "Wynik [2]."}, {"answer": "Wynik [1] [99999]."},
                        {"answer": "x" * 8193 + " [1]"}, {"answer": "\x1b[31mWynik [1]"},
                        {"extra": True}):
             events = web_events()
@@ -266,11 +265,12 @@ class WebSearchResultTests(unittest.TestCase):
         final_answer(events, answer=code)
         self.assertIn('handlers[0](event)\nurl = "https://example.org/api"', web_text(stream(events)))
         self.assertIn("[1] About Python", text)
-        for wrong in ("Wynik [2].", "Wynik [1] [99999]."):           # a prose number outside the list still refuses
-            events = web_events()
-            final_answer(events, answer=wrong)
-            with self.subTest(answer=wrong):
-                self.assert_refused(events)
+        for answer, shown in (("Wynik [2].", "Wynik."), ("Wynik [1] [99999].", "Wynik [1]."),
+                              ("[3] Na początku.", "Na początku.")):
+            events = web_events()                     # a number naming no listed source is taken out, never refused
+            final_answer(events, answer=answer)
+            with self.subTest(answer=answer):
+                self.assertTrue(web_text(stream(events)).startswith(shown + "\n\nSources:"))
 
     def test_a_reference_followed_by_a_colon_inside_a_sentence_is_text(self):
         events = web_events()

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-143: source numbers never refuse a web answer
+
+- Source numbers in a web answer's text are optional; the checked sources are always listed at the end. A number that names no listed source is taken out of the text instead of refusing the answer.
+
 ## 0.1.0-142: code in a web answer is left alone
 
 - A web answer with code (for example `sieve[0] = sieve[1] = False`) is no longer refused with `web-answer-references`: brackets in code are not source numbers. Code in a web answer is shown exactly as written; only the text around it has its links and addresses removed.
