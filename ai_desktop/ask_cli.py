@@ -194,6 +194,11 @@ def _explain_refusal(refusal):
     elif isinstance(refusal, InputBudgetExceeded):
         print(f"Not sent: the whole JSON request is over the limit of {MAX_PACKET} bytes. "
               + recipient("This request was not sent to Claude."))
+    elif isinstance(refusal, ask_edit.EditInterrupted):
+        print("The save stopped part-way: %d of %d file(s) were confirmed saved; a file changed meanwhile (in another "
+              "window or an editor) kept its newer content. Check the state with ai-desktop task status, and undo the "
+              "saved part with ai-desktop task rollback if needed; a new change in that directory waits until then."
+              % (refusal.saved, refusal.total))
     elif isinstance(refusal, ask_edit.EditConflict):
         print("Not saved: the file changed after it was read (in another window or an editor), so nothing was "
               "overwritten. Ask again to prepare a fresh change.")

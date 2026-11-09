@@ -24,6 +24,14 @@ class EditConflict(EditDenied):
     """The file changed after it was read (another terminal or an editor): nothing was overwritten."""
 
 
+class EditInterrupted(EditDenied):
+    """The save stopped after it began: `saved` of `total` files are written, the journal awaits recovery."""
+
+    def __init__(self, saved, total):
+        self.saved, self.total = saved, total
+        super().__init__("input")
+
+
 class EditBusy(EditDenied):
     """Another terminal is saving in this directory right now: nothing was written."""
 
@@ -274,6 +282,13 @@ def finish(prepared, response, args, reader):
     except EditConflict:
         conversation_state.note_action("Change NOT saved: the file changed after it was read; nothing was overwritten")
         raise
+    except task_workspace.SaveInterrupted as stopped:
+        # Not a refusal before writing: some files may be written. The truth goes to the conversation, with recovery.
+        conversation_state.note_action(
+            "Change INTERRUPTED while saving: %d of %d file(s) confirmed saved, the rest may differ; "
+            "check ai-desktop task status --workspace %s, then task rollback" % (stopped.saved, stopped.total,
+                                                                                  prepared.workspace))
+        raise EditInterrupted(stopped.saved, stopped.total) from None
     except (ExecutionDenied, RecursionError):
         raise EditDenied("input") from None
     except BlockingIOError:

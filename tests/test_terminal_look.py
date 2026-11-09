@@ -277,6 +277,39 @@ class LiveInputTests(unittest.TestCase):
             owner._feed(bytes([byte]))
         self.assertFalse(owner._paste_open)
 
+    def test_an_earlier_paste_never_lapses_into_the_answer_while_the_question_is_open(self):
+        """Review of 133: after 30 s of silence the stale paste lapsed and its rest (with a newline) approved."""
+        import time as clock
+        owner = self.owner(None)
+        for byte in "\x1b[200~ye".encode():
+            owner._feed(bytes([byte]))
+        self.question(owner)
+        self.assertIn("earlier paste", owner._note())
+        owner._lapse(clock.monotonic() + 3600)                     # an hour of silence
+        self.assertEqual(owner._sequence[0], "stale")             # still dropped: no timeout while asking
+        for byte in "s\r".encode():
+            owner._feed(bytes([byte]))
+        self.assertFalse(owner._answered.is_set())
+
+    def test_ctrl_c_ends_an_earlier_paste_by_stopping_the_turn_never_by_answering(self):
+        owner = self.owner(None)
+        for byte in "\x1b[200~ye".encode():
+            owner._feed(bytes([byte]))
+        self.question(owner)
+        with patch.object(terminal_input.os, "kill") as kill:
+            owner._feed(b"\x03")
+        kill.assert_called_once()                                 # SIGINT: the turn stops
+        self.assertFalse(owner._answered.is_set())
+        self.assertIsNone(owner._sequence)
+
+    def test_without_a_question_an_earlier_paste_may_lapse(self):
+        owner = self.owner(None)
+        owner._sequence, owner._paste_open = ("stale", bytearray()), True
+        owner._sequence_at = 0.0
+        owner._lapse(100.0)
+        self.assertIsNone(owner._sequence)
+        self.assertFalse(owner._paste_open)
+
     def test_a_slow_end_of_an_earlier_paste_is_still_dropped(self):
         owner = self.owner(None)
         for byte in "\x1b[200~ye".encode():

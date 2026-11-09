@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-135: the last two review findings
+
+- While a consent question is open, the rest of an earlier paste is never taken as the answer, however long it pauses; Ctrl+C stops the turn.
+- If a save of several files stops part-way because one of them changed elsewhere, the answer says how many files were saved and how to check or undo them, instead of "not saved".
+
 ## 0.1.0-134: a clearer conflict and plan refusal
 
 - If the file is changed elsewhere while its change is shown, the answer now says so ("Not saved: the file changed after it was read … Ask again") instead of a hint about permissions.

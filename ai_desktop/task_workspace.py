@@ -38,6 +38,15 @@ class NewTargetExists(ValueError):
         super().__init__("new target exists")
 
 
+class SaveInterrupted(ValueError):
+    """A save stopped after its journal was written: `saved` of `total` files are confirmed published (one more may
+    be on disk unconfirmed), and the journal awaits `task status` / `task rollback`. Never a refusal before writing."""
+
+    def __init__(self, saved, total):
+        self.saved, self.total = saved, total
+        super().__init__("save interrupted")
+
+
 class JournalLimit(ValueError):
     """Finite refusal: existing undo history is never pruned automatically; `task prune` removes chosen entries."""
 
@@ -601,55 +610,64 @@ def apply(session, authorization, *, write_guard=None):
         fd = _state_dir(root, create=True)
         try:
             _save(fd, name, value, first=True)
-            for entry, replacement in zip(entries, replacements):
-                parent, leaf = _parent(root, entry["path"])
-                try:
-                    saved = before["files"][entry["path"]]
-                    if identity(os.fstat(parent)) != saved["parent"] or not _matches(parent, leaf, saved["file"]):
-                        raise ValueError("changed target")
-                    raw = replacement["content"].encode("utf-8")
-                    mode = saved["file"]["mode"] if saved["file"] is not None else 0o600
-                    inode = _write(parent, entry["temp"], raw, mode)
-                    entry["after"] = {"inode": inode, "mode": mode, "sha256": sha(raw), "content": replacement["content"]}
-                    _save(fd, name, value)
-                    # Repeat immediately before rename; hostile same-UID races
-                    # are outside the boundary, normal concurrent edits refuse.
-                    if not _matches(parent, leaf, saved["file"]):
-                        raise ValueError("changed target")
-                    if saved["file"] is None:
-                        # Absence is a condition of creation, not permission to replace a
-                        # file another editor created after our last state check.
-                        rename_noreplace(parent, entry["temp"], parent, leaf)
-                    else:
-                        # Swap instead of replace: whatever sat at the name is now at the stage name, where it is
-                        # compared with what this plan saw. An editor that wrote in the meantime is put back, never
-                        # silently destroyed. (A write into an inode someone already holds open can still land after
-                        # this check; see docs/KNOWN_LIMITATIONS.md.)
-                        rename_exchange(parent, entry["temp"], parent, leaf)
-                        try:
-                            displaced = read_file(parent, entry["temp"])
-                            if displaced != saved["file"]:
-                                raise ValueError("changed target")
-                        except BaseException:
-                            rename_exchange(parent, entry["temp"], parent, leaf)
-                            # Their file is back; what is left under the stage name is ours, so it can go.
-                            try:
-                                os.unlink(entry["temp"], dir_fd=parent)
-                            except OSError:
-                                pass
-                            raise
-                        os.unlink(entry["temp"], dir_fd=parent)
-                    os.fsync(parent)
-                    entry["published"] = True
-                    _save(fd, name, value)
-                finally:
-                    os.close(parent)
+            try:
+                _publish(root, fd, name, value, before, entries, replacements)
+            except (OSError, ValueError) as exc:
+                # The journal exists: this is no longer a refusal before writing. Say how far it got (counts only).
+                raise SaveInterrupted(sum(1 for entry in entries if entry["published"]), len(entries)) from exc
             value["status"] = "applied"
             _save(fd, name, value)
         finally:
             os.close(fd)
     finally:
         os.close(root)
+
+
+def _publish(root, fd, name, value, before, entries, replacements):
+    """Publish each replacement in turn; a conflict stops at that file, earlier ones stay published and journaled."""
+    for entry, replacement in zip(entries, replacements):
+        parent, leaf = _parent(root, entry["path"])
+        try:
+            saved = before["files"][entry["path"]]
+            if identity(os.fstat(parent)) != saved["parent"] or not _matches(parent, leaf, saved["file"]):
+                raise ValueError("changed target")
+            raw = replacement["content"].encode("utf-8")
+            mode = saved["file"]["mode"] if saved["file"] is not None else 0o600
+            inode = _write(parent, entry["temp"], raw, mode)
+            entry["after"] = {"inode": inode, "mode": mode, "sha256": sha(raw), "content": replacement["content"]}
+            _save(fd, name, value)
+            # Repeat immediately before rename; hostile same-UID races
+            # are outside the boundary, normal concurrent edits refuse.
+            if not _matches(parent, leaf, saved["file"]):
+                raise ValueError("changed target")
+            if saved["file"] is None:
+                # Absence is a condition of creation, not permission to replace a
+                # file another editor created after our last state check.
+                rename_noreplace(parent, entry["temp"], parent, leaf)
+            else:
+                # Swap instead of replace: whatever sat at the name is now at the stage name, where it is
+                # compared with what this plan saw. An editor that wrote in the meantime is put back, never
+                # silently destroyed. (A write into an inode someone already holds open can still land after
+                # this check; see docs/KNOWN_LIMITATIONS.md.)
+                rename_exchange(parent, entry["temp"], parent, leaf)
+                try:
+                    displaced = read_file(parent, entry["temp"])
+                    if displaced != saved["file"]:
+                        raise ValueError("changed target")
+                except BaseException:
+                    rename_exchange(parent, entry["temp"], parent, leaf)
+                    # Their file is back; what is left under the stage name is ours, so it can go.
+                    try:
+                        os.unlink(entry["temp"], dir_fd=parent)
+                    except OSError:
+                        pass
+                    raise
+                os.unlink(entry["temp"], dir_fd=parent)
+            os.fsync(parent)
+            entry["published"] = True
+            _save(fd, name, value)
+        finally:
+            os.close(parent)
 
 
 def _upgrade_legacy(root, fd, name, value):
