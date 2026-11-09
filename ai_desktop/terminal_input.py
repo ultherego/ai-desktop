@@ -24,7 +24,8 @@ import threading
 import time
 
 from .analysis_contract import MAX_MESSAGE_BYTES
-from .question_input import _KEYS, _PASTE_END, _PASTE_START, QuestionInputError, _Line, _safe_text, scroll_key
+from .question_input import (_KEYS, _PASTE_END, _PASTE_START, CONTROL_EDITS, QuestionInputError, _Line, _safe_text,
+                             edit_key, scroll_key)
 
 _ANSI = re.compile(r"\x1b\[[0-9;?<>]*[A-Za-z]")
 _current = None
@@ -374,11 +375,19 @@ class TypeAhead:
                         target.edit(edit)
                 elif key[:1] == b"[" and not 0x40 <= key[-1] <= 0x7E and len(key) < 32:
                     return                              # a longer sequence (a mouse report, PgUp) is still arriving
+                elif key[:1] == b"O" and len(key) == 2 and key[1:].isdigit():
+                    return                              # O5C: a modified arrow in application mode, one more byte
                 elif not any(known.startswith(key) for known in (*_KEYS, _PASTE_START, _PASTE_END[1:])):
                     self._sequence = None
                     scroll = scroll_key(key)
+                    named = edit_key(key) if scroll is None else None
                     if scroll is not None and scroll != b"ignore":
                         _view(self.frame, "scroll", scroll)       # the full-screen view's history; the draft stays
+                    elif scroll is not None:
+                        _view(self.frame, "mouse_event", key)     # a click or drag: the view's own selection
+                    elif named is not None:
+                        _view(self.frame, "scroll", b"scroll-end")
+                        target.edit(named)                        # Ctrl/Alt with arrows, Delete, Backspace
                 return
             if kind == "char" and len(buffer) == sequence[2]:
                 self._sequence = None
@@ -430,8 +439,10 @@ class TypeAhead:
                         print(_note("%s \u00b7 after the answer" % getattr(item, "label", item)))
                 self.queue.extend(items)
             return
-        if value in (b"\x08", b"\x7f"):
+        if value == b"\x7f":
             target.edit("backspace")
+        elif value in CONTROL_EDITS:
+            target.edit(CONTROL_EDITS[value])           # Ctrl+W/U/K, Ctrl+Backspace, Ctrl+Z
         elif value in (b"\x01", b"\x05", b"\x02", b"\x06"):
             target.edit({b"\x01": "home", b"\x05": "end", b"\x02": "left", b"\x06": "right"}[value])
         elif b" " <= value < b"\x7f":

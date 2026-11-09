@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-147: selecting, editing keys, resizing
+
+- Select text in the conversation with the mouse: drag with the left button, and releasing copies it to the clipboard (through the terminal, which also works inside Zellij or tmux, and with `wl-copy` on Wayland when it is installed). A double click selects a word or a path. Rows the window wrapped are copied as one line.
+- The input knows the usual editing keys: Ctrl/Alt+Left/Right move by words, Ctrl+Backspace, Alt+Backspace and Ctrl+W delete a word back, Ctrl+Delete and Alt+D a word forward, Ctrl+U and Ctrl+K to the start and end of the line, Home/End go to the start and end of the line (Ctrl+Home/End: of the whole message), Ctrl+Z undoes. The same keys work while an answer is being written.
+- Resizing the window no longer leaves empty rows between a question and what follows: the conversation stays right above the input, and earlier rows come back when the window grows.
+- A web search with `max` reasoning is no longer refused as `web-stream`: the transcript may now hold as much as the service keeps (512 KiB, 512 events).
+
 ## 0.1.0-146: full-screen conversation view
 
 - A conversation opens in a full-screen view: the input never scrolls away. PgUp/PgDn or the mouse wheel show earlier text, End or any key returns to the live conversation, and text arriving meanwhile is shown when you return. Hold Shift to select text with the mouse. The conversation is left in the terminal's history when it ends.

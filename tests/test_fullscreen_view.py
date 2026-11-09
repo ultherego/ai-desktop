@@ -258,3 +258,191 @@ class RealTerminalTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ResizeTests(unittest.TestCase):
+    """CachyOS check of candidate 146: a resize left blank rows between the question and the next text."""
+
+    def test_growing_brings_rows_back_and_the_end_stays_right_above_the_input(self):
+        model = ScreenModel(10, 20)
+        model.feed("\x1b[1;6r\x1b[1;1H" + "\n".join("row %d" % n for n in range(12)))
+        model.feed("\x1b7")                                       # the end of the conversation
+        model.feed("\x1b[9;1Hband")
+        model.refit(14, 20, old_top=6, new_top=10)
+        self.assertEqual([text(model, row) for row in range(10)], ["row %d" % n for n in range(2, 12)])
+        self.assertEqual(model.saved[0], 9)                       # the next text continues on the last area row
+        self.assertNotIn("band", [text(model, row) for row in range(14)])
+
+    def test_shrinking_sends_the_top_rows_to_the_history(self):
+        model = ScreenModel(10, 20)
+        model.feed("\x1b[1;6r\x1b[1;1H" + "\n".join("row %d" % n for n in range(4)) + "\x1b7")
+        model.refit(7, 20, old_top=6, new_top=3)
+        self.assertEqual([text(model, row) for row in range(3)], ["row 1", "row 2", "row 3"])
+        self.assertEqual([ScreenModel.render(row) for row in model.history], ["row 0"])
+        self.assertEqual(model.saved[0], 2)
+
+    def test_a_short_conversation_stays_at_the_top(self):
+        model = ScreenModel(10, 20)
+        model.feed("\x1b[1;6r\x1b[1;1Hone\ntwo\x1b7")
+        model.refit(14, 20, old_top=6, new_top=10)
+        self.assertEqual([text(model, 0), text(model, 1), text(model, 2)], ["one", "two", ""])
+        self.assertEqual(model.saved[0], 1)
+
+    def test_the_frame_redraws_without_a_gap_after_a_resize(self):
+        frame, terminal = FrameTests.frame(self)
+        for number in range(30):
+            print("row %d" % number)
+        frame.enter()
+        sizes = iter([(30, 60)] * 50)
+        with patch.object(terminal_frame, "_size", side_effect=lambda stream: next(sizes)):
+            frame.draw("", 0, typing=False)
+        model = frame.screen.model
+        self.assertEqual(text(model, model.saved[0] - 1), "row 29")   # the next text goes on the row below it
+        self.assertEqual(model.saved[0], frame._top() - 1)             # right above the input: no gap
+
+
+class SelectionTests(unittest.TestCase):
+    def setUp(self):
+        self.frame, self.terminal = FrameTests.frame(self)
+        self.copied = []
+        self.enterContext(patch.object(terminal_frame, "copy_to_clipboard",
+                                       side_effect=lambda text, stream, **_: self.copied.append(text) or True))
+
+    def click(self, kind, button, column, row):
+        self.frame.mouse_event(b"[<%d;%d;%d%s" % (button, column, row, kind.encode()))
+
+    def test_dragging_selects_and_releasing_copies_the_text(self):
+        print("first line of the answer")
+        print("second line")
+        top = self.frame._top()
+        start, rows = self.frame.screen.model.window(top, 0)
+        first = next(index for index, row in enumerate(rows) if "first" in ScreenModel.render(row)) + 1
+        self.click("M", 0, 7, first)
+        self.assertTrue(self.frame.screen.selecting)
+        print("LIVE DURING SELECTION")                          # held back until the selection ends
+        self.click("M", 32, 6, first + 1)
+        self.click("m", 0, 6, first + 1)
+        self.assertEqual(self.copied, ["line of the answer\nsecond"])
+        self.assertFalse(self.frame.screen.selecting)
+        self.assertIn("copied", self.terminal.getvalue())
+        self.assertIn("LIVE DURING SELECTION", self.terminal.getvalue())
+
+    def test_a_single_click_copies_nothing_and_a_double_click_takes_a_word(self):
+        print("path ~/projects/a.py here")
+        _, rows = self.frame.screen.model.window(self.frame._top(), 0)
+        row = next(index for index, cells in enumerate(rows) if "path" in ScreenModel.render(cells)) + 1
+        self.click("M", 0, 10, row)
+        self.click("m", 0, 10, row)
+        self.assertEqual(self.copied, [])
+        self.click("M", 0, 10, row)
+        self.click("m", 0, 10, row)
+        self.assertEqual(self.copied, ["~/projects/a.py"])
+
+    def test_a_key_ends_an_unfinished_selection(self):
+        print("text")
+        self.click("M", 0, 1, 1)
+        self.frame.scroll(b"scroll-end")
+        self.assertFalse(self.frame.screen.selecting)
+
+    def test_wrapped_rows_are_copied_as_one_line(self):
+        model = ScreenModel(5, 10)
+        model.feed("0123456789abcdef\nnext")
+        self.assertTrue(model.grid[1].wrapped)
+        self.assertFalse(model.grid[2].wrapped)
+        self.assertEqual(model.text_between(5, (0, 0), (2, 3)), "0123456789abcdef\nnext")
+
+
+class ClipboardTests(unittest.TestCase):
+    def test_osc_52_carries_the_text_and_wl_copy_runs_only_on_wayland(self):
+        import base64
+        launched = []
+
+        class Process:
+            def __init__(self, argv, **kwargs):
+                launched.append(argv)
+                self.stdin = io.BytesIO()
+        stream = io.StringIO()
+        with patch.object(terminal_frame.os.path, "isfile", return_value=True), \
+                patch.object(terminal_frame.os, "access", return_value=True), \
+                patch("subprocess.Popen", Process):
+            self.assertTrue(terminal_frame.copy_to_clipboard("zażółć", stream, environ={"WAYLAND_DISPLAY": "wayland-1"}))
+            terminal_frame.copy_to_clipboard("x", io.StringIO(), environ={})
+        self.assertIn("\x1b]52;c;" + base64.b64encode("zażółć".encode()).decode() + "\x07", stream.getvalue())
+        self.assertEqual(launched, [[terminal_frame.WL_COPY]])
+        self.assertFalse(terminal_frame.copy_to_clipboard("", io.StringIO(), environ={}))
+
+
+class EditingTests(unittest.TestCase):
+    def line(self, text, cursor=None):
+        line = question_input._Line(10000)
+        line.insert(text)
+        if cursor is not None:
+            line.cursor = cursor
+        return line
+
+    def test_words_lines_and_undo(self):
+        line = self.line("ala ma kota")
+        line.edit("word-left")
+        self.assertEqual(line.cursor, 7)
+        line.edit("word-left")
+        self.assertEqual(line.cursor, 4)
+        line.edit("word-right")
+        self.assertEqual(line.cursor, 6)
+        line.edit("kill-word-back")
+        self.assertEqual((line.text, line.cursor), ("ala  kota", 4))
+        line.edit("undo")
+        self.assertEqual(line.text, "ala ma kota")
+        line.cursor = 4
+        line.edit("kill-word-forward")
+        self.assertEqual(line.text, "ala  kota")
+        line = self.line("one\ntwo three", cursor=8)
+        line.edit("home")
+        self.assertEqual(line.cursor, 4)
+        line.edit("end")
+        self.assertEqual(line.cursor, 13)
+        line.edit("text-start")
+        self.assertEqual(line.cursor, 0)
+        line = self.line("one\ntwo three", cursor=8)
+        line.edit("kill-start")
+        self.assertEqual(line.text, "one\nthree")
+        line.edit("kill-end")
+        self.assertEqual(line.text, "one\n")
+
+    def test_a_paste_marker_is_cut_as_one_unit(self):
+        marker = "[paste #1: 3 lines, 10 B]"
+        line = self.line("see " + marker)
+        line.edit("kill-word-back")
+        self.assertEqual(line.text, "see ")
+
+    def test_terminal_key_forms_decode_to_the_same_edits(self):
+        cases = {b"[1;5D": "word-left", b"[1;3C": "word-right", b"[1;5H": "text-start", b"[1;5F": "text-end",
+                 b"[3;5~": "kill-word-forward", b"[127;5u": "kill-word-back", b"[119;5u": "kill-word-back",
+                 b"[117;5u": "kill-start", b"[107;5u": "kill-end", b"[122;5u": "undo", b"b": "word-left",
+                 b"f": "word-right", b"d": "kill-word-forward", b"\x7f": "kill-word-back", b"O5D": "word-left",
+                 b"[1;133D": "word-left"}
+        for key, expected in cases.items():
+            with self.subTest(key=key):
+                self.assertEqual(question_input.edit_key(key), expected)
+        for plain in (b"[D", b"[1;1D", b"[1;2D", b"[3~", b"[99;3u"):
+            self.assertIsNone(question_input.edit_key(plain))
+        self.assertEqual(question_input.CONTROL_EDITS[b"\x17"], "kill-word-back")
+
+    def test_the_turn_reader_edits_with_the_same_keys(self):
+        owner = terminal_input.TypeAhead.__new__(terminal_input.TypeAhead)
+        owner.frame = object()
+        owner.line = question_input._Line(1000)
+        owner._question = owner._answer = None
+        owner._sequence = None
+        owner._epoch = owner._sequence_epoch = 0
+        owner._paste_open = False
+        owner.commands, owner.pick, owner.queue = (), 0, []
+        for byte in b"ala ma kota\x1b[1;5D\x1b[1;5D\x17X\x1bfY":
+            owner._feed(bytes([byte]))
+        self.assertEqual(owner.line.text, "XmaY kota")                # Alt+F: to the end of the next word
+
+
+class WebLimitTests(unittest.TestCase):
+    def test_a_long_max_reasoning_transcript_fits(self):
+        from ai_desktop import web_search_result
+        self.assertGreaterEqual(web_search_result.MAX_EVENTS, 512)
+        self.assertGreaterEqual(web_search_result.MAX_STREAM_BYTES, 512 * 1024)

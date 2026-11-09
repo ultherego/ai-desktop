@@ -127,19 +127,127 @@ def _window(shown, cursor, available):
     return shown[start:end], widths[cursor] - widths[start]
 
 
+_WORD = re.compile(r"\w", re.UNICODE)
+EDITS = ("left", "right", "home", "end", "text-start", "text-end", "backspace", "delete", "up", "down",
+         "word-left", "word-right", "kill-word-back", "kill-word-forward", "kill-start", "kill-end", "undo")
+MAX_UNDO = 200
+
+
+def edit_key(key):
+    """The editing action of an escape sequence (without its ESC), or None. Covers the forms terminals send for
+    Ctrl/Alt with arrows, Home/End and Delete, Alt+letter, and the kitty keyboard protocol."""
+    alt = {b"b": "word-left", b"f": "word-right", b"d": "kill-word-forward", b"\x7f": "kill-word-back",
+           b"\x08": "kill-word-back", b"B": "word-left", b"F": "word-right", b"D": "kill-word-forward"}
+    if key in alt:
+        return alt[key]
+    match = re.fullmatch(rb"\[1;(\d+)([ABCDHF])", key) or re.fullmatch(rb"O(\d)([ABCDHF])", key)
+    if match:
+        held = (int(match.group(1)) - 1) & ~(64 | 128)
+        if not held & (2 | 4):
+            return None                                              # plain or Shift: the ordinary key decoding
+        return {b"C": "word-right", b"D": "word-left", b"A": "up", b"B": "down",
+                b"H": "text-start", b"F": "text-end"}[match.group(2)]
+    match = re.fullmatch(rb"\[3;(\d+)~", key)
+    if match:
+        return "kill-word-forward" if ((int(match.group(1)) - 1) & (2 | 4)) else None
+    match = re.fullmatch(rb"\[(\d+);(\d+)u", key)                   # kitty: [code;modifiers u
+    if match:
+        code, held = int(match.group(1)), (int(match.group(2)) - 1) & ~(64 | 128)
+        if code in (127, 8) and held & (2 | 4):
+            return "kill-word-back"
+        if held == 4:
+            return {119: "kill-word-back", 117: "kill-start", 107: "kill-end", 122: "undo", 95: "undo"}.get(code)
+        if held == 2:
+            return alt.get(bytes([code])) if code < 128 else None
+    return None
+
+
+CONTROL_EDITS = {b"\x17": "kill-word-back", b"\x15": "kill-start", b"\x0b": "kill-end", b"\x08": "kill-word-back",
+                 b"\x1f": "undo", b"\x1a": "undo"}
+
+
 class _Line:
     def __init__(self, limit):
         self.text, self.cursor, self.limit = "", 0, limit
         self.rows_total, self.row_drawn = 1, 0         # what is on the screen now (for redrawing a multi-row prompt)
+        self._undo = []
+
+    def _remember(self):
+        if not self._undo or self._undo[-1] != (self.text, self.cursor):
+            self._undo.append((self.text, self.cursor))
+            del self._undo[:-MAX_UNDO]
 
     def insert(self, text):
         result = self.text[:self.cursor] + text + self.text[self.cursor:]
         if len(result.encode("utf-8")) > self.limit:
             raise QuestionInputError("question limit")
+        if not text.isalnum():                       # a word typed is undone at once, not letter by letter
+            self._remember()
         self.text = result
         self.cursor += len(text)
 
+    def _word_start(self, position):
+        while position and not _WORD.match(self.text[position - 1]):
+            position -= 1
+        while position and _WORD.match(self.text[position - 1]):
+            position -= 1
+        return position
+
+    def _word_end(self, position):
+        length = len(self.text)
+        while position < length and not _WORD.match(self.text[position]):
+            position += 1
+        while position < length and _WORD.match(self.text[position]):
+            position += 1
+        return position
+
+    def _line_bounds(self):
+        start = self.text.rfind("\n", 0, self.cursor) + 1
+        end = self.text.find("\n", self.cursor)
+        return start, len(self.text) if end == -1 else end
+
+    def _cut(self, start, end):
+        """Delete text[start:end]; a paste marker it touches goes as one unit."""
+        for marker in _TOKEN_START.finditer(self.text):
+            if marker.start() < end and marker.end() > start:
+                start, end = min(start, marker.start()), max(end, marker.end())
+        if start < end:
+            self._remember()
+            self.text = self.text[:start] + self.text[end:]
+        self.cursor = start
+
     def edit(self, key):
+        if key == "word-left":
+            self.cursor = self._word_start(self.cursor)
+        elif key == "word-right":
+            self.cursor = self._word_end(self.cursor)
+        elif key == "kill-word-back":
+            self._cut(self._word_start(self.cursor), self.cursor)
+        elif key == "kill-word-forward":
+            self._cut(self.cursor, self._word_end(self.cursor))
+        elif key == "kill-start":
+            start, _ = self._line_bounds()
+            self._cut(start if start < self.cursor else max(0, start - 1), self.cursor)
+        elif key == "kill-end":
+            _, end = self._line_bounds()
+            self._cut(self.cursor, end if end > self.cursor else min(len(self.text), end + 1))
+        elif key == "undo":
+            if self._undo:
+                self.text, self.cursor = self._undo.pop()
+        elif key == "text-start":
+            self.cursor = 0
+        elif key == "text-end":
+            self.cursor = len(self.text)
+        elif key in ("home", "end") and "\n" in self.text:
+            start, end = self._line_bounds()                  # in a multi-line message: the current line
+            self.cursor = start if key == "home" else end
+        elif key in ("backspace", "delete"):
+            self._remember()
+            self._plain(key)
+        else:
+            self._plain(key)
+
+    def _plain(self, key):
         if key == "left":
             self.cursor = max(0, self.cursor - 1)
         elif key == "right":
@@ -283,7 +391,8 @@ def _escape_ext(fd):
         second = os.read(fd, 1) if select.select([fd], [], [], .15)[0] else b""
         return first + second if first + second in _KEYS else b"ignore"
     if first != b"[":
-        return b"ignore"
+        named = edit_key(first)                                # Alt+B/F/D/Backspace
+        return b"edit:" + named.encode() if named else b"ignore"
     body = b""
     while len(body) < 24 and select.select([fd], [], [], .15)[0]:
         byte = os.read(fd, 1)
@@ -294,8 +403,13 @@ def _escape_ext(fd):
             break
     key = b"[" + body
     scroll = scroll_key(key)
+    if scroll == b"ignore":
+        return b"mouse:" + key                                  # a click or drag: the full-screen view's selection
     if scroll is not None:
         return scroll
+    named = edit_key(key)
+    if named is not None:
+        return b"edit:" + named.encode()
     key = _without_locks(key)
     if key in _KEYS or key == _PASTE_START:
         return key
@@ -544,6 +658,10 @@ def read_question(*, max_bytes=MAX_QUESTION_BYTES, followup=False, prompt=None, 
                     extended = _escape_ext(fd)
                     if extended == b"ctrl-c":
                         raise KeyboardInterrupt()
+                if extended is not None and extended.startswith(b"mouse:"):
+                    if frame is not None:
+                        terminal_frame._call(frame, "mouse_event", extended[6:])
+                    continue
                 if extended in SCROLL_KEYS:
                     if frame is not None:
                         terminal_frame._call(frame, "scroll", extended)                      # the full-screen view's history; the text stays
@@ -605,8 +723,10 @@ def read_question(*, max_bytes=MAX_QUESTION_BYTES, followup=False, prompt=None, 
                 if not line.text:
                     raise EOFError()
                 line.edit("delete")
-            elif value in (b"\x08", b"\x7f"):
+            elif value == b"\x7f":
                 line.edit("backspace")
+            elif value in CONTROL_EDITS:
+                line.edit(CONTROL_EDITS[value])                     # Ctrl+W/U/K, Ctrl+Backspace, Ctrl+Z
             elif value in (b"\x01", b"\x05", b"\x02", b"\x06"):
                 line.edit({b"\x01": "home", b"\x05": "end", b"\x02": "left", b"\x06": "right"}[value])
             elif value == b"\x1b":
@@ -622,6 +742,8 @@ def read_question(*, max_bytes=MAX_QUESTION_BYTES, followup=False, prompt=None, 
                         line.insert("\n")
                 elif key == b"ignore":
                     pass
+                elif key.startswith(b"edit:"):
+                    line.edit(key[5:].decode())
                 elif key == _PASTE_START and attach:
                     block = _paste(fd, session.paste_bytes + 1024, newlines=True)
                     if "\n" in block or len(block.encode("utf-8")) >= ATTACH_MIN_BYTES:

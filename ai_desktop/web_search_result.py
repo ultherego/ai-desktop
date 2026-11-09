@@ -16,8 +16,8 @@ from .analysis_contract import AnalysisDenied, MAX_TEXT, ModelText, terminal_tex
 from .e2_ipc import _unique_pairs
 from .provider_errors import classify_failure
 
-MAX_STREAM_BYTES = 131072
-MAX_EVENTS = 64
+MAX_STREAM_BYTES = 512 * 1024      # the service keeps the same; `max` reasoning writes many thinking blocks
+MAX_EVENTS = 512                    # `max` reasoning adds many thinking-token notices
 MAX_CALLS = 2
 MAX_TURNS = 4
 MAX_SOURCES = 8

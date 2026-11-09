@@ -584,7 +584,7 @@ class PromptSessionTerminalTests(unittest.TestCase):
     def test_history_and_cursor_keys_work_with_lock_bits_and_other_modifiers_are_ignored(self):
         output = self.run_script(self.READS.format(attach=False, count=2),
                                  [b"pierwsze\r", b"\x1b[1;129A\x1b[1;129D\x1b[3;129~\x1b[1;5C\x1b[1;2A\r"])
-        # Up (num lock) recalls, Left moves, Delete removes one character, Ctrl+Right and Shift+Up are ignored
+        # Up (num lock) recalls, Left moves, Delete removes one character, Ctrl+Right moves a word (already at the end), Shift+Up is ignored
         self.assertEqual([r[0] for r in self.results(output)], ["pierwsze", "pierwsz"])
 
 
@@ -630,9 +630,9 @@ class KeyDecodingMatrixTests(unittest.TestCase):
                 with self.subTest(lock=name, code=code):
                     self.assertEqual(self.decode(b"[%s;%du" % (code, 5 + lock)), expected)
                     self.assertEqual(self.decode(b"[27;%d;%s~" % (5 + lock, code)), expected)
-            with self.subTest(lock=name, other="ctrl+shift+c, alt+c, ctrl+left"):
+            with self.subTest(lock=name, other="ctrl+shift+c, alt+c; ctrl+left moves a word"):
                 self.assertEqual(self.decode(b"[99;%du" % (6 + lock)), b"ignore")
                 self.assertEqual(self.decode(b"[99;%du" % (3 + lock)), b"ignore")
-                self.assertEqual(self.decode(b"[1;%dD" % (5 + lock)), b"ignore")
+                self.assertEqual(self.decode(b"[1;%dD" % (5 + lock)), b"edit:word-left")
         self.assertEqual(self.decode(b"[15~"), b"ignore")                                      # F5
         self.assertEqual(self.decode(b"[?0u"), b"ignore")                                      # a late keyboard-protocol reply
