@@ -117,22 +117,17 @@ def inspect_state(workspace, operations):
         os.close(fd)
 
 
-def _remove_verified(fd, name, accept):
-    """Remove name only if it is a single-link regular file accepted by accept(info, content). Returns True when
-    retired (removed or absent).
+def retire_name(plan_sha, leaf):
+    """The name an entry is moved to before it is checked and removed. It is derived from the journal (plan and file
+    name), never random, so a run interrupted between the move and the removal is found and finished by the next one
+    instead of leaving the file hidden and reporting it gone."""
+    return ".ai-desktop-retire-" + hashlib.sha256(("%s\0%s" % (plan_sha, leaf)).encode("utf-8")).hexdigest()[:16]
 
-    The entry is first moved aside atomically and the object that was actually moved is checked, so an editor that
-    publishes a newer version under `name` meanwhile keeps it: checking an open file and then unlinking the name would
-    delete whatever the name points to by then. A moved object that is not ours goes back, or stays aside when the
-    name was taken again; it is never deleted."""
+
+def _check_aside(fd, name, aside, accept):
+    """The object at `aside` is removed when accept(info, content) says it is ours; anything else goes back to `name`,
+    or stays aside when that name was taken meanwhile. It is never deleted. True when removed."""
     from .fs_publish import rename_noreplace
-    aside = ".ai-desktop-retire-" + secrets.token_hex(8)
-    try:
-        rename_noreplace(fd, name, fd, aside)
-    except FileNotFoundError:
-        return True                    # already absent: retire this entry, never delete a later arrival
-    except OSError:
-        return False
     keep = True
     try:
         source = os.open(aside, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, dir_fd=fd)
@@ -156,6 +151,37 @@ def _remove_verified(fd, name, accept):
                 rename_noreplace(fd, aside, fd, name)      # not ours: back where it was, if that place is still free
             except OSError:
                 pass
+
+
+def _remove_verified(fd, name, accept, aside=None):
+    """Remove name only if it is a single-link regular file accepted by accept(info, content). Returns True when
+    retired (removed or absent).
+
+    The entry is first moved aside atomically and the object that was actually moved is checked, so an editor that
+    publishes a newer version under `name` meanwhile keeps it: checking an open file and then unlinking the name would
+    delete whatever the name points to by then. A moved object that is not ours goes back, or stays aside when the
+    name was taken again; it is never deleted. With a journal-derived `aside` (see `retire_name`), an object left
+    there by an interrupted earlier run is finished first."""
+    from .fs_publish import rename_noreplace
+    if aside is None:
+        aside = ".ai-desktop-retire-" + secrets.token_hex(8)
+    else:
+        try:
+            os.lstat(aside, dir_fd=fd)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            return False
+        else:
+            if not _check_aside(fd, name, aside, accept):
+                return False               # left by an earlier run and not ours: kept, reported as a conflict
+    try:
+        rename_noreplace(fd, name, fd, aside)
+    except FileNotFoundError:
+        return True                    # already absent: retire this entry, never delete a later arrival
+    except OSError:
+        return False
+    return _check_aside(fd, name, aside, accept)
 
 
 class WorkspaceExecutor:
@@ -221,7 +247,9 @@ class WorkspaceExecutor:
             def ours(info, content, inode=inode, digest=digest):
                 return (info.st_ino == inode and
                         hashlib.sha256(content).digest() == digest)
-            if _remove_verified(fd, name, ours):
+            plan = getattr(self, "_plan_hash", None)
+            aside = retire_name(plan, name) if plan else None
+            if _remove_verified(fd, name, ours, aside):
                 os.close(fd)
             else:
                 pending.append((fd, name, inode, digest))
@@ -330,7 +358,7 @@ class WorkspaceExecutor:
 
 
 
-def _retire_entry(root_fd, entry):
+def _retire_entry(root_fd, entry, plan_sha):
     """Remove one journaled file only if it is verifiably the one we created."""
     wanted = entry["content"].encode("utf-8")
     inode = entry["inode"]
@@ -349,7 +377,7 @@ def _retire_entry(root_fd, entry):
     except (OSError, ExecutionDenied):
         return False
     try:
-        return _remove_verified(parent, name, ours)
+        return _remove_verified(parent, name, ours, retire_name(plan_sha, name))
     finally:
         os.close(parent)
 
@@ -382,7 +410,7 @@ def recover(workspace, rollback_plans=()):
                 continue
             clean = True
             for entry in reversed(doc["entries"]):
-                clean = _retire_entry(root_fd, entry) and clean
+                clean = _retire_entry(root_fd, entry, doc["plan_sha256"]) and clean
             try:
                 if not clean:
                     raise ExecutionDenied("EXECUTOR: ROLLBACK FAILED")

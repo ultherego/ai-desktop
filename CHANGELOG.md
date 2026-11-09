@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-130: the last review finding
+
+- `ai-desktop workspace recover` and an undo of `ai-desktop workspace apply` finish a file that an interrupted earlier run left under a hidden `.ai-desktop-retire-…` name, instead of reporting the undo as done while the file stayed hidden. A file that is not the one the plan created goes back under its name and the undo is reported as a conflict.
+- README describes the `/` menus above the input.
+
 ## 0.1.0-129: `/` menus above the input
 
 - Every `/` menu of a conversation (`/model`, `/effort`, `/skills`, `/agent`, `/provider`) opens in the list above the input, where the `/` commands are listed, not in the conversation. During an answer the conversation keeps scrolling normally, the menu waits for you, and a password or a consent question can still be asked meanwhile.

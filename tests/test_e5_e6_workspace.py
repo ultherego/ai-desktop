@@ -149,18 +149,60 @@ class E5E6WorkspaceTests(unittest.TestCase):
         target = self.root / "notes/new.txt"
         real = __import__("ai_desktop.workspace_executor", fromlist=["x"])._remove_verified
 
-        def editor_saves_during_the_check(fd, name, accept):
+        def editor_saves_during_the_check(fd, name, accept, aside=None):
             def accept_after_a_save(info, content):
                 fresh = target.with_name(".editor-tmp")
                 fresh.write_text("SYNTHETIC NEWER EDITOR SAVE")
                 os.replace(fresh, target)              # an editor publishes a new version atomically
                 return accept(info, content)
-            return real(fd, name, accept_after_a_save)
+            return real(fd, name, accept_after_a_save, aside)
 
         with patch("ai_desktop.workspace_executor._remove_verified", side_effect=editor_saves_during_the_check):
             executor.rollback()
         self.assertEqual(target.read_text(), "SYNTHETIC NEWER EDITOR SAVE")
         self.assertEqual([p.name for p in target.parent.iterdir() if p.name.startswith(".ai-desktop-retire-")], [])
+
+    def interrupted_after_the_move(self, replace_with=None):
+        """An applied plan whose undo stopped right after moving the file aside (the process died there)."""
+        from ai_desktop import workspace_executor as wx
+        session, approval = self.approved(self.ops)
+        executor = WorkspaceExecutor(str(self.root))
+        try:
+            plan = executor.apply(session, approval)["plan_sha256"]
+        finally:
+            executor.close()
+        target = self.root / "notes/new.txt"
+        if replace_with is not None:                   # the name was the user's own file by then
+            target.unlink()
+            target.write_text(replace_with)
+        aside = target.with_name(wx.retire_name(plan, "new.txt"))
+        os.rename(target, aside)
+        return plan, target, aside
+
+    def test_a_file_left_aside_by_an_interrupted_undo_is_finished_by_recovery(self):
+        """Review finding 2: the name was absent, so the entry counted as removed while the file stayed hidden."""
+        from ai_desktop.workspace_executor import recover
+        plan, target, aside = self.interrupted_after_the_move()
+        result = recover(str(self.root), rollback_plans=[plan])
+        self.assertEqual((result["recovered"], result["conflicts"]), (1, 0))
+        self.assertFalse(target.exists())
+        self.assertFalse(aside.exists())                         # finished, not hidden
+        self.assertEqual([p.name for p in target.parent.iterdir() if p.name.startswith(".ai-desktop-retire-")], [])
+
+    def test_a_user_file_left_aside_goes_back_and_the_undo_is_a_conflict(self):
+        from ai_desktop.workspace_executor import recover
+        plan, target, aside = self.interrupted_after_the_move(replace_with="SYNTHETIC USER FILE")
+        result = recover(str(self.root), rollback_plans=[plan])
+        self.assertEqual((result["recovered"], result["conflicts"]), (0, 1))
+        self.assertEqual(target.read_text(), "SYNTHETIC USER FILE")    # back under its name, never deleted
+        self.assertFalse(aside.exists())
+
+    def test_the_aside_name_comes_from_the_journal(self):
+        from ai_desktop.workspace_executor import retire_name
+        self.assertEqual(retire_name("a" * 64, "x.txt"), retire_name("a" * 64, "x.txt"))
+        self.assertNotEqual(retire_name("a" * 64, "x.txt"), retire_name("b" * 64, "x.txt"))
+        self.assertNotEqual(retire_name("a" * 64, "x.txt"), retire_name("a" * 64, "y.txt"))
+        self.assertRegex(retire_name("a" * 64, "x.txt"), r"\A\.ai-desktop-retire-[0-9a-f]{16}\Z")
 
     def test_partial_rollback_retains_only_failed_entries_for_retry(self):
         ops = self.ops + [
