@@ -13,6 +13,8 @@ The link is let go, and the next request opens anew, when:
   closing);
 - a request failed in transport (the connection is closed, which also cancels the request in the service);
 - the service closed the connection, or the session helper ended (e.g. `ai-desktop stop` in another terminal).
+A session whose cleanup could not be confirmed (no `STOPPED` from its helper, whatever the reason) is reported when the
+conversation ends, also when it was replaced earlier so that a question could go on.
 A local recipient needs no privileged session; its requests never use the link.
 """
 from contextlib import ExitStack, contextmanager, nullcontext
@@ -39,6 +41,7 @@ class Link:
         self._opened = self._used = 0.0
         self._conn = self._endpoint = None
         self._conn_used = 0.0
+        self._unconfirmed = False          # a replaced session whose cleanup was not confirmed: reported at the end
 
     # -- the privileged session ------------------------------------------------------------------------------------
 
@@ -62,7 +65,11 @@ class Link:
         """The kept session for one request: opened (with `waiting` around the sudo prompt) when there is none or it
         can no longer be used. It stays open after the request."""
         if not self._session_usable():
-            self.close()
+            try:
+                self.close()
+            except AnalysisDenied:
+                # The question goes on with a new session; the missing confirmation is not forgotten.
+                self._unconfirmed = True
             stack = ExitStack()
             try:
                 with (waiting() if waiting is not None else nullcontext()):
@@ -112,23 +119,20 @@ class Link:
     # -- the end ---------------------------------------------------------------------------------------------------
 
     def close(self):
-        """Close the connection, then the session; a failed confirmation of the session's cleanup is raised."""
+        """Close the connection, then the session. A cleanup that was not confirmed, now or for a session replaced
+        earlier in the conversation, is raised: a helper that has ended is no proof that its cleanup succeeded."""
         conn, self._conn = self._conn, None
         if conn is not None:
             _close(conn)
-        stack, session, self._stack, self._session = self._stack, self._session, None, None
-        if stack is None:
-            return
-        if session is not None and callable(getattr(session, "alive", None)) and not session.alive():
-            # The helper already ended (another terminal ran `ai-desktop stop`, or its time ran out): its own cleanup
-            # ran in PID1; only the local pipe is left to close.
+        stack, self._stack, self._session = self._stack, None, None
+        unconfirmed, self._unconfirmed = self._unconfirmed, False
+        if stack is not None:
             try:
                 stack.close()
             except AnalysisDenied:
-                pass
-            return
-        stack.close()
-
+                raise AnalysisDenied("cleanup") from None
+        if unconfirmed:
+            raise AnalysisDenied("cleanup")
 
 def _close(conn):
     try:

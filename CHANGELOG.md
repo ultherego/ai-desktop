@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-138: an unconfirmed session cleanup is never reported as success
+
+- If the kept session of a conversation ended without confirming its cleanup (for example its helper failed, or `ai-desktop stop` ran in another terminal), the conversation still goes on with a new session, but when it ends it says it could not confirm that the session ended, points to `ai-desktop stop` and exits with code 2.
+
 ## 0.1.0-137: a conversation keeps its session
 
 - A conversation (`ai-desktop ask`) opens its session once and keeps it, together with its connection to the service, for the following questions: no `sudo` and no service start before each question, so answers start sooner. Every question is still approved, checked and answered in a fresh sandbox on its own.

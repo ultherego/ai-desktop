@@ -2,9 +2,12 @@
 from contextlib import contextmanager
 import signal
 import socket
+import subprocess
+import sys
 import unittest
 from unittest.mock import patch
 
+from ai_desktop import analysis_session as daily
 from ai_desktop import analysis_contract as contract, analysis_service as service, conversation_link as link_module
 from ai_desktop.analysis_contract import AnalysisConsent, AnalysisDenied
 from ai_desktop.conversation_link import Link, MARGIN, held
@@ -108,13 +111,25 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(len(opened(self.opener)), 2)
         self.assertLess(LIFETIME, contract.HOLD_SECONDS - contract.SESSION_SECONDS + 1)
 
-    def test_a_helper_that_ended_elsewhere_is_replaced_and_its_cleanup_error_ignored(self):
+    def test_a_helper_that_ended_is_replaced_and_its_unconfirmed_cleanup_reported_at_the_end(self):
         self.opener.fail_close = True
         self.use()
-        self.opener.sessions[0].living = False      # e.g. `ai-desktop stop` in another terminal
+        self.opener.sessions[0].living = False      # e.g. `ai-desktop stop` elsewhere, or the helper failed
+        self.use()                                  # its close fails; the question still goes on, with a new session
         self.opener.fail_close = False
-        self.use()
         self.assertEqual([event[0] for event in self.opener.events], ["open", "close", "open"])
+        with self.assertRaises(AnalysisDenied) as raised:
+            self.link.close()
+        self.assertEqual(raised.exception.reason, "cleanup")
+        self.assertEqual(self.opener.events[-1], ("close",))   # the new session was still closed
+        self.link.close()                                       # reported once
+
+    def test_a_helper_that_ended_with_a_confirmed_cleanup_is_not_reported(self):
+        self.use()
+        self.opener.sessions[0].living = False
+        self.use()
+        self.link.close()
+        self.assertEqual([event[0] for event in self.opener.events], ["open", "close", "open", "close"])
 
     def test_a_failed_cleanup_of_a_living_session_is_reported(self):
         self.opener.fail_close = True
@@ -199,6 +214,40 @@ class ConnectionTests(unittest.TestCase):
         self.link.keep(self.desktop, "endpoint")
         self.link.close()
         self.assertEqual(self.desktop.fileno(), -1)
+
+
+class RealHelperTests(unittest.TestCase):
+    """The real `Session` on a real process and pipes: a helper that ends without `SESSION1 STOPPED` is a cleanup
+    failure, never a quiet success (external review of candidate 137)."""
+
+    def opener(self, script):
+        @contextmanager
+        def open_session(**kwargs):
+            process = subprocess.Popen([sys.executable, "-I", "-c", script], stdin=subprocess.PIPE,
+                                       stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            session = daily.Session(process)
+            try:
+                session.start()
+                yield session
+            finally:
+                session.close()
+        return open_session
+
+    READY = "import os, sys; os.write(1, b'SESSION1 READY\\n'); "
+
+    def test_a_helper_that_exits_without_stopped_is_reported(self):
+        with self.assertRaises(AnalysisDenied) as raised:
+            with held(self.opener(self.READY + "sys.exit(7)")) as link:
+                with link.session():
+                    pass
+                link._session.process.wait(timeout=10)       # it has ended: no proof of its cleanup
+        self.assertEqual(raised.exception.reason, "cleanup")
+
+    def test_a_helper_that_confirms_its_cleanup_ends_quietly(self):
+        script = self.READY + "sys.stdin.buffer.read(); os.write(1, b'SESSION1 STOPPED\\n')"
+        with held(self.opener(script)) as link:
+            with link.session():
+                pass
 
 
 class HeldTests(unittest.TestCase):
