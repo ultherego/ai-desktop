@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** CachyOS check of candidate 137 (one conversation asks `sudo` once, several questions in a row and in several terminals, a pause over 15 minutes, `ai-desktop stop` from another terminal), then Codex answers while they are written (test after the maintainer's Codex limit resets around 2026-11-12), then one native client process per conversation, then the S9 task flow. S0 and S7 remain deferred.
+**Next step:** a web search and a file edit in one question (today separate modes), then Codex answers while they are written (test after the maintainer's Codex limit resets around 2026-11-12), then one native client process per conversation, then the S9 task flow. S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -271,6 +271,7 @@ Earlier dated entries preserve the evidence and status at that point. The latest
   - Each conversation has its own session and connection, so terminals stay independent (the maintainer's requirement of 2026-11-09).
   - Ctrl+C stops the answer and keeps the conversation and its session (before, it closed the session too).
   - Tests: `tests/test_conversation_link.py` (one session for several questions, the `sudo` wait only around opening, idle and lifetime expiry, a helper ended elsewhere, cleanup failure, a failed or interrupted opening, connection reuse, closure by the service, unexpected data, a replaced endpoint, `send_once` reuse, a failed response, Ctrl+C, a refusal keeping the connection, the one safe resend and no resend otherwise); conversation tests now expect one session per conversation, and the earlier per-request checks (policy revoked, context changed or the deadline passing while a session starts) run with the session reopened for each request. CI real-systemd stage `daily-conversation`: two requests through the installed service share one session and one connection, then everything is cleaned up.
+- PR #48 merged. CachyOS acceptance of candidate 137: several questions in one conversation asked for `sudo` once; a question with several steps ran without `sudo` between them; several terminals at once, none "busy"; a question after a pause over 15 minutes; `ai-desktop stop` from another terminal, then a question in the first one; Ctrl+C during an answer, then the next question without `sudo`, and the session stopped after `/exit`.
 
 ### 2026-11-09 — Candidate 133: second external review
 
