@@ -216,9 +216,8 @@ class WebSearchResultTests(unittest.TestCase):
 
     def test_answer_requires_exact_schema_bounded_unique_sources_and_references(self):
         for update in ({"sources": []}, {"sources": ["https://www.python.org/about/"] * 2},
-                       {"sources": "https://www.python.org/about/"}, {"answer": "Bez źródła"},
+                       {"sources": "https://www.python.org/about/"}, 
                        {"answer": "Wynik [2]."}, {"answer": "Wynik [1] [99999]."},
-                       {"answer": "Zobacz https://other.example/"},      # an unlisted address is no citation
                        {"answer": "x" * 8193 + " [1]"}, {"answer": "\x1b[31mWynik [1]"},
                        {"extra": True}):
             events = web_events()
@@ -244,6 +243,16 @@ class WebSearchResultTests(unittest.TestCase):
                 self.assertIn(shown, body)
                 self.assertNotIn(hidden, body)
                 self.assertIn("[1] About Python", text)
+
+    def test_an_answer_without_reference_numbers_is_shown_with_its_checked_sources(self):
+        for answer in ("Bez numerów źródeł.", "Zobacz [dokumentację](https://other.example/x).",
+                       "```python\nprint(2)\n```"):
+            events = web_events()
+            final_answer(events, answer=answer)
+            with self.subTest(answer=answer):
+                text = web_text(stream(events))
+                self.assertIn("\nSources:\n[1] About Python", text)
+                self.assertNotIn("other.example", text)
 
     def test_a_reference_followed_by_a_colon_inside_a_sentence_is_text(self):
         events = web_events()

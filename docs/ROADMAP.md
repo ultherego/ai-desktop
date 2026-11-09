@@ -285,6 +285,7 @@ Done together in one PR, as the maintainer asked ("rób całość, nie rozdziela
 - **Codex live answers.** The Codex protocol forwards the deltas of the one answer message (never commentary) from the sandboxed child as `{"partial": …}` lines; the service's `CodexStream` removes them before the result checks and sends the same bounded live frames as for Claude. Tests: `tests/test_codex_live.py`. A real Codex request (also under its system-call filter) is still to be checked after the maintainer's Codex limit resets around 2026-11-12.
 - Not in this candidate, and why: one native client process per conversation would replace the fresh sandbox per request, a change of the isolation design that needs its own decision; S9 is its own stage; a full-screen conversation view waits for the maintainer's choice.
 - **READY FOR TEST**, candidate **0.1.0-140**.
+- CachyOS check of candidate 140: "search the web and create ~/a.py with a prime-number script" searched, but the answer was refused with `web-answer-references`: its text cited no source number (a code example, or citations written as links, which 140 turns into plain text unless the address is a listed source). Every listed source is already proven to come from this search, so a text without numbers is now shown with the list below it; a number outside the list is still refused. Candidate **0.1.0-141**, **READY FOR TEST**.
 
 ### 2026-11-09 — Candidate 133: second external review
 

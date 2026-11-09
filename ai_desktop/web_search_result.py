@@ -315,10 +315,11 @@ def _answer(raw, observed):
         if re.search(r"\]\(", answer) or re.search(r"^ {0,3}\[[0-9]+\]:", answer, re.M):
             raise ValueError("references")
         check = "web-answer-references"
-        # Every reference must name a listed source and at least one must be cited. A listed source the text does
-        # not cite stays in the list: its address was already proven to come from this search.
+        # Every reference must name a listed source. A text that cites none is still shown with the list below it
+        # (CachyOS check of candidate 140: an answer with code and no numbers was refused): every listed address was
+        # already proven to come from this search.
         references = {int(number) for number in re.findall(r"\[([0-9]+)\]", answer)}
-        if not references or not references <= set(range(1, len(sources) + 1)):
+        if not references <= set(range(1, len(sources) + 1)):
             raise ValueError("references")
         check = "web-answer-render"
         lines = [answer, "", "Sources:"]

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-141: a web answer without reference numbers is shown
+
+- A web answer whose text cites no source number (for example one with only a code example) is no longer refused with `web-answer-references`; its checked sources are listed below it as always. A number that names no listed source is still refused.
+
 ## 0.1.0-140: search the web and then edit, Codex answers while written
 
 - One question can now search the web first and then work locally with what was found: change a file (with the usual diff and yes), run your allowed commands or read files. The search answer with its sources is shown first; the search itself still never receives your files or command output, and a question searches at most once.
