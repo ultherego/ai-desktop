@@ -508,6 +508,8 @@ _REFUSALS = {
     "journal changed": "The task history changed after it was shown, so nothing was removed. Run the command again.",
     "journal unfinished": "An entry is no longer finished, so nothing was removed. Check ai-desktop task status.",
     "BlockingIOError": "Another ai-desktop task is using this directory right now. Wait for it to finish, then try again.",
+    "save interrupted": "The save stopped part-way because a file changed meanwhile. Check ai-desktop task status, "
+                        "then task rollback for this directory.",
 }
 
 

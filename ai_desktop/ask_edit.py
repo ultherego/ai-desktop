@@ -20,6 +20,26 @@ class EditDenied(AnalysisDenied):
     """A local edit selection or its bound state was refused."""
 
 
+class EditConflict(EditDenied):
+    """The file changed after it was read (another terminal or an editor): nothing was overwritten."""
+
+
+class EditInterrupted(EditDenied):
+    """The save stopped after it began: `saved` of `total` files are written, the journal awaits recovery."""
+
+    def __init__(self, saved, total):
+        self.saved, self.total = saved, total
+        super().__init__("input")
+
+
+class EditBusy(EditDenied):
+    """Another terminal is saving in this directory right now: nothing was written."""
+
+
+# Expected version conflicts of a write; each ends only this proposal, never the conversation.
+CONFLICTS = frozenset({"workspace changed", "source changed", "changed target", "changed file"})
+
+
 class CreateCollision(EditDenied):
     """A validated creation path exists; never includes its contents."""
 
@@ -72,11 +92,18 @@ class WriteGrant:
                 raise ValueError()
             if self._policy.require_write(self._targets, index=self._index) != self._targets:
                 raise ValueError()
-            task_workspace.unchanged(self._before)
+            try:
+                task_workspace.unchanged(self._before)
+            except ValueError as exc:
+                if exc.args and exc.args[0] in CONFLICTS:
+                    raise EditConflict("input") from None      # another terminal or an editor saved the file
+                raise
             self._snapshot.require_claude()
             if (self._snapshot.policy is not self._policy or self._binding() != self._state
                     or canonical({"access": self._snapshot.access, "sources": self._snapshot.sources}) != self._policy_state):
                 raise ValueError()
+        except EditConflict:
+            raise
         except (OSError, ValueError, TypeError, KeyError, AttributeError, ExecutionDenied):
             raise EditDenied("input") from None
 
@@ -252,8 +279,26 @@ def finish(prepared, response, args, reader):
     try:
         code = finish_task(prepared.before, prepared.source, response, SimpleNamespace(**values), reader,
                            write_guard=prepared.write_grant.check, project_test=prepared.project_test)
+    except EditConflict:
+        conversation_state.note_action("Change NOT saved: the file changed after it was read; nothing was overwritten")
+        raise
+    except task_workspace.SaveInterrupted as stopped:
+        # Not a refusal before writing: some files may be written. The truth goes to the conversation, with recovery.
+        conversation_state.note_action(
+            "Change INTERRUPTED while saving: %d of %d file(s) confirmed saved, the rest may differ; "
+            "check ai-desktop task status --workspace %s, then task rollback" % (stopped.saved, stopped.total,
+                                                                                  prepared.workspace))
+        raise EditInterrupted(stopped.saved, stopped.total) from None
     except (ExecutionDenied, RecursionError):
         raise EditDenied("input") from None
+    except BlockingIOError:
+        conversation_state.note_action("Change NOT saved: another terminal was saving in this directory")
+        raise EditBusy("input") from None
+    except ValueError as exc:
+        if not (exc.args and exc.args[0] in CONFLICTS):
+            raise
+        conversation_state.note_action("Change NOT saved: the file changed after it was read; nothing was overwritten")
+        raise EditConflict("input") from None
     conversation_state.note_action(_change_fact(response, code, prepared.check))
     return CompletedTask(code)
 

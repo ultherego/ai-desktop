@@ -352,10 +352,40 @@ w.apply(plan,plan.authorize('SAVE '+plan.sha256))
                 for journal in (self.root / workspace.STATE).glob("*.json"):
                     journal.unlink()
 
+    def test_a_file_changed_after_an_earlier_one_was_saved_is_an_interrupted_save_not_a_refusal(self):
+        """Review of 133: with A saved and B changed by an editor meanwhile, the save stopped at B but the
+        conversation was told nothing was saved."""
+        (self.root / "other.py").write_text("old other\n")
+        plan = self.plan(names=["calc.py", "other.py"])
+        real_save = workspace._save
+
+        def editor_saves_other_after_the_first_file(fd, name, value, **kwargs):
+            real_save(fd, name, value, **kwargs)
+            if value["entries"][0]["published"] and not value["entries"][1]["published"]:
+                (self.root / "other.py").write_text("SYNTHETIC EDITOR\n")
+        with patch.object(workspace, "_save", side_effect=editor_saves_other_after_the_first_file), \
+                self.assertRaises(workspace.SaveInterrupted) as stopped:
+            self.apply(plan)
+        self.assertEqual((stopped.exception.saved, stopped.exception.total), (1, 2))
+        self.assertEqual((self.root / "calc.py").read_text(), "new\n")          # the first file is saved
+        self.assertEqual((self.root / "other.py").read_text(), "SYNTHETIC EDITOR\n")   # the editor's version kept
+        self.assertEqual(dict(workspace.status(str(self.root)))[plan.sha256], "prepared")   # recovery is pending
+
+    def test_a_conflict_before_any_file_is_written_is_still_a_plain_refusal(self):
+        plan = self.plan(names=["calc.py"])
+        (self.root / "calc.py").write_text("SYNTHETIC EDITOR\n")
+        with self.assertRaises(ValueError) as refused:
+            self.apply(plan)
+        self.assertNotIsInstance(refused.exception, workspace.SaveInterrupted)
+        self.assertEqual(workspace.status(str(self.root)), [])            # no journal: nothing to recover
+
     def test_crash_between_the_swap_and_removing_the_old_file_rolls_back_cleanly(self):
         plan = self.plan(names=["calc.py"])
-        with patch.object(workspace.os, "unlink", side_effect=OSError("killed")), self.assertRaises(OSError):
+        with patch.object(workspace.os, "unlink", side_effect=OSError("killed")), self.assertRaises(workspace.SaveInterrupted) as stopped:
             self.apply(plan)
+        self.assertIsInstance(stopped.exception.__cause__, OSError)
+        # The swap happened but was not journaled as published yet: the count is what is confirmed, never more.
+        self.assertEqual((stopped.exception.saved, stopped.exception.total), (0, 1))
         self.assertEqual((self.root / "calc.py").read_text(), "new\n")            # published
         self.assertEqual(len(list(self.root.glob(".ai-task-*"))), 1)             # the displaced original is still there
         self.assertTrue(workspace.rollback(str(self.root), plan.sha256))
@@ -439,7 +469,7 @@ w.apply(plan,plan.authorize('SAVE '+plan.sha256))
                 write(fd, data[:1])
                 raise OSError("disk failure")
             return write(fd, data)
-        with patch.object(workspace.os, "write", side_effect=interrupted), self.assertRaises(OSError):
+        with patch.object(workspace.os, "write", side_effect=interrupted), self.assertRaises(workspace.SaveInterrupted) as stopped:
             self.apply(plan)
         self.assertEqual((self.root / "calc.py").read_text(), "old\n")
         self.assertFalse(workspace.rollback(str(self.root), plan.sha256))

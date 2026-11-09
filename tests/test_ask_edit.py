@@ -231,6 +231,67 @@ class AskEditTests(unittest.TestCase):
                 ask_edit.finish(prepared, "untrusted", self.args, Mock())
             self.assertNotIn("PRIVATE", str(refused.exception))
 
+    def test_a_version_conflict_or_a_busy_directory_ends_only_this_proposal(self):
+        """Review of 132: another window or an editor changing the file ended the whole conversation."""
+        from ai_desktop import conversation_state
+        prepared = self.prepare()
+        for error, kind in ((ValueError("workspace changed"), ask_edit.EditConflict),
+                            (ValueError("changed target"), ask_edit.EditConflict),
+                            (BlockingIOError(), ask_edit.EditBusy)):
+            with self.subTest(error=error), conversation_state.recording() as recorder, \
+                    patch.object(task_cli, "finish_task", side_effect=error), self.assertRaises(kind):
+                ask_edit.finish(prepared, "untrusted", self.args, Mock())
+            self.assertTrue(any("NOT saved" in fact for fact in recorder.actions))     # remembered as not applied
+            self.assertTrue(issubclass(kind, ask_cli_refusals()))
+        with patch.object(task_cli, "finish_task", side_effect=ValueError("other")), self.assertRaises(ValueError):
+            ask_edit.finish(prepared, "untrusted", self.args, Mock())                   # unexpected stays unexpected
+        from ai_desktop import ask_cli
+        import contextlib, io
+        for refusal, words in ((ask_edit.EditConflict("input"), "changed after it was read"),
+                               (ask_edit.EditBusy("input"), "another window is saving")):
+            with contextlib.redirect_stdout(io.StringIO()) as said:
+                ask_cli._explain_refusal(refusal)
+            self.assertIn(words, said.getvalue())
+
+    def test_a_save_stopped_part_way_reports_what_was_saved_and_the_recovery(self):
+        from ai_desktop import ask_cli, conversation_state, task_workspace
+        import contextlib, io
+        prepared = self.prepare()
+        with conversation_state.recording() as recorder, \
+                patch.object(task_cli, "finish_task", side_effect=task_workspace.SaveInterrupted(1, 2)), \
+                self.assertRaises(ask_edit.EditInterrupted) as stopped:
+            ask_edit.finish(prepared, "untrusted", self.args, Mock())
+        fact = " ".join(recorder.actions)
+        self.assertIn("INTERRUPTED", fact)
+        self.assertIn("1 of 2", fact)
+        self.assertNotIn("NOT saved", fact)                         # never "nothing was saved"
+        with contextlib.redirect_stdout(io.StringIO()) as said:
+            ask_cli._explain_refusal(stopped.exception)
+        self.assertIn("1 of 2 file(s) were confirmed saved", said.getvalue())
+        self.assertIn("task rollback", said.getvalue())
+        self.assertIsInstance(stopped.exception, ask_cli.LOCAL_REFUSALS)   # the conversation goes on
+
+    def test_a_file_saved_elsewhere_before_the_yes_is_a_conflict_not_a_policy_problem(self):
+        """CachyOS check of 133: "aaaaa" written to the file while its diff was shown gave the generic policy hint,
+        because the write approval's own check turned the version conflict into a plain refusal."""
+        from ai_desktop import conversation_state
+        prepared = self.prepare()
+        with patch.object(ask_edit.task_workspace, "unchanged", side_effect=ValueError("workspace changed")):
+            with self.assertRaises(ask_edit.EditConflict):
+                prepared.write_grant.check()
+
+            def finish_task(*args, write_guard=None, **kwargs):
+                write_guard()                                    # the check right before the write
+            with conversation_state.recording() as recorder, \
+                    patch.object(task_cli, "finish_task", side_effect=finish_task), \
+                    self.assertRaises(ask_edit.EditConflict):
+                ask_edit.finish(prepared, "untrusted", self.args, Mock())
+        self.assertTrue(any("NOT saved" in fact for fact in recorder.actions))
+        with patch.object(ask_edit.task_workspace, "unchanged", side_effect=ValueError("other")), \
+                self.assertRaises(ask_edit.EditDenied) as refused:
+            prepared.write_grant.check()
+        self.assertNotIsInstance(refused.exception, ask_edit.EditConflict)
+
     def test_workspace_is_second_exact_payload_and_cannot_replay_or_change_instruction(self):
         self.planner()
         prepared = self.prepare()
@@ -313,3 +374,9 @@ class AskEditTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def ask_cli_refusals():
+    """The refusals after which `ask` keeps the conversation going."""
+    from ai_desktop import ask_cli
+    return ask_cli.LOCAL_REFUSALS

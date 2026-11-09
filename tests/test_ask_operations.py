@@ -92,6 +92,23 @@ class FlowTests(OperationsBase):
         self.assertIn("not valid (one word per argument", self.output.getvalue())
         self.assertIn("sleep infinity", contract.SYSTEM_PROMPT)
 
+    def test_a_malformed_file_selector_is_refused_and_the_model_may_correct_it(self):
+        """CachyOS check of 134: a follow-up edit named the file from the conversation the wrong way
+        (plan-files-selector) and the whole turn ended; the model now gets the code and one more round."""
+        wrong = json.dumps({"action": "read", "files": [{"id": "f0", "path": "~/a.py"}], "systemd": [], "weather": None})
+        self.assertEqual(self.run_flow([wrong, ANSWER_PLAN]), ANSWER)
+        refusals = [step for step in self.steps_of(1) if step["op"] == "refusal"]
+        self.assertEqual([step["code"] for step in refusals], ["files-path"])
+        self.assertIn("file selection was not valid (files-path)", self.output.getvalue())
+        self.assertIn("files-selector (a malformed or repeated selector", contract.SYSTEM_PROMPT)
+
+    def test_without_corrections_left_a_malformed_file_selector_still_ends_the_turn(self):
+        self.write_policy("plan_corrections = 0\n")
+        wrong = json.dumps({"action": "read", "files": ["f0", "f0"], "systemd": [], "weather": None})
+        with self.assertRaises(plans.PlanError) as caught:
+            self.run_flow([wrong, ANSWER_PLAN])
+        self.assertEqual(caught.exception.check, "files-selector")
+
     def test_without_corrections_left_an_invalid_command_still_ends_the_turn(self):
         self.write_policy("plan_corrections = 0\n")
         script = json.dumps({"action": "run", "argv": ["uname", "-s; sleep 1"]})

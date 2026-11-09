@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.1.0-136: a follow-up edit without the file name
+
+- When the model writes a file reference the wrong way (for example after "change it so that…" without naming the file), it now gets one more chance to correct it in the same question instead of the question ending with `plan-files-…`.
+
+## 0.1.0-135: the last two review findings
+
+- While a consent question is open, the rest of an earlier paste is never taken as the answer, however long it pauses; Ctrl+C stops the turn.
+- If a save of several files stops part-way because one of them changed elsewhere, the answer says how many files were saved and how to check or undo them, instead of "not saved".
+
+## 0.1.0-134: a clearer conflict and plan refusal
+
+- If the file is changed elsewhere while its change is shown, the answer now says so ("Not saved: the file changed after it was read … Ask again") instead of a hint about permissions.
+- A refused plan that names files says what was wrong (`plan-files-scope`, `-path`, `-directory` or `-selector`).
+
+## 0.1.0-133: fixes from the second review
+
+- A consent question never accepts the rest of a paste that started before it, even when that paste paused for a few seconds.
+- Upgrading while a conversation of the previous version is open no longer leaves later conversations refused as "busy"; `ai-desktop stop` also ends such a session.
+- When another window or an editor changes a file while a change is being prepared, only that change is refused ("Not saved … Ask again"); the conversation continues and nothing is overwritten.
+- A `/` menu during a Codex answer shows Codex's choices; the service no longer uses a full core when every connection is taken.
+
 ## 0.1.0-132: many terminals at once
 
 - AI Desktop works in any number of terminals at the same time, each fully: two terminals asking at once no longer get "busy". Each terminal has its own session; up to four answers are prepared at once and a further question waits for its turn.

@@ -151,6 +151,30 @@ class ServerTests(unittest.TestCase):
         worker.join(5)
 
 
+class ServerLimitTests(ServerTests):
+    def test_with_every_connection_taken_the_worker_waits_instead_of_spinning(self):
+        """Review of 132: at MAX_CONNECTIONS the loop skipped its wait and used a whole core."""
+        self.enterContext(patch.object(self.service, "MAX_CONNECTIONS", 1))
+        self.enterContext(patch.object(self.service, "SERVER_IDLE_SECONDS", 0.3))
+        looks = []
+        real = self.service.select.select.side_effect
+
+        def counted(readers, *rest):
+            if self.listener in readers:
+                looks.append(1)
+            return real(readers, *rest)
+        self.service.select.select.side_effect = counted
+        worker = threading.Thread(target=self.service.serve, args=(1000,), daemon=True)
+        client = self.connect(worker)                              # the only allowed connection stays open
+        before = time.process_time()
+        time.sleep(0.6)
+        used = time.process_time() - before
+        self.assertLess(len(looks), 5)                              # no new connection is looked for meanwhile
+        self.assertLess(used, 0.3)
+        client.close()
+        worker.join(5)
+
+
 class TokenLockTests(unittest.TestCase):
     def test_a_second_terminal_waits_for_the_token_instead_of_failing(self):
         store = siwc_auth.AuthStore(Path(self.enterContext(tempfile.TemporaryDirectory())) / "codex")

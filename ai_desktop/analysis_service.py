@@ -211,7 +211,10 @@ def serve(uid, *, clock=time.monotonic):
         threads, idle_since = [], None
         while True:
             threads = [thread for thread in threads if thread.is_alive()]
-            if len(threads) < MAX_CONNECTIONS and select.select([listener], [], [], 0.5)[0]:
+            if len(threads) >= MAX_CONNECTIONS:
+                threads[0].join(0.5)               # full: wait for a connection to end, never spin
+                continue
+            if select.select([listener], [], [], 0.5)[0]:
                 thread = threading.Thread(target=_connection, args=(listener.accept()[0], uid, clock), daemon=True)
                 thread.start()
                 threads.append(thread)

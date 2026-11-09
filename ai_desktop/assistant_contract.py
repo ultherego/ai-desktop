@@ -22,7 +22,15 @@ _FILE_ID = re.compile(r"f(?:[0-9]|[1-5][0-9]|6[0-3])\Z", re.ASCII)
 _WRITE_ID = re.compile(r"w(?:[0-9]|[1-5][0-9]|6[0-3])\Z", re.ASCII)
 EDIT_CHECKS = frozenset(CHECKS)
 PLAN_CHECKS = frozenset({"access", "type", "size", "json", "shape", "action", "files", "systemd",
-                         "weather", "write", "check", "create", "text", "empty", "command", "invalid"})
+                         "weather", "write", "check", "create", "text", "empty", "command", "invalid",
+                         # which part of a file selection was refused: a scope not offered for reading (for example a
+                         # write scope's id), a path that is not a plain relative path, a directory where a file is
+                         # needed, or a malformed or repeated selector
+                         "files-scope", "files-path", "files-directory", "files-selector"})
+
+
+class _Selection(ValueError):
+    """A refused file selector, with which part was wrong (a closed code, never the selector itself)."""
 
 
 class PlanError(ValueError):
@@ -116,18 +124,21 @@ def _constant(_):
 
 def relative_selection(value):
     """Literal relative path, optionally ending in /* or /**; no expansion."""
-    value = _text(value, MAX_PATTERN_BYTES)
+    try:
+        value = _text(value, MAX_PATTERN_BYTES)
+    except ValueError:
+        raise _Selection("files-path") from None
     base = value[:-3] if value.endswith("/**") else value[:-2] if value.endswith("/*") else value
     if (not base or base.startswith("/") or any(char in base for char in "$~\\?[]{}*")
             or any(part in ("", ".", "..") for part in base.split("/"))):
-        raise ValueError("assistant-plan")
+        raise _Selection("files-path")
     return value
 
 
 def file_selections(value, access=None):
     """Copy bounded selectors without resolving paths or granting any access."""
     if type(value) not in (list, tuple) or len(value) > MAX_SELECTED_FILES:
-        raise ValueError("assistant-plan")
+        raise _Selection("files-selector")
     allowed = None if access is None else {item["id"] for item in validate_access(access)["files"]}
     selected, seen = [], set()
     for item in value:
@@ -138,11 +149,11 @@ def file_selections(value, access=None):
             file_id, relative = item["id"], relative_selection(item["path"])
             result = {"id": file_id, "path": relative}
         else:
-            raise ValueError("assistant-plan")
-        if (type(file_id) is not str or not _FILE_ID.fullmatch(file_id)
-                or allowed is not None and file_id not in allowed
-                or (file_id, relative) in seen):
-            raise ValueError("assistant-plan")
+            raise _Selection("files-selector")
+        if type(file_id) is not str or not _FILE_ID.fullmatch(file_id) or (file_id, relative) in seen:
+            raise _Selection("files-selector")
+        if allowed is not None and file_id not in allowed:
+            raise _Selection("files-scope")
         seen.add((file_id, relative))
         selected.append(result)
     return selected
@@ -235,7 +246,7 @@ def parse_plan(raw, access):
             patterns = {item["id"]: item["pattern"] for item in access["files"]}
             if (type(selection) is str and patterns[selection].endswith(("/", "/*", "/**"))
                     or type(selection) is dict and "*" in selection["path"]):
-                raise ValueError("assistant-plan")
+                raise _Selection("files-directory")
             if searching:
                 if type(value["cursor"]) is not int or not 0 <= value["cursor"] <= 64 * 1024 * 1024:
                     raise ValueError("assistant-plan")
@@ -346,5 +357,7 @@ def parse_plan(raw, access):
             check = "empty"
             raise ValueError("assistant-plan")
         return {"action": "read", "files": selected_files, "systemd": selected_systemd, "weather": city}
+    except _Selection as exc:
+        raise PlanError(exc.args[0] if check == "files" else check) from None
     except (ValueError, TypeError, KeyError, UnicodeError, RecursionError):
         raise PlanError(check) from None

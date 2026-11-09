@@ -72,8 +72,9 @@ class VersionedFilesTests(unittest.TestCase):
             (self.root / dst).write_text("concurrent user file\n")
             return real(src_dir, src, dst_dir, dst)
 
-        with patch.object(tw, "rename_noreplace", race), self.assertRaises(FileExistsError):
+        with patch.object(tw, "rename_noreplace", race), self.assertRaises(tw.SaveInterrupted) as stopped:
             tw.apply(plan, plan.authorize("SAVE " + plan.sha256))
+        self.assertIsInstance(stopped.exception.__cause__, FileExistsError)   # stopped at the other writer's file
         self.assertEqual((self.root / "new.txt").read_text(), "concurrent user file\n")
         self.assertFalse(tw.rollback(self.ws, plan.sha256))  # conflict: never remove the other writer
         self.assertEqual((self.root / "new.txt").read_text(), "concurrent user file\n")

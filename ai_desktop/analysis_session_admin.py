@@ -120,9 +120,23 @@ def state_directory():
 
 
 def legacy_claim(uid):
-    """The single claim of the previous one-session design; while it exists that session still owns the socket."""
+    """The single claim of the previous one-session layout (up to candidate 131); while that session runs it owns
+    the socket. An upgrade can happen while it runs: its own cleanup then comes from this version."""
     socket_path(uid)
     return STATE / str(uid)
+
+
+def legacy_unit(uid):
+    socket_path(uid)
+    return "ai-desktop-session-%d.service" % uid
+
+
+def read_legacy_claim(uid):
+    """The nonce in the previous layout's claim, or None; the same ownership checks as every claim."""
+    path = legacy_claim(uid)
+    if not os.path.lexists(path):
+        return None
+    return read_claim(path, name=None)
 
 
 def claims_directory(uid):
@@ -169,7 +183,8 @@ def session_lock(uid, *, seconds=30):
         os.close(fd)
 
 
-def read_claim(path):
+def read_claim(path, *, name=True):
+    """The nonce in a root-owned claim. A per-terminal claim is named by its nonce; the legacy one is not."""
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
     try:
         info = os.fstat(fd)
@@ -177,7 +192,7 @@ def read_claim(path):
                 or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1):
             raise AnalysisDenied("identity")
         nonce = os.read(fd, 33).decode("ascii", "strict")
-        if not NONCE.fullmatch(nonce) or nonce != path.name:
+        if not NONCE.fullmatch(nonce) or (name and nonce != path.name):
             raise AnalysisDenied("identity")
         return nonce
     finally:
@@ -206,10 +221,13 @@ def create_claim(uid, nonce):
 
 
 def prune(uid):
-    """Forget claims whose helper unit no longer runs (its cleanup was interrupted); call under session_lock."""
+    """Forget claims whose helper unit no longer runs (its cleanup was interrupted), the previous layout's included;
+    call under session_lock."""
     for nonce in claims(uid):
         if properties(manager_unit(uid, nonce)).get("ActiveState") not in LIVE:
             claim_path(uid, nonce).unlink()
+    if read_legacy_claim(uid) is not None and properties(legacy_unit(uid)).get("ActiveState") not in LIVE:
+        legacy_claim(uid).unlink()
 
 
 def cleaned(uid):
@@ -230,6 +248,8 @@ def cleanup(uid, nonce):
         if os.path.lexists(path):
             read_claim(path)
             path.unlink()
+        if read_legacy_claim(uid) == nonce:
+            legacy_claim(uid).unlink()                 # a session of the previous layout ending after an upgrade
         prune(uid)
         if not claims(uid) and not os.path.lexists(legacy_claim(uid)):
             command("/usr/bin/systemctl", "stop", *units(uid))
@@ -239,10 +259,12 @@ def cleanup(uid, nonce):
 
 def hold(uid, nonce):
     state_directory()
-    if os.path.lexists(legacy_claim(uid)):
-        raise AnalysisDenied("busy")               # a session of the previous version still owns the socket
     with session_lock(uid):
         prune(uid)
+        if os.path.lexists(legacy_claim(uid)):
+            raise AnalysisDenied("busy")           # a running session of the previous layout still owns the socket
+        if len(claims(uid)) >= MAX_SESSIONS:
+            raise AnalysisDenied("busy")           # rechecked under the lock: two opens may pass the first look
         first = not claims(uid)
         unit_policy(uid, inactive=first)
         create_claim(uid, nonce)  # Before any activation, including a partial start.
@@ -303,15 +325,16 @@ def stop_session(uid):
     state_directory()
     with session_lock(uid):
         prune(uid)
-        running = claims(uid)
-    for nonce in running:
-        command("/usr/bin/systemctl", "stop", manager_unit(uid, nonce))
+        running = [manager_unit(uid, nonce) for nonce in claims(uid)]
+        if read_legacy_claim(uid) is not None:
+            running.append(legacy_unit(uid))        # a session of the previous layout: its cleanup is ours now
+    for unit in running:
+        command("/usr/bin/systemctl", "stop", unit)
     with session_lock(uid):
         prune(uid)
-        if claims(uid):
+        if claims(uid) or os.path.lexists(legacy_claim(uid)):
             raise AnalysisDenied("busy")           # a terminal opened a new session meanwhile
-        if not os.path.lexists(legacy_claim(uid)):
-            cleaned(uid)
+        cleaned(uid)
     os.write(1, STOPPED)
 
 

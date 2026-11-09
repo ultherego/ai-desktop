@@ -34,6 +34,8 @@ class AssistantFlowTests(unittest.TestCase):
         self.output = io.StringIO()
         self.enterContext(contextlib.redirect_stdout(self.output))
         self.policy = Mock()
+        # Real limits, no plan corrections: a refused plan ends the turn here (corrections are tested elsewhere).
+        self.policy.limits.return_value = flow.permissions.Limits(plan_corrections=0)
         self.policy.sources.return_value = copy.deepcopy(SOURCES)
         self.policy.access.return_value = copy.deepcopy(ACCESS)
         self.load = self.enterContext(patch.object(flow.permissions, "load_policy", return_value=self.policy))

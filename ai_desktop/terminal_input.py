@@ -19,6 +19,7 @@ import select
 import signal
 import sys
 import termios
+import contextvars
 import threading
 import time
 
@@ -73,6 +74,9 @@ class TypeAhead:
         # Input generation: a consent question starts a new one. A key sequence (an escape, a paste, a multi-byte
         # character) begun in an earlier generation is never completed into the answer.
         self._epoch, self._sequence_epoch = 0, 0
+        # A bracketed paste whose end marker has not arrived yet. It outlives the quiet timeout of the sequence that
+        # collects it: a paste stalled for a moment is still an earlier paste when a consent question appears.
+        self._paste_open = False
         self._picker = None                        # a `/` menu open in the list above the band
         self._thread = None
         self._output = None
@@ -95,6 +99,8 @@ class TypeAhead:
         return "\x1b[%d;%dH" % (row, column)
 
     def _note(self):
+        if self._question is not None and getattr(self, "_sequence", None) is not None and self._sequence[0] == "stale":
+            return "an earlier paste is still arriving and is not your answer · ctrl+c stops the turn"
         if self._question is not None:
             return "answer the question · your draft comes back after it"
         if self.queue:
@@ -134,7 +140,10 @@ class TypeAhead:
         self._raw()
         self.stream.write("\x1b[?2004h")               # a pasted block arrives marked, never as Enter
         self.draw()
-        self._thread = threading.Thread(target=self._run, name="ai-desktop-typeahead", daemon=True)
+        # The turn's context (the selected service, model and role) goes with the reader, so a `/` menu opened during
+        # the answer offers that service's choices, not the defaults of an empty context.
+        context = contextvars.copy_context()
+        self._thread = threading.Thread(target=context.run, args=(self._run,), name="ai-desktop-typeahead", daemon=True)
         self._thread.start()
 
     def stop(self):
@@ -226,6 +235,13 @@ class TypeAhead:
         with self.lock:
             self._epoch += 1                           # first, so the reader sees it before it sees the question
             termios.tcflush(self.fd, termios.TCIFLUSH)
+            sequence = getattr(self, "_sequence", None)
+            if self._paste_open or (sequence is not None and (sequence[0] in ("paste", "discard", "stale") or (
+                    sequence[0] == "escape" and _PASTE_START.startswith(bytes(sequence[1]))))):
+                # Cut off now, not at its next byte: whatever of that paste still arrives, however late, is dropped
+                # up to its end marker and never read as the answer.
+                self._sequence, self._sequence_at = ("stale", bytearray()), time.monotonic()
+                self._sequence_epoch = self._epoch
             self._answer, self._question = _Line(max_bytes), plain
             self._answered.clear()
 
@@ -250,8 +266,8 @@ class TypeAhead:
     # One byte at a time, never a blocking read of "the rest": an escape sequence, a paste or a multi-byte character
     # is collected across loop rounds, so a pause or stop is honoured within one round. Whatever is unfinished when
     # the keyboard is handed over is dropped, never completed with keys typed for someone else.
-    # "stale" is a paste begun before a consent question: it ends only at its end marker or after a long quiet, so a
-    # slow end of that paste is never read as the answer.
+    # "stale" is a paste begun before a consent question: while the question is open it ends only at its end marker
+    # (or Ctrl+C); the quiet time below applies only once no question is open.
     _QUIET = {"escape": 0.15, "char": 0.15, "paste": 2.0, "discard": 2.0, "stale": 30.0}
 
     def _run(self):
@@ -264,8 +280,7 @@ class TypeAhead:
                     self._stop.wait(0.02)
                 self._paused.clear()
                 continue
-            if self._sequence is not None and time.monotonic() - self._sequence_at > self._QUIET[self._sequence[0]]:
-                self._sequence = None                  # a lone Esc, a cut character or an unfinished paste
+            self._lapse(time.monotonic())
             if not select.select([self.fd], [], [], 0.02)[0] or self._pause.is_set() or self._stop.is_set():
                 continue
             try:
@@ -279,6 +294,19 @@ class TypeAhead:
             except (QuestionInputError, KeyboardInterrupt, EOFError, UnicodeError, ValueError):
                 self._sequence = None
             self.draw()
+
+    def _lapse(self, now):
+        """Drop a sequence that has been quiet too long: a lone Esc, a cut character or an unfinished paste. An
+        earlier paste is never timed out into a consent answer: while a question is open only its end marker (or
+        Ctrl+C, which stops the turn) ends it. Without a question it may lapse."""
+        sequence = self._sequence
+        if sequence is None or now - self._sequence_at <= self._QUIET[sequence[0]]:
+            return
+        if sequence[0] == "stale":
+            if self._question is not None:
+                return
+            self._paste_open = False
+        self._sequence = None
 
     def _feed(self, value):
         """One byte from the terminal."""
@@ -294,14 +322,21 @@ class TypeAhead:
         if sequence is not None:
             kind, buffer = sequence[0], sequence[1]
             self._sequence_at = time.monotonic()
+            if kind == "stale" and value == b"\x03":   # Ctrl+C still stops the turn; the paste is abandoned
+                self._sequence, self._paste_open = None, False
+                self._key(value)
+                return
             if kind in ("discard", "stale"):          # an oversized or an earlier paste: wait for its end, keep nothing
                 tail = (buffer + value)[-len(_PASTE_END):]
-                self._sequence = None if tail == _PASTE_END else (kind, tail)
+                if tail == _PASTE_END:
+                    self._sequence, self._paste_open = None, False
+                else:
+                    self._sequence = (kind, tail)
                 return
             buffer.extend(value)
             if kind == "paste":
                 if buffer.endswith(_PASTE_END):
-                    self._sequence = None
+                    self._sequence, self._paste_open = None, False
                     raw = bytes(buffer[:-len(_PASTE_END)])
                     if len(raw) <= MAX_MESSAGE_BYTES - len(target.text.encode("utf-8")):
                         target.insert(_safe_text(raw, newlines=True))
@@ -311,7 +346,9 @@ class TypeAhead:
             if kind == "escape":
                 key = bytes(buffer)
                 if key == _PASTE_START:
-                    self._sequence = ("paste", bytearray())
+                    self._sequence, self._paste_open = ("paste", bytearray()), True
+                elif key == _PASTE_END[1:]:
+                    self._sequence, self._paste_open = None, False   # the end of a paste whose sequence timed out
                 elif key in _KEYS:
                     self._sequence = None
                     found = self._matches() if self._question is None else ()
@@ -321,7 +358,7 @@ class TypeAhead:
                     edit = _EDITS.get(key)
                     if edit:
                         target.edit(edit)
-                elif not any(known.startswith(key) for known in (*_KEYS, _PASTE_START)):
+                elif not any(known.startswith(key) for known in (*_KEYS, _PASTE_START, _PASTE_END[1:])):
                     self._sequence = None
                 return
             if kind == "char" and len(buffer) == sequence[2]:

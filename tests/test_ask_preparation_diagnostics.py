@@ -62,15 +62,18 @@ class AskPreparationDiagnosticsTests(unittest.TestCase):
                     self.assertEqual(result.collect.call_count, 1)
                     self.assertIn('output "Virtual-1" {}', result.output)
 
-    def test_invalid_model_plans_have_finite_reason_without_read_or_retry(self):
+    def test_invalid_model_plans_have_finite_reason_without_read_and_only_selector_errors_are_corrected(self):
         cases = [
             # Plain prose is refused here (one-shot strictness is covered in test_ask_conversation); inside the interactive
             # conversation it is shown as an answer, so this case is not part of the interactive list.
             ("```json\n" + json.dumps(READ) + "\n```", "json"),
             ("[]", "shape"),
             (json.dumps({"action": "read", "files": ["f0"]}), "shape"),
-            (json.dumps(dict(READ, files=[{"id": "f0", "path": "../private"}])), "files"),
-            (json.dumps(dict(READ, files=["f63"])), "files"),
+            (json.dumps(dict(READ, files=[{"id": "f0", "path": "../private"}])), "files-path"),
+            (json.dumps(dict(READ, files=["f63"])), "files-scope"),
+            (json.dumps(dict(READ, files=[{"id": "f0", "path": "~/a.py"}])), "files-path"),
+            (json.dumps(dict(READ, files=["f0", "f0"])), "files-selector"),
+            (json.dumps({"action": "read-range", "file": "f0", "first": 1, "last": 2}), "files-directory"),
             (json.dumps({"action": PRIVATE}), "action"),
             ('{"action":"answer","text":"a","text":"' + PRIVATE + '"}', "json"),
             ('{"action":"answer","text":NaN}', "json"),
@@ -80,12 +83,18 @@ class AskPreparationDiagnosticsTests(unittest.TestCase):
                 with self.subTest(provider=provider, check=check):
                     result, requests, replies, sent = self.run_native_plan(provider, raw)
                     self.assertEqual(result.code, 2)
-                    self.assertIn("plan-" + check, result.output)
+                    if not check.startswith("files-"):
+                        self.assertIn("plan-" + check, result.output)
                     self.assertNotIn("Check the content", result.output)
                     self.assertNotIn(PRIVATE, result.output)
                     self.assertNotIn(raw, result.output)
-                    self.assertEqual(len(requests), 1)
-                    self.assertEqual(sent.call_count, 1)
+                    if check.startswith("files-"):
+                        # A malformed file selector is offered a correction (the real-policy round trip is covered in
+                        # test_ask_operations); this harness's stand-in policy cannot run discovery, so it ends there.
+                        self.assertIn("file selection was not valid (%s)" % check, result.output)
+                    else:
+                        self.assertEqual(len(requests), 1)
+                        self.assertEqual(sent.call_count, 1)
                     result.collect.assert_not_called()
 
     def test_verbose_model_plan_error_uses_closed_check_without_native_prose(self):
