@@ -227,6 +227,11 @@ class WebSearchResultTests(unittest.TestCase):
             with self.subTest(update=update):
                 self.assert_refused(events)
 
+    def test_a_reference_followed_by_a_colon_inside_a_sentence_is_text(self):
+        events = web_events()
+        final_answer(events, answer="Nowości w wydaniu [1]: nowe jądro i instalator.\n- Pakiety [1]: zaktualizowane.")
+        self.assertIn("Nowości w wydaniu [1]: nowe jądro", web_text(stream(events)))
+
     def test_a_listed_source_the_text_does_not_cite_stays_listed(self):
         events = web_events()
         second = "https://www.python.org/doc/"

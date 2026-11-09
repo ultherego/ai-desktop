@@ -267,7 +267,12 @@ def _answer(raw, observed):
         if any(type(url) is not str or url not in observed for url in sources) or len(set(sources)) != len(sources):
             raise ValueError("invented source")
         check = "web-answer-url"
-        if re.search(r"(?i)[a-z][a-z0-9+.-]*://|www\.|\]\(|\[[0-9]+\]:", answer):
+        if re.search(r"(?i)[a-z][a-z0-9+.-]*://|www\.", answer):
+            raise ValueError("references")
+        check = "web-answer-link"
+        # An inline link, or a reference definition. A definition is Markdown only at the start of a line (indented at
+        # most three spaces); "news in release [1]: ..." inside a sentence is ordinary text and stays allowed.
+        if re.search(r"\]\(", answer) or re.search(r"^ {0,3}\[[0-9]+\]:", answer, re.M):
             raise ValueError("references")
         check = "web-answer-references"
         # Every reference must name a listed source and at least one must be cited. A listed source the text does
