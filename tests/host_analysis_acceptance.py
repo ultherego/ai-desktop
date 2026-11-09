@@ -102,8 +102,10 @@ def check_stopped(uid, units):
             or offline._property(units[1], "MainPID") != "0"
             or any(offline._property(unit, "ActiveState") not in ("inactive", "failed") for unit in units)):
         raise ValueError("cleanup")
-    values = session_admin.properties(session_admin.manager_unit(uid))
-    if values.get("ActiveState") not in ("inactive", "failed") or values.get("MainPID") != "0":
+    listed = subprocess.run(["/usr/bin/systemctl", "list-units", "--plain", "--no-legend",
+                             "ai-desktop-session-%d-*" % uid], env=session_admin.ENV, capture_output=True,
+                            timeout=10, check=False)
+    if listed.stdout.strip():                                  # no terminal session of this user is still running
         raise ValueError("manager-cleanup")
 
 
@@ -148,7 +150,7 @@ def preflight():
     if (uid <= 0 or uid != os.getuid() or not os.isatty(0) or not os.isatty(1)
             or Path("/proc/1/comm").read_text().strip() != "systemd"):
         raise ValueError("host")
-    if offline._command(["/usr/bin/pacman", "-Q", "ai-desktop"]) != "ai-desktop 0.1.0-131":
+    if offline._command(["/usr/bin/pacman", "-Q", "ai-desktop"]) != "ai-desktop 0.1.0-132":
         raise ValueError("package")
     installed_matches()
     units = ["ai-desktop-analysis@" + str(uid) + suffix for suffix in (".socket", ".service")]

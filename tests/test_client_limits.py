@@ -99,7 +99,10 @@ class ClientLimitsTests(unittest.TestCase):
                 self.assertEqual(len(values), 1)
                 value, suffix = values[0]
                 actual = int(value) * 1024 ** {"K": 1, "M": 2, "G": 3}[suffix]
-                self.assertEqual(actual, limits.SERVICE_MEMORY_BYTES)
+                # The analysis service runs up to PARALLEL_REQUESTS clients at once (several terminals).
+                from ai_desktop.analysis_service import PARALLEL_REQUESTS
+                parallel = PARALLEL_REQUESTS if name == "ai-desktop-analysis@.service" else 1
+                self.assertEqual(actual, limits.SERVICE_MEMORY_BYTES * parallel)
 
 
 if __name__ == "__main__":

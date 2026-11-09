@@ -198,7 +198,7 @@ def run_client(action, report=b"", *, cancelled=None, mode="analysis"):
         raise AnalysisDenied("cancelled")
     with failure_stage("supervisor"):
         supervisor_ready()
-    with client_binding.bind("codex") as binding, failure_stage("profile"), profile_lock(), \
+    with client_binding.bind("codex") as binding, failure_stage("profile"), profile_lock(shared=True), \
             tempfile.TemporaryDirectory(prefix="ai-desktop-codex-", dir="/tmp") as temp:
         directory = Path(temp)
         (directory / "passwd").write_text("client:x:%d:%d::/home/client:/usr/bin/false\n" %

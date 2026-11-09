@@ -346,6 +346,9 @@ SESSION_SECONDS = REQUEST_SECONDS_LONG + SERVICE_MARGIN + 80
 # CONVERSATION_IDLE_SECONDS without a request, or after CONVERSATION_SECONDS in all (then the next request opens anew).
 CONVERSATION_IDLE_SECONDS = 15 * 60
 CONVERSATION_SECONDS = 4 * 3600
+# A terminal's privileged session helper waits for the terminal to close its pipe: a whole conversation, plus the
+# longest request started at its end. Its unit may live 20 s longer (RuntimeMaxSec).
+HOLD_SECONDS = CONVERSATION_SECONDS + SESSION_SECONDS
 
 
 def request_seconds(effort):

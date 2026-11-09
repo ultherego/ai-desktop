@@ -143,7 +143,7 @@ class AnalysisServiceTests(unittest.TestCase):
                     patch.object(service, "supervisor_ready"), \
                     patch.object(service.os, "geteuid", return_value=2000), \
                     patch.object(service, "run_client") as run:
-                self.assertEqual(service.worker_main(["1000"]), 2)
+                service.receive_once(1000)                     # this connection ends; a worker keeps serving others
                 run.assert_not_called()
                 self.assertEqual([call.args[0] for call in conn.send.call_args_list], [service.READY])
 
@@ -279,6 +279,6 @@ class AnalysisServiceTests(unittest.TestCase):
                     patch.object(service.e2_ipc, "_peer_uid"), patch.object(service, "supervisor_ready"), \
                     patch.object(service.os, "geteuid", return_value=2000), \
                     patch.object(service, "run_client") as run:
-                self.assertEqual(service.worker_main(["1000"]), 2)
+                service.receive_once(1000)                     # this connection ends; a worker keeps serving others
                 run.assert_not_called()
                 self.assertEqual([call.args[0] for call in conn.send.call_args_list], [service.READY])

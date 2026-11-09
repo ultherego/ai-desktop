@@ -151,8 +151,14 @@ def supervisor_ready():
     runtime_ready()
 
 
+PROFILE_WAIT_SECONDS = 30
+
+
 @contextmanager
-def profile_lock():
+def profile_lock(*, shared=False, wait=None, clock=time.monotonic, sleep=time.sleep):
+    """The service profiles' lock. Requests take it shared, so any number of terminals work at the same time on the
+    same account, as several native clients do; sign-in, sign-out and account changes take it exclusively. Either
+    waits up to `wait` seconds for the other kind before refusing as busy."""
     descriptor = os.open(HOME / "analysis.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW
                          | os.O_CLOEXEC | os.O_NONBLOCK, 0o600)
     try:
@@ -160,10 +166,15 @@ def profile_lock():
         if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
                 or info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) != 0o600):
             raise AnalysisDenied("identity")
-        try:
-            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            raise AnalysisDenied("busy") from None
+        deadline = clock() + (PROFILE_WAIT_SECONDS if wait is None else wait)
+        while True:
+            try:
+                fcntl.flock(descriptor, (fcntl.LOCK_SH if shared else fcntl.LOCK_EX) | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if clock() >= deadline:
+                    raise AnalysisDenied("busy") from None
+                sleep(0.1)
         yield
     finally:
         os.close(descriptor)
@@ -548,7 +559,7 @@ def run_client(action, report=b"", *, cancelled=None, mode="analysis", partial=N
     result_text_limit(mode)
     with failure_stage("supervisor"):
         supervisor_ready()
-    with failure_stage("profile"), profile_lock(), client_binding.bind("claude") as bound, \
+    with failure_stage("profile"), profile_lock(shared=action != "login"), client_binding.bind("claude") as bound, \
             tempfile.TemporaryDirectory(prefix="ai-desktop-", dir="/tmp") as temp:
         directory = Path(temp)
         _identity_files(directory)

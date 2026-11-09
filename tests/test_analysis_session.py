@@ -275,17 +275,144 @@ class DailyConsentTests(unittest.TestCase):
         self.assertIn("ai-desktop stop", output)
 
 
-class RootLifecycleTests(unittest.TestCase):
-    def test_hold_starts_only_socket_without_resetting_manager_rate_limits(self):
-        with patch.object(admin, "state_directory"), patch.object(admin, "unit_policy"), \
-                patch.object(admin, "create_claim") as claim, patch.object(admin, "endpoint"), \
-                patch.object(admin, "command") as command, patch.object(admin.os, "write"), \
-                patch.object(admin.select, "select", return_value=([0], [], [])), \
-                patch.object(admin.os, "read", return_value=b""):
-            admin.hold(1000, "a" * 32)
-        claim.assert_called_once_with(1000, "a" * 32)
-        command.assert_called_once_with("/usr/bin/systemctl", "start", "ai-desktop-analysis@1000.socket")
+class FakeSystemd:
+    """Unit states and the commands the root helper runs, without systemd."""
 
+    def __init__(self):
+        self.active, self.calls = set(), []
+
+    def properties(self, unit):
+        return {"ActiveState": "active" if unit in self.active else "inactive", "MainPID": "0", "LoadState": "loaded"}
+
+    def command(self, *args):
+        self.calls.append(args[1:])
+        if args[1] == "start":
+            self.active.update(args[2:])
+        elif args[1] == "stop":
+            self.active.difference_update(args[2:])
+        return b""
+
+
+class MultiSessionTests(unittest.TestCase):
+    """Every open terminal has its own session; the first starts the user's socket and the last one stops it."""
+
+    def setUp(self):
+        temp = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.state = temp / "sessions"
+        self.state.mkdir(mode=0o700)
+        self.systemd = FakeSystemd()
+        for target, value in (("STATE", self.state), ("_OWNER", (os.getuid(), os.getgid())),
+                              ("state_directory", lambda: None), ("unit_policy", lambda uid, inactive=False: None),
+                              ("endpoint", lambda uid: None), ("cleaned", lambda uid: None),
+                              ("properties", self.systemd.properties), ("command", self.systemd.command)):
+            self.enterContext(patch.object(admin, target, value))
+        self.written = []
+        real_write = os.write
+
+        def write(fd, data):                                          # messages on stdout are recorded, files written
+            if fd == 1:
+                self.written.append(data)
+                return len(data)
+            return real_write(fd, data)
+        self.enterContext(patch.object(admin.os, "write", side_effect=write))
+        self.enterContext(patch.object(admin.select, "select", return_value=([0], [], [])))
+
+    def hold(self, nonce):
+        """A terminal's helper holding its session: its unit runs, then its pipe closes."""
+        self.systemd.active.add(admin.manager_unit(1000, nonce))
+        real_read = os.read
+        with patch.object(admin.os, "read", side_effect=lambda fd, n: b"" if fd == 0 else real_read(fd, n)):
+            admin.hold(1000, nonce)                                   # its terminal closed the pipe (EOF on fd 0)
+
+    def end(self, nonce):
+        self.systemd.active.discard(admin.manager_unit(1000, nonce))
+        admin.cleanup(1000, nonce)
+
+    def test_the_first_session_starts_the_socket_and_only_the_last_one_stops_it(self):
+        socket_unit, service_unit = admin.units(1000)
+        one, two = "a" * 32, "b" * 32
+        self.hold(one)
+        self.assertEqual(self.systemd.calls, [("start", socket_unit)])
+        self.hold(two)                                                # a second terminal: no second start
+        self.assertEqual(self.systemd.calls, [("start", socket_unit)])
+        self.assertEqual(sorted(admin.claims(1000)), [one, two])
+        self.end(one)
+        self.assertIn(socket_unit, self.systemd.active)               # the other terminal still works
+        self.assertEqual(admin.claims(1000), [two])
+        self.end(two)
+        self.assertEqual(self.systemd.calls[-1], ("stop", socket_unit, service_unit))
+        self.assertEqual(admin.claims(1000), [])
+        self.assertEqual(self.written.count(admin.STOPPED), 2)
+
+    def test_a_claim_whose_helper_is_gone_is_pruned_and_never_keeps_the_socket(self):
+        stale, fresh = "c" * 32, "d" * 32
+        admin.create_claim(1000, stale)                               # its helper died without cleanup
+        self.hold(fresh)
+        self.assertEqual(admin.claims(1000), [fresh])
+        self.assertEqual(self.systemd.calls, [("start", admin.units(1000)[0])])
+
+    def test_open_refuses_only_beyond_the_session_limit(self):
+        for index in range(admin.MAX_SESSIONS):
+            nonce = "%032x" % (index + 1)
+            admin.create_claim(1000, nonce)
+            self.systemd.active.add(admin.manager_unit(1000, nonce))
+        with patch.object(admin.subprocess, "run") as run, self.assertRaises(AnalysisDenied) as caught:
+            admin.open_session(1000)
+        self.assertEqual(caught.exception.reason, "busy")
+        run.assert_not_called()
+
+    def test_a_session_of_the_previous_design_keeps_the_socket_until_it_ends(self):
+        admin.legacy_claim(1000).write_text("e" * 32)
+        with self.assertRaises(AnalysisDenied):
+            admin.hold(1000, "f" * 32)
+        self.assertEqual(self.systemd.calls, [])
+        admin.cleanup(1000, "f" * 32)
+        self.assertEqual(self.systemd.calls, [])                      # never stops what the old session owns
+
+    def test_stop_ends_every_session_of_the_user(self):
+        one, two = "1" * 32, "2" * 32
+        self.hold(one)
+        self.hold(two)
+
+        def stopped(*args):
+            self.systemd.command(*args)
+            if args[1] == "stop" and args[2].startswith("ai-desktop-session-"):
+                nonce = next(n for n in (one, two) if admin.manager_unit(1000, n) == args[2])
+                admin.cleanup(1000, nonce)                            # that helper's own ExecStopPost
+        with patch.object(admin, "command", side_effect=stopped):
+            admin.stop_session(1000)
+        self.assertEqual(admin.claims(1000), [])
+        self.assertNotIn(admin.units(1000)[0], self.systemd.active)
+
+    def test_names_and_claims_come_only_from_our_nonces(self):
+        self.assertEqual(admin.manager_unit(1000, "a" * 32), "ai-desktop-session-1000-" + "a" * 16 + ".service")
+        for bad in ("a" * 31, "A" * 32, "../" + "a" * 29, None):
+            with self.subTest(bad=bad), self.assertRaises(AnalysisDenied):
+                admin.manager_unit(1000, bad)
+        directory = admin.claims_directory(1000)
+        target = self.state / "target"
+        target.write_text("a" * 32)
+        target.chmod(0o600)
+        for make in ("symlink", "fifo", "hardlink", "mode", "name"):
+            path = directory / ("a" * 32 if make != "name" else "b" * 32)
+            if make == "symlink":
+                path.symlink_to(target)
+            elif make == "fifo":
+                os.mkfifo(path, 0o600)
+            elif make == "hardlink":
+                os.link(target, path)
+            else:
+                path.write_text("a" * 32)
+                path.chmod(0o666 if make == "mode" else 0o600)
+            with self.subTest(make=make), self.assertRaises((OSError, AnalysisDenied)):
+                admin.claims(1000)
+            path.unlink()
+        (directory / "not-a-nonce").write_text("x")
+        with self.assertRaises(AnalysisDenied):
+            admin.claims(1000)
+
+
+class RootLifecycleTests(unittest.TestCase):
     def test_root_caller_and_argument_guards_precede_all_operations(self):
         with patch.object(admin, "open_session") as opened, patch.object(admin, "hold") as hold, \
                 patch.object(admin, "stop_session") as stop, patch.object(admin.os, "write"):
@@ -311,65 +438,6 @@ class RootLifecycleTests(unittest.TestCase):
                 with self.assertRaises(AnalysisDenied):
                     admin.unit_policy(1000, inactive=True)
                 claim.assert_not_called(); command.assert_not_called()
-
-    def test_cleanup_requires_matching_claim_and_preserves_claim_on_failure(self):
-        for owner in (None, "b" * 32, "a" * 32):
-            with patch.object(admin, "state_directory"), patch.object(admin, "read_claim", return_value=owner), \
-                    patch.object(admin, "command") as command, patch.object(admin, "cleaned") as cleaned, \
-                    patch.object(admin, "claim_path") as path, patch.object(admin.os, "write"):
-                if owner == "b" * 32:
-                    with self.assertRaises(AnalysisDenied):
-                        admin.cleanup(1000, "a" * 32)
-                    command.assert_not_called(); path.assert_not_called()
-                else:
-                    admin.cleanup(1000, "a" * 32)
-                    self.assertEqual(command.call_count, 1 if owner else 0)
-                    self.assertEqual(path.return_value.unlink.call_count, 1 if owner else 0)
-        with patch.object(admin, "state_directory"), patch.object(admin, "read_claim", return_value="a" * 32), \
-                patch.object(admin, "command", side_effect=AnalysisDenied("endpoint")), \
-                patch.object(admin, "claim_path") as path, self.assertRaises(AnalysisDenied):
-            admin.cleanup(1000, "a" * 32)
-        path.assert_not_called()
-
-    def test_claims_reject_real_symlink_fifo_hardlink_and_bad_permissions(self):
-        with tempfile.TemporaryDirectory() as temp, patch.object(admin, "STATE", Path(temp)):
-            path = Path(temp) / "1000"
-            target = Path(temp) / "target"
-            target.write_text("a" * 32)
-            target.chmod(0o600)
-            path.symlink_to(target)
-            with self.assertRaises((OSError, AnalysisDenied)):
-                admin.read_claim(1000)
-            path.unlink()
-            os.mkfifo(path, 0o600)
-            with self.assertRaises(AnalysisDenied):
-                admin.read_claim(1000)
-            path.unlink()
-            os.link(target, path)
-            with self.assertRaises(AnalysisDenied):
-                admin.read_claim(1000)
-            path.unlink()
-            path.write_text("a" * 32)
-            path.chmod(0o666)
-            with self.assertRaises(AnalysisDenied):
-                admin.read_claim(1000)
-
-    def test_busy_open_never_starts_or_stops_other_manager(self):
-        with patch.object(admin, "unit_policy"), patch.object(admin, "state_directory"), \
-                patch.object(admin, "read_claim", return_value="b" * 32), \
-                patch.object(admin.subprocess, "run") as run, patch.object(admin, "command") as command:
-            with self.assertRaises(AnalysisDenied):
-                admin.open_session(1000)
-        run.assert_not_called(); command.assert_not_called()
-
-    def test_stop_without_claim_refuses_an_unowned_or_starting_manager(self):
-        with patch.object(admin, "state_directory"), patch.object(admin, "read_claim", return_value=None), \
-                patch.object(admin, "properties", return_value={"ActiveState": "activating"}), \
-                patch.object(admin, "command") as command, patch.object(admin.os, "write") as write, \
-                self.assertRaises(AnalysisDenied) as caught:
-            admin.stop_session(1000)
-        self.assertEqual(caught.exception.reason, "busy")
-        command.assert_not_called(); write.assert_not_called()
 
     def test_missing_unit_is_valid_metadata_but_command_failure_is_not(self):
         for code, data, valid in ((1, b"LoadState=not-found\nActiveState=inactive\n", True),

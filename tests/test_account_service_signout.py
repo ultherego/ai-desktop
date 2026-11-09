@@ -15,6 +15,10 @@ from claude_client_fixtures import compatibility_results
 
 class ServiceSignoutTests(unittest.TestCase):
     def setUp(self):
+        # A contended lock now waits before "busy" (several terminals); a short wait keeps these tests quick.
+        from ai_desktop import analysis_sandbox as _sandbox, siwc_auth as _siwc
+        self.enterContext(patch.object(_sandbox, "PROFILE_WAIT_SECONDS", 0.2))
+        self.enterContext(patch.object(_siwc, "LOCK_WAIT_SECONDS", 0.2))
         self.home = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.enterContext(patch.object(codex_admin, "HOME", self.home))
         self.enterContext(patch.object(analysis_sandbox, "HOME", self.home))

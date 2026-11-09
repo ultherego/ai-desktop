@@ -633,6 +633,6 @@ class ReviewFindingsTests(ChangeBase):
     def test_the_session_launcher_waits_longer_than_the_helper_it_launches(self):
         from ai_desktop import analysis_contract as contract
         source = (Path(__file__).resolve().parents[1] / "ai_desktop/analysis_session_admin.py").read_text()
-        self.assertIn("timeout=SESSION_SECONDS + 60", source)
+        self.assertIn("timeout=HOLD_SECONDS + 60", source)
         self.assertNotIn("timeout=290", source)
-        self.assertGreater(contract.SESSION_SECONDS + 60, contract.SESSION_SECONDS + 20)     # beyond the unit's RuntimeMaxSec
+        self.assertGreater(contract.HOLD_SECONDS + 60, contract.HOLD_SECONDS + 20)     # beyond the unit's RuntimeMaxSec

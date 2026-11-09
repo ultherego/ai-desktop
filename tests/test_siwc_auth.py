@@ -54,6 +54,10 @@ class SignInTests(unittest.TestCase):
         cls.key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
     def setUp(self):
+        # A contended lock now waits before "busy" (several terminals); a short wait keeps these tests quick.
+        from ai_desktop import analysis_sandbox as _sandbox, siwc_auth as _siwc
+        self.enterContext(patch.object(_sandbox, "PROFILE_WAIT_SECONDS", 0.2))
+        self.enterContext(patch.object(_siwc, "LOCK_WAIT_SECONDS", 0.2))
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.directory = Path(self.temp.name) / "codex"

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-132: many terminals at once
+
+- AI Desktop works in any number of terminals at the same time, each fully: two terminals asking at once no longer get "busy". Each terminal has its own session; up to four answers are prepared at once and a further question waits for its turn.
+- Signing in or out waits a moment for running questions instead of failing at once.
+- `ai-desktop stop` ends the sessions of all your terminals.
+
 ## 0.1.0-131: fewer refused web answers, a clearer reason
 
 - A web answer that writes "[1]: …" inside a sentence is no longer refused as `web-answer-url`. A link definition at the start of a line, a Markdown link or an address in the text is still refused; links now have their own reason, `web-answer-link`.

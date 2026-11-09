@@ -34,9 +34,10 @@ class BudgetTests(unittest.TestCase):
         self.assertLessEqual(waits, 1200)
         unit = int(re.search(r"^RuntimeMaxSec=(\d+)$", (ROOT / "packaging/systemd/ai-desktop-analysis@.service").read_text(),
                              re.M).group(1))
-        session = int(re.search(r"RuntimeMaxSec=(\d+)", " ".join(analysis_session_admin.session_command(1000, "n" * 8))).group(1))
-        self.assertGreater(unit, waits)                         # the per-request unit is not killed under the client
-        self.assertGreater(session, unit)                       # the session helper outlives the unit
+        session = int(re.search(r"RuntimeMaxSec=(\d+)", " ".join(analysis_session_admin.session_command(1000, "a" * 32))).group(1))
+        self.assertGreater(unit, waits)                         # the service unit is not killed under the client
+        self.assertGreaterEqual(unit, contract.HOLD_SECONDS + 60)  # nor under a whole conversation's session
+        self.assertLess(session, unit)                          # the session helper ends first; then cleanup stops the unit
         self.assertLessEqual(waits, 1200)                       # the framing cap
         analysis_framing._settings("response", waits)           # accepted (raises AnalysisDenied otherwise)
         with self.assertRaises(contract.AnalysisDenied):
@@ -85,12 +86,13 @@ class SessionHelperTests(unittest.TestCase):
         from ai_desktop import material_cli
         longest = contract.REQUEST_SECONDS_LONG + contract.SERVICE_MARGIN
         self.assertGreaterEqual(contract.SESSION_SECONDS, longest + 60)           # startup and cleanup fit around a request
-        unit = int(re.search(r"RuntimeMaxSec=(\d+)", " ".join(analysis_session_admin.session_command(1000, "n" * 8))).group(1))
-        self.assertGreater(unit, contract.SESSION_SECONDS)
+        self.assertEqual(contract.HOLD_SECONDS, contract.CONVERSATION_SECONDS + contract.SESSION_SECONDS)
+        unit = int(re.search(r"RuntimeMaxSec=(\d+)", " ".join(analysis_session_admin.session_command(1000, "a" * 32))).group(1))
+        self.assertGreater(unit, contract.HOLD_SECONDS)
         # a session reused between material requests must still have room for the longest wait
         self.assertEqual(material_cli.SESSION_REUSE_SECONDS, contract.SESSION_SECONDS - longest)
 
     def test_the_helper_really_uses_the_shared_constant(self):
         source = (ROOT / "ai_desktop/analysis_session_admin.py").read_text()
-        self.assertIn("select.select([0], [], [], SESSION_SECONDS)", source)
+        self.assertIn("select.select([0], [], [], HOLD_SECONDS)", source)
         self.assertNotIn("[], 240)", source)
