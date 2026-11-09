@@ -118,10 +118,14 @@ class ManagementMenuPTYTests(unittest.TestCase):
         self.assertEqual(termios.tcgetattr(state.slave), state.original)
 
     def test_real_arrows_enter_save_opus_and_max_then_escape_restores_terminal(self):
-        with self.settings() as state:
+        # The Claude model list is the client's own; here a fixed one, so Opus is one below Auto (the current model).
+        listed = (("default", "Default (recommended)", "currently Opus 5.5"),
+                  ("opus", "Opus 5.5", "Best for everyday, complex tasks"), ("haiku", "Haiku 5.5", "Fastest"))
+        with patch.object(management_cli.model_catalog, "fetch_claude", return_value=listed), \
+                self.settings() as state:
             self.frame(state, "Settings · agent: default")
             self.select_after(state, 2, "Model · claude")
-            self.select_after(state, 3, "Settings · agent: default")
+            self.select_after(state, 1, "Settings · agent: default")
             self.select_after(state, 1, "Reasoning level")
             self.select_after(state, 5, "Settings · agent: default")
             os.write(state.master, b"\x1b")

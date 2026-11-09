@@ -246,7 +246,7 @@ class ConversationPtyTests(unittest.TestCase):
         mark = driver.wait_for("change the model", mark)
         driver.send(b"\t")
         driver.send("haiku\r")
-        mark = driver.wait_for("model: haiku", mark)
+        mark = driver.wait_for("model: Haiku", mark)
         mark = driver.wait_for("will ask for consent", mark)
         mark = driver.wait_for("> ", mark)
         driver.send("Pytanie po zmianie\r")

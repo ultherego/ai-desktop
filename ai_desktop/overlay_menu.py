@@ -107,7 +107,11 @@ def _idle(frame, picker):
             frame.draw("", 0, typing=False)
             if not select.select([fd], [], [], None)[0]:
                 continue
-            finished, answer = picker.key(key_of(fd, _byte(fd)))
+            try:
+                key = key_of(fd, _byte(fd))
+            except (KeyboardInterrupt, EOFError):
+                return None                    # Ctrl+C or Ctrl+D closes the menu, never the conversation
+            finished, answer = picker.key(key)
             if finished:
                 return answer
     except (OSError, termios.error, ValueError):

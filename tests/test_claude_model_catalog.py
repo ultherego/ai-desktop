@@ -33,11 +33,15 @@ class ParseTests(unittest.TestCase):
             ("fable", "Fable 5.2", "Most capable for your hardest and longest-running tasks"),
             ("haiku", "Haiku 5.5", "Fastest for quick answers")))
 
-    def test_only_this_programs_aliases_and_only_our_response(self):
-        foreign = MODELS + [{"value": "claude-opus-9", "displayName": "X", "description": "X"},
-                            {"value": "opus", "displayName": "Again", "description": "Again"}]
+    def test_any_well_formed_model_and_only_our_response(self):
+        # A model the provider adds later is kept without an update of this program; a malformed or repeated one is not.
+        foreign = MODELS + [{"value": "claude-opus-9", "displayName": "Opus 9", "description": "Opus 9 · New"},
+                            {"value": "opus", "displayName": "Again", "description": "Again"},
+                            {"value": "Bad Model!", "displayName": "X", "description": "X"},
+                            {"value": "-x", "displayName": "X", "description": "X"},
+                            {"value": "", "displayName": "X", "description": "X"}]
         self.assertEqual([alias for alias, _, _ in catalog.parse_claude(stream(foreign))],
-                         ["default", "opus", "fable", "haiku"])
+                         ["default", "opus", "fable", "haiku", "claude-opus-9"])
         for raw in (stream(request_id="other"), stream(subtype="error"), stream([]), b"not json\n", b"",
                     stream([{"value": 5}])):
             with self.subTest(raw=raw[:40]), self.assertRaises(catalog.CatalogUnavailable):
@@ -69,12 +73,44 @@ class FetchTests(unittest.TestCase):
         self.assertEqual(seen["input_bytes"], catalog.CLAUDE_REQUEST)
 
     def test_any_failure_is_unavailable(self):
-        for result in ((1, stream(), b""), (0, b"", b"")):
+        for result in ((1, b"", b""), (0, b"", b""), (1, stream(subtype="error"), b"")):
             with self.subTest(result=result), patch.object(sandbox, "runtime_ready"), \
                     patch.object(sandbox, "_check_client"), \
                     patch.object(catalog.client_binding, "bind", return_value=FakeBinding("claude")), \
                     self.assertRaises(catalog.CatalogUnavailable):
                 catalog.fetch_claude(run=lambda command, **kwargs: result)
+
+    def fetch(self, run):
+        with patch.object(sandbox, "runtime_ready"), patch.object(sandbox, "_check_client"), \
+                patch.object(catalog.client_binding, "bind", return_value=FakeBinding("claude")):
+            return catalog.fetch_claude(run=run)
+
+    def test_an_answer_counts_even_when_the_client_then_exits_with_an_error(self):
+        # The client ends at the end of its input; its status after answering does not decide.
+        self.assertEqual(self.fetch(lambda command, **kwargs: (1, stream(), b"error"))[1][1], "Opus 5.5")
+
+    def test_reading_stops_as_soon_as_the_answer_has_arrived(self):
+        later = []
+
+        def run(command, *, stdout_chunk, **kwargs):
+            raw = stream()
+            stdout_chunk(raw[:30])                                # an incomplete line: keep reading
+            stdout_chunk(raw[30:])
+            later.append("read past the answer")
+            raise AssertionError("not stopped")
+        self.assertEqual(self.fetch(run)[0][0], "default")
+        self.assertEqual(later, [])
+
+    def test_a_real_process_that_keeps_running_after_answering_is_stopped_early(self):
+        import time
+        from ai_desktop.process_io import bounded_process
+        reply = stream().decode().replace("'", "")
+        command = ["/bin/sh", "-c", "cat >/dev/null; printf '%s' '" + reply + "'; exec sleep 30"]
+        began = time.monotonic()
+        with patch.object(sandbox, "namespace_command", return_value=command):
+            entries = self.fetch(lambda argv, **kwargs: bounded_process(argv, **kwargs))
+        self.assertEqual(entries[1][1], "Opus 5.5")
+        self.assertLess(time.monotonic() - began, 10)
 
     def test_tests_never_start_the_real_client(self):
         with self.assertRaises(catalog.CatalogUnavailable):
@@ -89,18 +125,25 @@ class FetchTests(unittest.TestCase):
 
 
 class MenuTests(unittest.TestCase):
-    def test_the_menu_lists_the_clients_models_then_the_other_aliases(self):
-        with patch.object(catalog, "fetch_claude", return_value=catalog.parse_claude(stream())):
+    def test_the_menu_lists_only_the_clients_models_then_other_id(self):
+        new = MODELS + [{"value": "claude-opus-9", "displayName": "Opus 9", "description": "Opus 9 · New"}]
+        with patch.object(catalog, "fetch_claude", return_value=catalog.parse_claude(stream(new))):
             values, labels, note = management_cli.model_choices("claude")
-        self.assertEqual(values[:4], ("default", "opus", "fable", "haiku"))
+        self.assertEqual(values, ("default", "opus", "fable", "haiku", "claude-opus-9", "custom"))
         self.assertIn("Opus 5.5 — Best for everyday, complex tasks", labels)
-        self.assertIn("sonnet", values)                       # an alias the client did not list stays available
+        self.assertNotIn("sonnet", values)                    # nothing baked in: only what the client lists
         self.assertIsNone(note)
 
-    def test_without_the_client_list_the_aliases_remain(self):
+    def test_auto_is_added_when_the_client_does_not_list_it(self):
+        with patch.object(catalog, "fetch_claude", return_value=catalog.parse_claude(stream(MODELS[1:]))):
+            values, labels, _ = management_cli.model_choices("claude")
+        self.assertEqual(values, ("opus", "fable", "haiku", "default", "custom"))
+        self.assertEqual(labels[-2:], ("Auto", "Other ID (type it)"))
+
+    def test_without_the_client_list_only_auto_and_other_id_remain(self):
         with patch.object(catalog, "fetch_claude", side_effect=catalog.CatalogUnavailable()):
             values, _, note = management_cli.model_choices("claude")
-        self.assertIn("opus", values)
+        self.assertEqual(values, ("default", "custom"))
         self.assertIn("unavailable", note)
 
 

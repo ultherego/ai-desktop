@@ -14,7 +14,11 @@ MAX_LINE = 4 * 1024 * 1024          # one stream-json line; a partial-message ev
 MAX_RAW_TEXT = 512 * 1024           # model text gathered for the preview; beyond it the preview just stops
 MAX_PARTIAL_TOTAL = 256 * 1024      # live text sent to the terminal in one request
 INTERVAL = 0.15                     # seconds between live updates
-STATUS = ("search", "results")     # web progress: a fixed vocabulary with a count, never model text
+# Progress from the service: a fixed vocabulary with a count, never model text. `search`/`results`: a web search;
+# `queued`: the request waits for a free place among the parallel requests (the terminal's wait is renewed meanwhile);
+# `started`: it got one; `restart`: the worker is ending its lifetime and did not start this request, which the
+# terminal then sends again to the next worker.
+STATUS = ("search", "results", "queued", "started", "restart")
 
 
 def _string_prefix(raw, start):

@@ -376,12 +376,12 @@ class PromptSessionTerminalTests(unittest.TestCase):
         band = "\x1b[48;2;40;42;54m"
         self.assertIn(band, output)
         self.assertIn("abc\x1b[K\x1b[0m", output)                       # the band reaches the right edge, then resets
-        self.assertIn(editor.FOOTER, output)
+        self.assertIn(editor.footer_text(editor.PromptSession(), True), output)
         self.assertRegex(output, r"\x1b\[\?2004l\r*\n\x1b\[J")              # the hint is erased when the message is sent
         self.assertIn("RESTORED=True", output)
         plain = self.run_script(self.READS.format(attach=True, count=1), [b"abc\r"])
         self.assertNotIn(band, plain)
-        self.assertNotIn(editor.FOOTER, plain)
+        self.assertNotIn(editor.footer_text(editor.PromptSession(), True), plain)
 
     def test_a_pinned_frame_keeps_the_input_at_the_bottom_and_puts_the_sent_message_into_the_thread(self):
         colour = {key: value for key, value in os.environ.items() if key != "NO_COLOR"}
@@ -530,6 +530,17 @@ class PromptSessionTerminalTests(unittest.TestCase):
                 self.assertEqual(self.results(output)[0][0], "a\nb")
                 self.assertNotIn("⏎", output)                        # a real second row, not a symbol
                 self.assertIn("> a\r\n  b", output.replace("\n", "\r\n") if "\r\n" not in output else output)
+
+    def test_a_bare_slash_and_enter_is_sent_so_the_commands_menu_opens(self):
+        body = ("session.commands = (('/help', 'list'), ('/model', 'model'))\n"
+                + self.READS.format(attach=True, count=3))
+        output = self.run_script(body, [b"/\r", b"/\x1b[B\r", b"/mo\r"])
+        self.assertEqual([r[0] for r in self.results(output)], ["/", "/model", "/model"])
+
+    def test_a_prefilled_command_starts_the_next_prompt_once(self):
+        body = "session.prefill = '/model '\n" + self.READS.format(attach=True, count=2)
+        output = self.run_script(body, [b"gpt-x\r", b"next\r"])
+        self.assertEqual([r[0] for r in self.results(output)], ["/model gpt-x", "next"])
 
     def test_without_attachments_a_line_break_key_is_ignored_and_enter_still_sends(self):
         output = self.run_script(self.READS.format(attach=False, count=1), [b"a\x1b\rb\n"])

@@ -6,7 +6,7 @@ import os
 import shutil
 import sys
 
-from . import agent_profiles, analysis_session, permissions, session_presence, system_clients
+from . import agent_profiles, analysis_session, execution, permissions, session_presence, system_clients
 from .account_cli import print_usage
 from .terminal_style import paint
 from .analysis_contract import terminal_text
@@ -52,10 +52,15 @@ def snapshot():
     return value
 
 
+def _service(provider):
+    return execution.provider_name(provider) if provider in execution.PROVIDERS else "unknown"
+
+
 def _summary(data, *, interactive=False):
     selected = data["selected"] or "unknown"
     print(paint("AI Desktop", "accent", "bold") + "  " +
-          " · ".join((paint(selected, "bold"), data["role"] or "unknown", data.get("model", "unknown"))))
+          " · ".join((paint(_service(data["selected"]), "bold"), data["role"] or "unknown",
+                      execution.model_label(data["model"]) if data.get("model") else "unknown")))
     if not interactive:
         for item in data["providers"]:
             mark = "*" if selected == item["id"] else " "

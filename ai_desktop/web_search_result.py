@@ -10,6 +10,7 @@ import ipaddress
 import json
 import math
 import re
+import unicodedata
 from urllib.parse import urlsplit
 
 from .analysis_contract import AnalysisDenied, MAX_TEXT, ModelText, terminal_text
@@ -36,6 +37,28 @@ def _string(value, limit, *, lines=False):
             or terminal_text(value) != value or (not lines and any(c in value for c in "\r\n\t"))):
         raise ValueError("text")
     return value
+
+
+MAX_TITLE = 200                     # characters of one shown source title
+
+
+def _title(value):
+    """A source title as plain, bounded display text: format and control characters (a soft hyphen, a zero-width
+    space) are dropped, any line break or other spacing becomes one space, a long title is shortened visibly.
+    None when nothing printable is left; the caller then shows the host name."""
+    if type(value) is not str:
+        return None
+    kept = []
+    for char in value[:4 * MAX_TITLE]:
+        category = unicodedata.category(char)
+        if category in ("Zl", "Zp") or char.isspace():
+            kept.append(" ")
+        elif category[0] != "C":
+            kept.append(char)
+    title = " ".join("".join(kept).split())
+    if len(title) > MAX_TITLE:
+        title = title[:MAX_TITLE - 1].rstrip() + "…"
+    return title or None
 
 
 def _host(value):
@@ -241,8 +264,13 @@ def _sources(value, query):
         for item in result["content"]:
             if type(item) is not dict:
                 raise ValueError("source")
-            title, url = _string(item.get("title"), 1024), _url(item.get("url"))
-            sources.setdefault(url, title)
+            # One unusual result (an international or underscore host, a port, quotes in the address) is left out
+            # instead of refusing the whole answer. It can never be cited: a cited address must have been observed.
+            try:
+                url = _url(item.get("url"))
+            except (ValueError, TypeError, UnicodeError):
+                continue
+            sources.setdefault(url, _title(item.get("title")) or urlsplit(url).hostname)
     if len(sources) > 256:
         raise ValueError("sources")
     return sources
@@ -259,7 +287,9 @@ def _message(event, role):
     return message["content"]
 
 
-_INLINE_LINK = re.compile(r"\[([^\[\]\n]*)\]\(\s*([^()\s]*)\s*(?:\"[^\"\n]*\")?\)")
+# The destination may hold one level of balanced parentheses (a Wikipedia "Foo_(bar)" page); the optional link title
+# may be in double or single quotes.
+_INLINE_LINK = re.compile(r"\[([^\[\]\n]*)\]\(\s*((?:[^()\s]|\([^()\s]*\))*)\s*(?:\"[^\"\n]*\"|'[^'\n]*')?\s*\)")
 _DEFINITION = re.compile(r"^ {0,3}\[[^\]\n]+\]:[^\n]*(?:\n|$)", re.M)
 _ADDRESS = re.compile(r"(?i)(?:\b[a-z][a-z0-9+.-]*://|\bwww\.)[^\s<>()\[\]`]*")
 _TRAILING = ".,;:!?'\""

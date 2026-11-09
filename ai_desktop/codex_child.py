@@ -47,14 +47,35 @@ def _live_mode(request):
         return False
 
 
+def _held(text, token):
+    """How many characters at the end of `text` could begin the token: they wait for the next delta."""
+    index = text.find(token[0], max(0, len(text) - len(token) + 1))
+    while index >= 0:
+        if token.startswith(text[index:]):
+            return len(text) - index
+        index = text.find(token[0], index + 1)
+    return 0
+
+
 def _live_writer(token):
     """Live answer text as its own stdout lines before the final result line; the supervisor removes them before the
-    result checks. The access token never leaves, even in a delta."""
+    result checks. The access token never leaves, even split across deltas: an end that could begin the token is held
+    back until the next delta shows it does not, and once the token appears the preview stops (the final result is
+    refused on its own). Held text is not lost: the terminal prints what the final answer adds to the preview."""
+    state = {"pending": "", "stopped": False}
+
     def write(delta):
-        if token in delta:
+        if state["stopped"]:
             return
-        sys.stdout.write(canonical({"partial": delta}) + "\n")
-        sys.stdout.flush()
+        text = state["pending"] + delta
+        if token in text:
+            state["pending"], state["stopped"] = "", True
+            return
+        keep = _held(text, token)
+        ready, state["pending"] = text[:len(text) - keep], text[len(text) - keep:]
+        if ready:
+            sys.stdout.write(canonical({"partial": ready}) + "\n")
+            sys.stdout.flush()
     return write
 
 

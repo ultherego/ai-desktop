@@ -80,6 +80,28 @@ def note_action(text, *, read=False):
         recorder.actions[recorder.more] = entry
 
 
+WEB_NOTE_SOURCES = 384        # bytes of a web note kept for the source addresses; the answer gets the rest
+
+
+def web_note(text):
+    """A controller fact for a checked web answer that was shown: its words (shortened visibly) and the addresses of
+    its program-checked sources, within one memory entry, so a later turn can refer to it. The text is the program's
+    checked result, not the model's own claim about what it found."""
+    text = _plain_lines(str(text)) if isinstance(text, str) else ""
+    answer, marker, listed = text.rpartition("\n\nSources:\n")
+    if not marker:
+        answer, listed = text, ""
+    urls = []
+    for line in listed.splitlines():
+        start, end = line.rfind("`", 0, len(line) - 1), len(line) - 1
+        if line.endswith("`") and start >= 0:
+            urls.append(line[start + 1:end])
+    sources = memory.cut("Sources: " + "; ".join(urls), WEB_NOTE_SOURCES) if urls else ""
+    head = "Searched the web; this checked answer was shown: "
+    room = memory.ENTRY_BYTES - len(head.encode("utf-8")) - len(sources.encode("utf-8")) - 1
+    return memory.cut(head + memory.cut(answer, room) + (" " + sources if sources else ""))
+
+
 def note_sources(paths):
     sources = _log.get()
     if sources is not None:

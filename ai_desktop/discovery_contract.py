@@ -231,6 +231,37 @@ def validate_discovery(value):
         raise ValueError("discovery") from None
 
 
+WEB_SHORTENED = "\n…[shortened]"
+WEB_SOURCES = "\n\nSources:\n"
+
+
+def web_data(text, limit=MAX_WEB_TEXT):
+    """The checked web answer as a valid `web` step text of at most `limit` UTF-8 bytes (and never more than
+    MAX_WEB_TEXT). Unicode line and paragraph separators become newlines; a longer answer is shortened visibly and
+    keeps its program-made source list whenever that list fits in half of the room. None when nothing usable fits."""
+    if type(text) is not str:
+        return None
+    text = str(text).replace("\u2028", "\n").replace("\u2029", "\n")
+    text = "".join(char for char in text if char in "\n\t" or unicodedata.category(char) not in ("Cc", "Cf", "Cs"))
+    limit = min(limit, MAX_WEB_TEXT)
+    if len(text.encode("utf-8")) <= limit:
+        return text if text.strip() else None
+
+    def head(value, room):
+        cut = value.encode("utf-8")[:max(0, room)].decode("utf-8", "ignore")
+        line = cut.rfind("\n")
+        return cut[:line] if line > len(cut) // 2 else cut       # end at a line when that does not lose much
+
+    answer, marker, sources = text.rpartition(WEB_SOURCES)
+    tail = (marker + sources).encode("utf-8") if marker else b""
+    if marker and len(tail) <= limit // 2:
+        kept = head(answer, limit - len(tail) - len(WEB_SHORTENED.encode("utf-8")))
+        shortened = kept.rstrip() + WEB_SHORTENED + marker + sources
+    else:
+        shortened = head(text, limit - len(WEB_SHORTENED.encode("utf-8"))).rstrip() + WEB_SHORTENED
+    return shortened if shortened.strip() and len(shortened.encode("utf-8")) <= limit else None
+
+
 def document_bytes(document):
     return len(json.dumps(document, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
                           allow_nan=False).encode("utf-8"))

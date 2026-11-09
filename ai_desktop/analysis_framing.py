@@ -17,7 +17,12 @@ CHUNK_BYTES = 32768
 MAGIC = b"AIDFRM2\0"
 HEADER = struct.Struct("!8scI32s")
 PARTIAL_BYTES = 16384
-MAX_PARTIALS = 4096                 # live-text frames before one response; their text is bounded again by the caller
+# Live frames before one response. The service sends text at most every 0.15 s and stops after 256 KiB of it, plus
+# fixed status frames; this covers the longest request and a long wait for a free place with a wide margin. Their
+# total size is bounded separately, and their text again by the caller.
+MAX_PARTIALS = 65536
+MAX_PARTIAL_STREAM = 16 * 1024 * 1024   # every live frame of one exchange together, headers included
+MAX_CEILING = 7200                      # an exchange renewed by the peer's status frames never waits longer in all
 _KINDS = {"request": (b"Q", MAX_PACKET_LARGE), "response": (b"R", MAX_RESPONSE_BYTES)}
 PARTIAL_TAG = b"P"
 
@@ -99,13 +104,21 @@ def _partial_record(raw):
     return body
 
 
-def receive_message(channel, *, kind, timeout=5, clock=time.monotonic, partial=None):
+def receive_message(channel, *, kind, timeout=5, clock=time.monotonic, partial=None, ceiling=None):
     """One message of `kind`. With `partial`, a response may be preceded by live-text frames, each handed over as
-    bytes; the whole exchange keeps one deadline and a fixed frame count."""
+    bytes; the whole exchange keeps one deadline, a fixed frame count and a byte bound.
+
+    With `ceiling`, `partial` may return a number of seconds: the deadline then moves to at least that far from now
+    (e.g. while the peer reports that the request waits for a free place), never beyond `ceiling` seconds after the
+    start. Without it, a return value is ignored and the single deadline stays."""
     tag, limit = _settings(kind, timeout)
     if partial is not None and (kind != "response" or not callable(partial)):
         raise AnalysisDenied("input")
-    deadline, previous = clock() + timeout, channel.gettimeout()
+    if ceiling is not None and (partial is None or type(ceiling) not in (int, float) or not math.isfinite(ceiling)
+                                or not timeout <= ceiling <= MAX_CEILING):
+        raise AnalysisDenied("input")
+    start, previous = clock(), channel.gettimeout()
+    deadline, received = start + timeout, 0
     try:
         for _ in range(MAX_PARTIALS + 1):
             if partial is None:
@@ -121,7 +134,13 @@ def receive_message(channel, *, kind, timeout=5, clock=time.monotonic, partial=N
                         or not HEADER.size <= len(raw) <= HEADER.size + PARTIAL_BYTES):
                     raise AnalysisDenied("input")
                 if len(raw) > HEADER.size:
-                    partial(_partial_record(raw))
+                    received += len(raw)
+                    if received > MAX_PARTIAL_STREAM:
+                        raise AnalysisDenied("input")
+                    renew = partial(_partial_record(raw))
+                    if (ceiling is not None and type(renew) in (int, float) and math.isfinite(renew)
+                            and 0 < renew <= MAX_CEILING):
+                        deadline = min(start + ceiling, max(deadline, clock() + renew))
                     continue
             magic, actual_tag, length, expected = HEADER.unpack(raw)
             if magic != MAGIC or actual_tag != tag or not 0 < length <= limit:

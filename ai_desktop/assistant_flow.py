@@ -593,12 +593,12 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                                         question_consent=permit)
                     permit.check()
                     _show_web(found, args)
+                    # Recorded first, so a later turn can refer to what was shown even if this question stops below.
+                    conversation_state.note_action(conversation_state.web_note(found))
                     try:
                         ledger.add_web(found)
                     except ask_discovery.BudgetExhausted as exhausted:
                         _budget_stop(snapshot.policy, exhausted.name)
-                    conversation_state.note_action("Searched the web; the checked answer and its sources were shown "
-                                                   "and given to the model for the rest of this question.")
                     plan = next_plan()
                     continue
                 if snapshot.policy is None and (plan["action"] in ("list", "find", "run", "read-range", "search-content")
@@ -636,8 +636,10 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                     if "commands" in plan:
                         # One planner step, many reads: the model gets all the results in its next single round.
                         _group(ledger, len(plan["commands"]))
-                        for argv in plan["commands"]:
-                            if ledger.commands_left <= 0:
+                        for index, argv in enumerate(plan["commands"]):
+                            # The first one always goes through the budget check: with no rounds left it is recorded
+                            # as refused (or ends the question with the budget message), never silently skipped.
+                            if ledger.commands_left <= 0 and index:
                                 break
                             permit.renew()    # commands may take their full timeout each; the question ceiling still holds
                             _run_command(snapshot, ledger, {"action": "run", "argv": argv}, permit, args, reader)

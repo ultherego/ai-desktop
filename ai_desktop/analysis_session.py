@@ -12,6 +12,9 @@ from .analysis_sandbox import trusted_file
 from .analysis_session_admin import BOOTSTRAP, ENV, READY, STOPPED, REFUSED, unit_policy, properties, units
 from . import e2_account
 
+# The helper unit's TimeoutStopSec (60 s, analysis_session_admin.session_command) bounds its cleanup; 30 s margin.
+CLEANUP_SECONDS = 90
+
 
 def identity(*, terminal=False):
     uid = os.geteuid()
@@ -128,11 +131,18 @@ class Session:
         return self.process.poll() is None
 
     def close(self):
-        self.process.stdin.close()  # EOF is the only control message.
+        """EOF to the helper, then its STOPPED and exit. The helper's cleanup (ExecStopPost) may wait up to 30 s for the
+        user's session lock and then stop units; PID1 bounds it by the helper unit's TimeoutStopSec=60, so the wait is
+        that plus a margin. On every path the sudo process is reaped, killed first when it is still running."""
         try:
-            if self.ready and self.line(35) != STOPPED:
+            self.process.stdin.close()  # EOF is the only control message.
+        except OSError:
+            pass
+        deadline = time.monotonic() + CLEANUP_SECONDS
+        try:
+            if self.ready and self.line(CLEANUP_SECONDS) != STOPPED:
                 raise AnalysisDenied("cleanup")
-            code = self.process.wait(timeout=35)
+            code = self.process.wait(timeout=max(1, deadline - time.monotonic()))
             if self.ready:
                 if (code != 0 or self.buffer or not select.select([self.process.stdout], [], [], 3)[0]
                         or os.read(self.process.stdout.fileno(), 1)):
@@ -140,7 +150,20 @@ class Session:
         except (OSError, ValueError, subprocess.SubprocessError, AnalysisDenied):
             raise AnalysisDenied("cleanup") from None
         finally:
+            _reap(self.process)
             self.process.stdout.close()
+
+
+def _reap(process):
+    """Never leave the sudo helper behind: ask it to end, then kill it, and always collect its exit status."""
+    for stop in (process.terminate, process.kill):
+        if process.poll() is not None:
+            return
+        try:
+            stop()
+            process.wait(timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            pass
 
 
 @contextmanager

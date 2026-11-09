@@ -101,7 +101,7 @@ def failure_hint(reason, fallback, *, config=execution.UNSET, diagnostic=None):
         codex = {
             "runtime": "The isolated Codex runtime is incomplete. Run ai-desktop doctor --clients.",
             "version": "The system Codex client did not pass its isolated compatibility check.",
-            "auth-required": "Connect your account: ai-desktop login (choose ChatGPT / Codex). Then approve a new task.",
+            "auth-required": "Connect your account: ai-desktop login (choose Codex). Then approve a new task.",
             "auth-method": "AI Desktop needs its own Sign in with ChatGPT login.",
         }
         if reason in codex:
@@ -121,13 +121,18 @@ def add_arguments(parser, *, session=False):
                             help="Create or resume a specific local conversation; ask saves completed turns by default")
 
 
+AGENT_TIED = ("This conversation is saved and tied to its agent, so the agent cannot change here. "
+              "To use another agent, end it with /exit and start a new conversation: ai-desktop ask --agent NAME.")
+
+
 def label(config=execution.UNSET):
     config = recipient_config(config)
     if config is None:
-        return "Claude · profile: default · model and reasoning: default"
+        return "Claude · profile: default · model: %s · reasoning: %s" % (
+            execution.model_label("default"), execution.effort_label("default"))
     return "%s · profile: %s · model: %s · reasoning: %s%s" % (
         recipient(config=config),
-        config["profile"], config["model"], config["effort"],
+        config["profile"], execution.model_label(config["model"]), execution.effort_label(config["effort"]),
         " · read-only" if config["access"] == "read-only" else "")
 
 
@@ -143,7 +148,8 @@ def banner(config=execution.UNSET, stream=None):
         config = {"profile": "default", "model": "default", "effort": "default", "access": "changes"}
     rows = ["service:  %s" % name,
             "profile:  %s%s" % (config["profile"], " (read-only)" if config["access"] == "read-only" else ""),
-            "model:    %s \u00b7 reasoning: %s" % (config["model"], config["effort"]),
+            "model:    %s \u00b7 reasoning: %s" % (execution.model_label(config["model"]),
+                                                 execution.effort_label(config["effort"])),
             "",
             "/settings to change \u00b7 /help for commands"]
     import os
@@ -207,7 +213,8 @@ def _conversation(arguments):
 
 
 def conversation_command(line, *, saved=False):
-    """Idle-only conversation controls; never called from a model response."""
+    """Idle-only conversation controls; never called from a model response. `saved`: a saved conversation, which keeps
+    its agent (same_agent binds the role); its model and reasoning level may change."""
     command, _, value = line.partition(" ")
     if command not in ("/settings", "/ustawienia", "/model", "/sila", "/effort", "/agent"):
         return False
@@ -216,12 +223,11 @@ def conversation_command(line, *, saved=False):
         print(label())
         selected = execution.current()
         provider = selected["provider"] if selected is not None else "claude"
-        models = execution.MODELS if provider == "claude" else ("default", "ID")
-        print("/model %s · /effort %s · /agent NAME" % (
-            "|".join(models), "|".join(execution.efforts_for(provider))))
+        print("/settings, /model, /effort and /agent open a menu; /model ID, /effort %s or /agent NAME set one directly."
+              % "|".join(execution.efforts_for(provider)))
         return True
-    if saved:
-        print("A saved conversation is tied to its agent configuration. End it and open --session new with the new settings.")
+    if saved and command == "/agent":
+        print(AGENT_TIED)
         return True
     try:
         from .agent_profiles import resolve

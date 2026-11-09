@@ -5,8 +5,9 @@ now, e.g. "Opus 5.5"). Codex: below.
 
 The catalog is the client's own (`model/list` of its app-server), so it follows the client instead of a list baked into
 this program. The query needs no account: the client runs with an empty private HOME, every namespace unshared (no
-network), no credentials, no user data and no tools, and is killed as soon as it answers. The result is a convenience for
-menus, never authority: a chosen id is still shape-checked and the client alone decides whether it accepts it.
+network), no credentials, no user data and no tools, and is stopped as soon as its answer has arrived (Codex: by the
+in-sandbox probe; Claude: by this module once a valid answer is on stdout). The result is a convenience for menus, never
+authority: a chosen id is still shape-checked and the client alone decides whether it accepts it.
 """
 import json
 import os
@@ -21,12 +22,16 @@ from .analysis_contract import AnalysisDenied
 from .analysis_sandbox import _identity_files
 from . import client_binding, codex_runtime
 from .process_io import bounded_process
-from .execution import CODEX_MODEL, MODELS
+from .execution import CODEX_MODEL, MODEL_ID, MODELS
 
 MAX_ENTRIES = 64
 MAX_LABEL = 64
 MAX_OUTPUT = 256 * 1024
 TIMEOUT = 20.0
+
+
+class _Answered(Exception):
+    """Internal: the client's answer arrived; the read stops early."""
 
 
 class CatalogUnavailable(Exception):
@@ -103,8 +108,8 @@ _PRICE = __import__("re").compile(r"\s*\$[^·]*per Mtok.*$")
 
 
 def parse_claude(output):
-    """((alias, label, note), ...) from the client's stream: only the control response to our request, only aliases this
-    program accepts, bounded plain labels. Anything else makes the catalog unavailable."""
+    """((value, label, note), ...) from the client's stream: only the control response to our request, every well-formed
+    value the client lists (new models included), bounded plain labels. Anything else makes the catalog unavailable."""
     response = None
     for line in output.splitlines()[:64]:
         try:
@@ -124,8 +129,8 @@ def parse_claude(output):
         if type(item) is not dict or type(item.get("value")) is not str:
             raise CatalogUnavailable()
         alias = item["value"]
-        if alias not in MODELS or alias in seen:
-            continue                                   # this program sends only the client's own aliases
+        if not MODEL_ID.fullmatch(alias) or alias in seen:
+            continue                                   # any well-formed value the client offers, new models included
         seen.add(alias)
         raw = item.get("description")
         description = _PRICE.sub("", raw).strip(" ·") if type(raw) is str and len(raw) <= 8 * MAX_LABEL else ""
@@ -162,13 +167,27 @@ def fetch_claude(*, run=None, timeout=TIMEOUT):
             if left <= 0:
                 raise CatalogUnavailable()
             command = analysis_sandbox.namespace_command("catalog", directory, online=False, bound=bound)
-            code, output, _ = (run or bounded_process)(command, env={"PATH": "/usr/bin", "LANG": "C.UTF-8"},
-                                                       pass_fds=bound.pass_fds, input_bytes=CLAUDE_REQUEST,
-                                                       timeout=left, limit=MAX_OUTPUT)
+            seen, found = bytearray(), []
+
+            def answered(block):
+                # Stop as soon as a complete, valid answer arrived: the process group is then killed.
+                seen.extend(block)
+                if b"\n" in block and len(seen) <= MAX_OUTPUT:
+                    try:
+                        found.append(parse_claude(bytes(seen)))
+                    except CatalogUnavailable:
+                        return
+                    raise _Answered()
+            try:
+                _, output, _ = (run or bounded_process)(command, env={"PATH": "/usr/bin", "LANG": "C.UTF-8"},
+                                                        pass_fds=bound.pass_fds, input_bytes=CLAUDE_REQUEST,
+                                                        timeout=left, limit=MAX_OUTPUT, stdout_chunk=answered)
+            except _Answered:
+                output = None
             bound.recheck()
-            if code:
-                raise CatalogUnavailable()
-            return parse_claude(output)
+            # The client ends at the end of its input, often with a non-zero status after it has answered: its answer
+            # on stdout decides, not the exit code.
+            return found[0] if found else parse_claude(output)
     except CatalogUnavailable:
         raise
     except (AnalysisDenied, OSError, ValueError, TypeError, KeyError, RecursionError):

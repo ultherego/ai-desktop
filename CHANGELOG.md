@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.0-153: a full review of the project, fixed
+
+A review of the whole program found places where one failure ended more than it should, where two parts disagreed, and where several terminals could get in each other's way. All of them are fixed here.
+
+- **A failing question ends only that question.** A weather source that does not answer, an expired approval, a busy service, an invalid `permissions.toml` or Ctrl+C in a `/` menu used to end the whole conversation; now the conversation continues and you can ask again.
+- **Any number of terminals, really.** A question waiting for a free place no longer times out because of other terminals (you see "waiting for a free place", and that time does not count against the question). The service hands over to a fresh one before its time limit instead of cutting an answer off, `ai-desktop stop` also repairs units left running without a session, and up to 64 terminals can hold a conversation.
+- **One model list, from the clients.** `/model` in a conversation, during an answer and in `ai-desktop settings` shows the same list, read from your Claude and Codex clients (new models appear when the client knows them, without an update of AI Desktop), with readable labels ("Opus 5.5", "very high"). "Other ID" accepts any well-formed ID, also variants such as `opus[1m]`. `/settings` now opens a menu.
+- **The editor during an answer works like the idle one:** Shift+Enter and `\`+Enter for a new line, Up/Down for history, large pastes as `[paste #N]`, Tab completion.
+- **Web search:** one unusual search result is left out instead of refusing the whole answer, links with parentheses are cleaned, and a search answer is kept in the conversation for the next question.
+- **New look of the documentation:** a short README with a logo; installation, usage, configuration, troubleshooting and testing moved to `docs/`.
+
 ## 0.1.0-152: the Claude model list comes from the client
 
 - `/model` for Claude lists what your installed Claude client offers, with the model each choice is now (for example "Opus 5.5 — Best for everyday, complex tasks", "Default (recommended) — currently Opus 5.5"), like Claude Code's own menu. The list is read from the client offline, without your account. Codex already read its list from its client. When the list cannot be read, the client's aliases are offered as before.

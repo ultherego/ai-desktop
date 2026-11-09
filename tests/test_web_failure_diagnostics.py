@@ -97,8 +97,15 @@ class WebDiagnosticContractTests(unittest.TestCase):
             with self.subTest(check=check):
                 self.refused(items, check)
         items = events()
-        items[2]["tool_use_result"]["results"][0]["content"][0]["url"] = "file:///" + SECRET
+        items[2]["tool_use_result"]["results"][0]["content"][0] = "file:///" + SECRET     # not a structured item
         self.refused(items, "web-search-source")
+        items = events()
+        # One unusable address is left out, not a refusal of the search; the answer cited only that source, so
+        # nothing it could cite was observed.
+        items[2]["tool_use_result"]["results"][0]["content"][0]["url"] = "file:///" + SECRET
+        with self.assertRaises(AnalysisDenied) as caught:
+            web_text(stream(items))
+        self.assertEqual(caught.exception.reason, "web-no-results")
 
     def test_final_checks_never_release_partial_or_denied_answers(self):
         for key, value, check in (("subtype", "error_max_turns", "web-final-status"),

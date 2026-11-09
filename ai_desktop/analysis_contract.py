@@ -361,6 +361,7 @@ CONVERSATION_IDLE_SECONDS = 15 * 60
 CONVERSATION_SECONDS = 4 * 3600
 # A terminal's privileged session helper waits for the terminal to close its pipe: a whole conversation, plus the
 # longest request started at its end. Its unit may live 20 s longer (RuntimeMaxSec).
+QUEUE_EXCUSE_SECONDS = 3600 + 1200   # the longest wait for a place (service QUEUE_SECONDS) plus a worker change
 HOLD_SECONDS = CONVERSATION_SECONDS + SESSION_SECONDS
 
 
@@ -382,8 +383,13 @@ def request_effort(raw):
 MAX_TEXT = 96 * 1024          # one answer; `max` asked to list everything can pass 32 KiB in Polish (2-byte letters)
 MAX_QUESTION_BYTES = 2048       # a one-shot or material/project question
 MAX_MESSAGE_BYTES = 128 * 1024  # one `ask` message with what was pasted into it; it travels on stdin, not in argv
+PREPARE_SECONDS = 90           # the service's work before the model call: profile lock, compatibility, login status
+
+
 def consent_seconds(effort):
-    """How long one approved step may stay valid: one model call, its service wait and a margin (180 s for the default)."""
+    """How long one approved step may stay valid: one model call, its service wait and a margin (180 s for the default).
+    Time before the model call starts (a wait for a free place, the service's preparation) is excused separately
+    (QuestionConsent.excuse), like the time spent typing a sudo password."""
     return request_seconds(effort) + SERVICE_MARGIN + 30
 
 

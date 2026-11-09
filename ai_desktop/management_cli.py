@@ -8,26 +8,47 @@ import sys
 from . import agent_profiles as profiles, execution, model_catalog
 from .terminal_style import paint
 
-MODEL_LABELS = {"default": "Auto (client default)", "best": "Best available", "fable": "Fable",
-                "opus": "Opus", "sonnet": "Sonnet", "haiku": "Haiku", "opusplan": "Planning: Opus, execution: Sonnet",
-                "custom": "Other ID (type it)"}
+MODEL_LABELS = execution.MODEL_LABELS
+EFFORT_LABELS = execution.EFFORT_LABELS
+SERVICE_LABELS = {name: execution.provider_name(name) for name in execution.PROVIDERS}
+CHOICES_SECONDS = 60.0              # one menu open (and the next few) reuse the list instead of starting the client again
+_choices = {}
 
 
-def model_choices(provider):
-    """(values, labels, note). Claude: the client's aliases. Codex: Auto, the client's own catalog, free text."""
+def model_choices(provider, *, clock=None):
+    """(values, labels, note). Claude: the client's aliases. Codex: Auto, the client's own catalog, free text.
+
+    The one source of the model menu in the settings and in a conversation. A list read from a client is kept for a
+    short time in this process, so opening a menu (or opening it again) does not start the client twice."""
+    import time
+    now = (clock or time.monotonic)()
+    # Keyed by the reader too: a different client reader (an update of this module, a test double) is never served
+    # an older list. Only a list the client really gave is kept; a failure is asked again next time.
+    key = (provider, model_catalog.fetch_claude if provider == "claude" else model_catalog.fetch)
+    kept = _choices.get(key)
+    if kept is not None and 0 <= now - kept[0] < CHOICES_SECONDS:
+        return kept[1]
+    result = _fetch_choices(provider)
+    _choices.clear()
+    if provider != "local" and result[2] is None:
+        _choices[key] = (now, result)
+    return result
+
+
+def _fetch_choices(provider):
     if provider == "claude":
-        # The client's own list, as its /model menu shows it ("Opus 5.5 — Best for everyday, complex tasks"); the
-        # aliases it did not list stay available after it.
+        # Only the client's own list, as its /model menu shows it ("Opus 5.5 — Best for everyday, complex tasks"), and
+        # "Other ID": nothing is baked in here, so a model the provider adds appears without an update of this program.
         print("Getting the model list from the Claude client…", flush=True)
         try:
             entries = model_catalog.fetch_claude()
         except model_catalog.CatalogUnavailable:
-            return profiles.MODELS, tuple(MODEL_LABELS[key] for key in profiles.MODELS), (
-                "The client's model list is unavailable; these are its aliases.")
+            return ("default", "custom"), (MODEL_LABELS["default"], MODEL_LABELS["custom"]), (
+                "The client's model list is unavailable; choose Auto or type an ID.")
         listed = tuple(alias for alias, _, _ in entries)
-        values = listed + tuple(key for key in profiles.MODELS if key not in listed)
-        labels = tuple(label + (" — " + note if note else "") for _, label, note in entries) + tuple(
-            MODEL_LABELS[key] for key in profiles.MODELS if key not in listed)
+        values = listed + (() if "default" in listed else ("default",)) + ("custom",)
+        labels = (tuple(label + (" — " + note if note else "") for _, label, note in entries)
+                  + (() if "default" in listed else (MODEL_LABELS["default"],)) + (MODEL_LABELS["custom"],))
         return values, labels, None
     if provider == "local":
         return ("default", "custom"), ("Current server model", MODEL_LABELS["custom"]), None
@@ -40,9 +61,6 @@ def model_choices(provider):
     values = ("default", *(ident for ident, _ in entries), "custom")
     labels = (MODEL_LABELS["default"], *(label + " (" + ident + ")" for ident, label in entries), MODEL_LABELS["custom"])
     return values, labels, note
-EFFORT_LABELS = {"default": "client default", "low": "low", "medium": "medium", "high": "high",
-                 "xhigh": "very high", "max": "maximum"}
-SERVICE_LABELS = {name: execution.provider_name(name) for name in execution.PROVIDERS}
 
 
 def _profile_flags(parser, *, create=False):
@@ -130,8 +148,9 @@ def _models(provider="claude"):
     for key, label in zip(values, labels):
         if key != "custom":
             print("%-16s %s" % (key, label))
-    if provider == "codex":
-        print("This list comes from the Codex client; give any other ID with --model ID." + (" " + note if note else ""))
+    if provider in ("claude", "codex"):
+        print("This list comes from the " + execution.provider_name(provider) + " client; give any other ID with "
+              "--model ID." + (" " + note if note else ""))
     print("Reasoning: " + ", ".join(profiles.efforts_for(provider)) + ".")
     if provider == "claude":
         print("Model and level availability depends on your Claude account and the client. The model never changes automatically.")
@@ -188,7 +207,7 @@ def _legacy_menu(store, reader, *, provider_neutral=False):
         field = "model" if chosen == "2" else "effort"
         picked = values[int(number) - 1]
         if picked == "custom":
-            print("Codex model ID:")
+            print(execution.provider_name(provider) + " model ID:")
             picked = read("> ").strip()
         selected = replace(config.profiles[config.active], **{field: picked})
         after = store.mutate(lambda value: value.put(config.active, selected), expected=before)
@@ -275,7 +294,8 @@ class _SettingsMenu:
 
     def service(self, before):
         value = self.pick("Service · for all agents · no login", execution.PROVIDERS,
-                          labels=("Claude", "ChatGPT / Codex", "Local llama.cpp"), current=before.config.selected_provider)
+                          labels=tuple(SERVICE_LABELS[name] for name in execution.PROVIDERS),
+                          current=before.config.selected_provider)
         if value is not None:
             selected = before.config.with_provider(value)
             if selected != before.config:

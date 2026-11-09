@@ -65,15 +65,32 @@ class ProtocolDeltaTests(unittest.TestCase):
 
 
 class ChildWriterTests(unittest.TestCase):
-    def test_deltas_are_their_own_lines_and_never_carry_the_token(self):
+    def written(self, deltas, token="TOKEN-SYNTHETIC"):
         out = io.StringIO()
         with patch.object(codex_child.sys, "stdout", out):
-            write = codex_child._live_writer("TOKEN-SYNTHETIC")
-            write("Część ")
-            write("z TOKEN-SYNTHETIC w środku")
-            write('"cudzysłów"\n')
-        lines = out.getvalue().splitlines()
-        self.assertEqual([json.loads(line) for line in lines], [{"partial": "Część "}, {"partial": '"cudzysłów"\n'}])
+            write = codex_child._live_writer(token)
+            for delta in deltas:
+                write(delta)
+        return [json.loads(line)["partial"] for line in out.getvalue().splitlines()]
+
+    def test_deltas_are_their_own_lines_and_never_carry_the_token(self):
+        # once the token appears the preview stops; the final result is checked on its own
+        self.assertEqual(self.written(["Część ", "z TOKEN-SYNTHETIC w środku", '"cudzysłów"\n']), ["Część "])
+        self.assertEqual(self.written(['"cudzysłów"\n']), ['"cudzysłów"\n'])
+
+    def test_a_token_split_across_deltas_never_leaves_even_in_part(self):
+        for cut in range(1, len("TOKEN-SYNTHETIC")):
+            with self.subTest(cut=cut):
+                lines = self.written(["przed ", "x TOKEN-SYNTHETIC"[:2 + cut], "TOKEN-SYNTHETIC"[cut:] + " po", "dalej"])
+                joined = "".join(lines)
+                self.assertNotIn("TOKEN-SYNTHETIC"[:3], joined)      # not even its beginning was sent
+                self.assertEqual(joined, "przed x ")
+        three = self.written(["a TOK", "EN-SYN", "THETIC b"])
+        self.assertEqual("".join(three), "a ")
+
+    def test_an_end_that_only_looks_like_the_token_is_sent_with_the_next_delta(self):
+        self.assertEqual(self.written(["Tekst TOK", "YO dalej"]), ["Tekst ", "TOKYO dalej"])
+        self.assertEqual(self.written(["TT", "TOKEN-X"]), ["T", "TTOKEN-X"])
 
     def test_only_answer_modes_are_live(self):
         self.assertTrue(codex_child._live_mode(application()))

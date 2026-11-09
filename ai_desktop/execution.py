@@ -19,14 +19,35 @@ LOCAL_MODEL = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9._-]{0,95}\Z", re.ASCII)
 
 
 def provider_name(provider):
-    return {"claude": "Claude", "codex": "Codex", "local": "Local llama.cpp"}[provider]
+    """The one human name of each service, used by every menu, status line and login screen."""
+    return {"claude": "Claude", "codex": "Codex", "local": "Local server"}[provider]
+
+
+# Human labels for model aliases and reasoning levels; a value without a label (a Codex or local model ID) is shown
+# as it is. The model lists themselves come from the clients (management_cli.model_choices).
+MODEL_LABELS = {"default": "Auto", "best": "Best available", "fable": "Fable",
+                "opus": "Opus", "sonnet": "Sonnet", "haiku": "Haiku", "opusplan": "Planning: Opus, execution: Sonnet",
+                "custom": "Other ID (type it)"}
+EFFORT_LABELS = {"default": "auto", "low": "low", "medium": "medium", "high": "high",
+                 "xhigh": "very high", "max": "maximum"}
+
+
+def model_label(model):
+    return MODEL_LABELS.get(model, model)
+
+
+def effort_label(effort):
+    return EFFORT_LABELS.get(effort, effort)
 
 
 def valid_local_port(port):
     return type(port) is int and 1024 <= port <= 65535
 
 
-MODELS = ("default", "best", "fable", "opus", "sonnet", "haiku", "opusplan")   # Claude client aliases
+# Claude aliases this program has labels for. Not a list of what may be chosen: the model lists come from the clients
+# (management_cli.model_choices), and any well-formed id the client offers or the owner types is accepted; the client
+# alone decides whether it exists (the maintainer, 2026-11-09: providers add models, this program must not lag behind).
+MODELS = ("default", "best", "fable", "opus", "sonnet", "haiku", "opusplan")
 CLAUDE_EFFORTS = ("default", "low", "medium", "high", "xhigh", "max")
 CODEX_EFFORTS = ("default", "low", "medium", "high", "xhigh")
 EFFORTS = CLAUDE_EFFORTS  # Parser union; provider-specific validation remains authoritative.
@@ -35,6 +56,9 @@ ACCESS = ("read-only", "changes")
 # pinned client, which refuses an unknown or unentitled one (reported as codex-model-unavailable). Same shape as the
 # protocol's own check; "default" omits the id and lets the client choose.
 CODEX_MODEL = re.compile(r"[a-z][a-z0-9._-]{0,95}\Z", re.ASCII)
+# A Claude alias or id (e.g. "opus", "claude-opus-5-5") with an optional bracketed variant such as "opus[1m]" (the
+# 1M-token context, see code.claude.com/docs/en/model-config). Passed as one argv element after --model.
+MODEL_ID = re.compile(r"[a-z][a-z0-9._-]{0,95}(?:\[[a-z0-9]{1,8}\])?\Z", re.ASCII)
 MAX_INSTRUCTIONS_BYTES = 104 * 1024   # same ceiling as agent_profiles.MAX_EXECUTION_INSTRUCTIONS
 MAX_HISTORY = 64         # `ask` conversation window (pairs); material/project keep their own, smaller windows
 HISTORY_QUESTION_BYTES = 128 * 1024  # a pasted text stays available for the follow-up questions about it
@@ -55,13 +79,13 @@ def efforts_for(provider):
 
 
 def model_allowed(provider, model):
-    """Closed Claude aliases; shape-checked Codex ids. Authority over the id stays with the native client."""
+    """Shape-checked Claude and Codex ids (aliases included). Whether the model exists is the native client's verdict."""
     if type(provider) is not str or type(model) is not str:
         return False
     if provider == "local":
         return LOCAL_MODEL.fullmatch(model) is not None
     if provider == "claude":
-        return model in MODELS
+        return MODEL_ID.fullmatch(model) is not None
     # A Claude alias is never a Codex model id; every other well-formed id is left to the client to accept or refuse.
     return (provider == "codex" and CODEX_MODEL.fullmatch(model) is not None
             and (model == "default" or model not in MODELS))
@@ -69,10 +93,10 @@ def model_allowed(provider, model):
 
 def model_argument(value):
     """Legacy cloud-only argument. Codex identifiers use lower-case ASCII."""
-    if type(value) is str and (value in MODELS or CODEX_MODEL.fullmatch(value)):
+    if type(value) is str and MODEL_ID.fullmatch(value):
         return value
     import argparse
-    raise argparse.ArgumentTypeError("invalid model; use a Claude alias (ai-desktop settings models) or a Codex ID")
+    raise argparse.ArgumentTypeError("invalid model ID (lower-case letters, digits, '.', '_' or '-'); see ai-desktop settings models")
 
 
 def service_model_argument(value):

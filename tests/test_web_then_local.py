@@ -68,6 +68,26 @@ class WebThenLocalTests(Base):
             self.run_flow([listing, CONTINUE])
         self.assertNotIn("web", self.modes())
 
+    def test_the_shown_search_answer_is_recorded_for_later_turns(self):
+        from ai_desktop import conversation_state
+        answer = json.dumps({"action": "answer", "text": FINAL})
+        with conversation_state.recording() as recorded:
+            self.run_flow([CONTINUE, WEB_TEXT, answer])
+        notes = [note for note in recorded.actions if note.startswith("Searched the web")]
+        self.assertEqual(len(notes), 1)
+        self.assertIn("Python 3.14 jest najnowszy [1].", notes[0])
+        self.assertIn("https://www.python.org/downloads/", notes[0])
+
+    def test_the_search_answer_is_recorded_even_when_it_cannot_be_given_to_the_model(self):
+        from ai_desktop import ask_discovery, conversation_state
+        from unittest.mock import patch
+        answer = json.dumps({"action": "answer", "text": FINAL})
+        with conversation_state.recording() as recorded, patch.object(
+                ask_discovery.DiscoveryLedger, "add_web", side_effect=ask_discovery.BudgetExhausted("discovery_bytes")):
+            with self.assertRaises(Exception):
+                self.run_flow([CONTINUE, WEB_TEXT, answer])
+        self.assertTrue(any("Python 3.14" in note for note in recorded.actions))
+
 
 class WebDisabledTests(Base):
     def test_continue_needs_web_access_like_any_search(self):
@@ -102,6 +122,17 @@ class ContractTests(unittest.TestCase):
                     '{"action":"web","continue":true,"files":[]}', '{"action":"web","then":"edit"}'):
             with self.subTest(raw=raw), self.assertRaises(plans.PlanError):
                 plans.parse_plan(raw, access)
+
+    def test_a_web_note_is_one_bounded_memory_entry_that_keeps_its_sources(self):
+        from ai_desktop import conversation_memory, conversation_state
+        long = "Zdanie\u2028odpowiedzi. " * 400 + "\n\nSources:\n" + "\n".join(
+            "[%d] T — `https://example.org/%d`" % (n, n) for n in range(1, 4))
+        note = conversation_state.web_note(long)
+        self.assertLessEqual(len(note.encode("utf-8")), conversation_memory.ENTRY_BYTES)
+        self.assertIn("…[shortened]", note)
+        self.assertIn("https://example.org/3", note)
+        self.assertNotIn("\u2028", note)
+        conversation_memory._text(note)                       # a valid memory entry text
 
     def test_a_web_step_is_bounded_clean_text_and_appears_once(self):
         remaining = {"rounds": 4, "corrections": 2, "commands": 24}

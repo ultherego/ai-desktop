@@ -8,6 +8,7 @@ import sys
 import subprocess
 import time
 
+from . import execution
 from .account_store import AccountStore, CLOUD, named_account
 from .agent_profiles import ProfileError
 from .login_flow import authenticate_account, login_status
@@ -96,7 +97,7 @@ def print_usage(rows):
         if previous is not None:
             print()
         if provider != previous:
-            print(paint({"claude": "Claude", "codex": "Codex"}[provider], "accent", "bold"))
+            print(paint(execution.provider_name(provider), "accent", "bold"))
         previous = provider
         name = paint(row["account"], "bold")
         selected = " (selected)" if row["selected"] else ""
@@ -316,7 +317,7 @@ def _connect(provider, store, *, from_widget=False):
     from .ask_commands import _pick
     from .cli import main as dispatch
 
-    label = {"claude": "Claude", "codex": "Codex"}[provider]
+    label = execution.provider_name(provider)
     while True:
         state = store.load().config
         selected = state.active(provider)

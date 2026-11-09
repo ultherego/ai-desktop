@@ -92,7 +92,7 @@ class QuestionConsent:
         self._discovery_bytes = None
         self._discovery_sent = 0
         self._skill_sent = 0
-        self._skill_batch = False
+        self._skill_batch = self._web_batch = False
         self._planner_sent = False
         self._seeded_skills = False
         self._web_sent = self._web_continues = False
@@ -168,6 +168,16 @@ class QuestionConsent:
         if now > self._expires:
             return
         self._expires = max(self._expires, min(now + consent_seconds(self._effort), self._born + CONSENT_CEILING))
+
+    def excuse(self, seconds):
+        """Time the request waited for a free place among other terminals' questions (or for the next service worker)
+        is not part of the window or the ceiling, like waiting for the user: both move forward by exactly that long,
+        bounded by the longest wait the terminal accepts."""
+        from .analysis_contract import QUEUE_EXCUSE_SECONDS
+        if (type(seconds) in (int, float) and seconds > 0 and self._approved and not self._closed):
+            gone = min(float(seconds), QUEUE_EXCUSE_SECONDS)
+            self._born += gone
+            self._expires += gone
 
     @contextmanager
     def waiting(self):
@@ -250,10 +260,13 @@ class QuestionConsent:
                 raise ValueError()
             added = document["steps"][len(before):]
             self._skill_batch = all(step["op"] == "skill" for step in added)
+            # The one web answer of a question is not a discovery round of the owner's budgets (the ledger does not
+            # count it either): the local rounds after it keep their full number.
+            self._web_batch = all(step["op"] == "web" for step in added)
             if self._skill_batch:
                 if len(added) > MAX_REUSED_SKILLS or (not seed_skills and self._skill_sent >= MAX_SKILL_ROUNDS):
                     raise ValueError()
-            elif self._discovery_sent >= rounds:
+            elif not self._web_batch and self._discovery_sent >= rounds:
                 raise ValueError()
             recheck_discovery(snapshot)
             self._discovery_bytes = canonical(document)
@@ -400,7 +413,7 @@ class QuestionConsent:
                     self._planner_sent = True
                 elif self._skill_batch:
                     self._skill_sent += 1
-                else:
+                elif not self._web_batch:
                     self._discovery_sent += 1
             if mode == "web":
                 self._web_sent = True

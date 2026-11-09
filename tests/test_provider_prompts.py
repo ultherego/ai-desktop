@@ -36,7 +36,7 @@ class RecipientPromptTests(unittest.TestCase):
             config["provider"] = "claude"
             self.assertEqual(run_controls.recipient(config=frozen), "Codex")
             self.assertEqual(run_controls.recipient(config=None), "Claude")
-            self.assertIn("ChatGPT / Codex", run_controls.failure_hint("auth-required", "unused", config=frozen))
+            self.assertIn("choose Codex", run_controls.failure_hint("auth-required", "unused", config=frozen))
             self.assertEqual(run_controls.failure_hint("runtime", "Claude runtime", config=None), "Claude runtime")
 
     def test_invalid_execution_cannot_supply_a_recipient_or_start_a_consent_read(self):

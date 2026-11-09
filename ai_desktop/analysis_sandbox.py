@@ -574,7 +574,8 @@ def _retry_web(action, refused, attempt, elapsed, budget, cancelled):
 
 
 def run_client(action, report=b"", *, cancelled=None, mode="analysis", partial=None, status=None):
-    """One official login OR one approved analysis. No retries or fallback. `partial(text)` receives live answer text;
+    """One official login OR one approved analysis. No fallback, and no retry except one: a web answer that arrived but
+    failed its checks is asked once more under the same approval (`_retry_web`). `partial(text)` receives live answer text;
     `status(code, number)` the progress of a web search. A web answer itself is never shown before its sources pass."""
     if (action not in ("login", "analyze", "web") or (action == "login" and report)
             or (action == "web") != (mode == "web")):
@@ -625,6 +626,11 @@ def run_client(action, report=b"", *, cancelled=None, mode="analysis", partial=N
                 if action == "login":
                     account_runtime.connected(account_path)
                     return "claude.ai"
+                if status is not None:
+                    try:
+                        status("started", 0)        # the model call starts now: what came before is not its time
+                    except Exception:
+                        pass
                 with failure_stage("analysis"):
                     kept = 3 * MAX_PACKET_LARGE if mode == "workspace" else (512 * 1024 if action == "web" else 1024 * 1024)
                     from .answer_stream import ClaudeStream

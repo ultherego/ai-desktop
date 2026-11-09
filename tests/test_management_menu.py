@@ -33,6 +33,11 @@ class Choices:
         return matches[0]
 
 
+CLIENT_MODELS = (("default", "Default (recommended)", "currently Opus 5.5"),
+                 ("opus", "Opus 5.5", "Best for everyday, complex tasks"),
+                 ("haiku", "Haiku 5.5", "Fastest for quick answers"))
+
+
 class CompleteManagementMenuTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="aid-menu-", dir=Path.home())
@@ -48,6 +53,10 @@ class CompleteManagementMenuTests(unittest.TestCase):
         self.patch = patch.object(skills, "ROOT", self.root)
         self.patch.start()
         self.addCleanup(self.patch.stop)
+        # The Claude model list is the client's own; these flows use a fixed one instead of starting the client.
+        catalog = patch.object(management_cli.model_catalog, "fetch_claude", return_value=CLIENT_MODELS)
+        catalog.start()
+        self.addCleanup(catalog.stop)
 
     def skill(self, name, body="Sprawdź dostępne dowody."):
         directory = self.root / name
@@ -97,15 +106,25 @@ class CompleteManagementMenuTests(unittest.TestCase):
         self.assertEqual(selected.instructions, "Wskaż dowód i ograniczenia.")
         self.assertIn("model: Opus", output)
 
+    def test_without_the_client_list_claude_offers_auto_and_a_typed_id(self):
+        with patch.object(management_cli.model_catalog, "fetch_claude",
+                          side_effect=management_cli.model_catalog.CatalogUnavailable()):
+            code, output, choices = self.run_menu("Model:", "Other ID", "Exit", text=("claude-opus-9",))
+        self.assertEqual(code, 0)
+        self.assertEqual(self.store.load().config.profiles["default"].model, "claude-opus-9")
+        model = next(options for title, options, _ in choices.calls if title == "Model · claude")
+        self.assertEqual(model, ("Auto", "Other ID (type it)", "Back"))
+        self.assertIn("The client's model list is unavailable", output)
+
     def test_codex_selection_keeps_claude_settings_and_only_offers_default(self):
         self.store.mutate(lambda config: config.put("default", replace(config.profiles["default"], model="opus", effort="max")))
-        code, _, choices = self.run_menu("Service:", "ChatGPT / Codex", "Model:", "Back",
+        code, _, choices = self.run_menu("Service:", "Codex", "Model:", "Back",
                                          "Reasoning:", "high", "Exit")
         self.assertEqual(code, 0)
         selected = self.store.load().config.profiles["default"]
         self.assertEqual((selected.provider, selected.model, selected.effort), ("codex", "default", "high"))
         model = next(options for title, options, _ in choices.calls if title == "Model · codex")
-        self.assertEqual(model, ("Auto (client default)", "Other ID (type it)", "Back"))
+        self.assertEqual(model, ("Auto", "Other ID (type it)", "Back"))
         efforts = next(options for title, options, _ in choices.calls if title == "Reasoning level")
         self.assertIn("very high", efforts)
         self.assertNotIn("maximum", efforts)
@@ -124,7 +143,7 @@ class CompleteManagementMenuTests(unittest.TestCase):
         self.install_diagnostic_procedures()
         self.store.mutate(profiles.prepared)
         before = self.store.load().config
-        steps = ["Service:", "ChatGPT / Codex"]
+        steps = ["Service:", "Codex"]
         for name in before.profiles:
             steps.extend(("Choose agent", name + " ·"))
         steps.append("Exit")
@@ -167,7 +186,7 @@ class CompleteManagementMenuTests(unittest.TestCase):
                          ("reviewer", "codex", "codex"))
         last = next(options for title, options, _ in reversed(choices.calls) if title.startswith("Settings"))
         self.assertIn("Service: Codex", last)
-        self.assertIn("Model: Auto (client default)", last)
+        self.assertIn("Model: Auto", last)
         restored = config.with_provider("claude").profiles["reviewer"]
         self.assertEqual((restored.model, restored.effort), ("opus", "max"))
 
@@ -186,8 +205,8 @@ class CompleteManagementMenuTests(unittest.TestCase):
     def test_service_roundtrip_restores_each_clients_model_and_effort_in_place(self):
         self.store.mutate(lambda config: config.put("default", replace(config.profiles["default"],
                           model="opus", effort="max", instructions="Moja rola.")))
-        code, _, choices = self.run_menu("Service:", "ChatGPT / Codex", "Reasoning:", "high",
-                                        "Service:", "Claude", "Service:", "ChatGPT / Codex", "Exit")
+        code, _, choices = self.run_menu("Service:", "Codex", "Reasoning:", "high",
+                                        "Service:", "Claude", "Service:", "Codex", "Exit")
         self.assertEqual(code, 0)
         root_frames = [options for title, options, _ in choices.calls if title.startswith("Settings")]
         self.assertIn("Model: Opus", root_frames[-2])
@@ -200,7 +219,7 @@ class CompleteManagementMenuTests(unittest.TestCase):
 
     def test_nested_profile_service_edit_refreshes_agent_picker_and_parent(self):
         code, _, choices = self.run_menu("Manage agents", "Edit profile", "diagnostic ·",
-                                        "Service:", "ChatGPT / Codex", "Back", "Back",
+                                        "Service:", "Codex", "Back", "Back",
                                         "Choose agent", "reviewer ·", "Exit")
         self.assertEqual(code, 0)
         config = self.store.load().config
@@ -237,7 +256,7 @@ class CompleteManagementMenuTests(unittest.TestCase):
                 self.assertIn("Reasoning: medium", options)
                 return None
             self.store.mutate(lambda config: config.put("default", replace(config.profiles["default"], effort="medium")))
-            return options.index("Opus")
+            return next(i for i, value in enumerate(options) if value.startswith("Opus"))
         with redirect_stdout(io.StringIO()) as output:
             code = management_cli.main(["menu"], store=self.store, chooser=choose)
         self.assertEqual(code, 0)

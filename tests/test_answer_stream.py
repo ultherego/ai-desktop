@@ -314,7 +314,9 @@ class WebProgressTests(unittest.TestCase):
         kept += stream(None)
         self.assertEqual(steps, [("search", 1), ("results", 1)])
         self.assertEqual(kept.count(b"\n"), 2)                  # both kept events stay for the final checks
-        self.assertEqual(answer_stream.STATUS, ("search", "results"))
+        self.assertEqual(answer_stream.STATUS[:2], ("search", "results"))
+        # the rest are the service's own fixed codes for a wait for a free place, never model text
+        self.assertEqual(answer_stream.STATUS[2:], ("queued", "started", "restart"))
 
     def test_a_web_transcript_with_partial_events_passes_its_checks_only_after_the_filter(self):
         from test_web_search_result import stream as web_stream, web_events

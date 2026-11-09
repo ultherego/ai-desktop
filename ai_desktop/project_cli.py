@@ -26,7 +26,7 @@ from .analysis_service import send_once
 from .skill_runtime import task_skills, accept_skill_response
 from .file_context import _read_hint
 from .material_cli import (GRANT_HINTS, GRANT_SECONDS, SEPARATOR, Session, SessionWindow, _countdown, _countdown_end,
-                           _safe, field, rule)
+                           _safe, field, rule, EXIT_COMMANDS, SETTING_COMMANDS)
 from .material_grant import GrantDenied, TransferSession
 from .material_loop import lines_label
 from .project_loop import Loop, history_turn
@@ -55,7 +55,11 @@ Optional (local commands, nothing is sent):
   /test RECIPE      run pytest, python-unittest, go-test or npm-test on an isolated copy of indexed files
   /refresh          scan the directory again (also happens before every question)
   /log              what the app handed to Claude in this session
-  /exit             quit (also Ctrl+D)"""
+  /model            choose the model (/model ID sets one directly)
+  /effort           choose the reasoning level
+  /agent NAME       change the role (a saved conversation keeps its own)
+  /settings         show and change these settings
+  /exit             quit (also /quit, /q or Ctrl+D)"""
 
 
 def _entries(count):
@@ -764,9 +768,6 @@ class ProjectSession(Session):
                 print("Could not confirm that the session stopped. Run ai-desktop stop.")
 
     def _dispatch(self, line):
-        from .run_controls import conversation_command
-        if conversation_command(line, saved=getattr(self, "conversation", None) is not None):
-            return True
         if not line:
             return True
         if line.casefold() in ("koniec", "exit"):         # the bare word ends the session too, it is not a question
@@ -776,7 +777,11 @@ class ProjectSession(Session):
             return True
         command, _, rest = line.partition(" ")
         rest = rest.strip()
-        if command in ("/koniec", "/exit", "/q"):
+        if command in SETTING_COMMANDS:
+            # The same menus and checks as in `ask`; a saved conversation keeps its agent, its model and level may change.
+            self.controls().handle(line, getattr(self, "conversation", None), reader=self.reader)
+            return True
+        if command in EXIT_COMMANDS:
             return False
         if command in ("/pomoc", "/help", "/?"):
             print(recipient(HELP))
