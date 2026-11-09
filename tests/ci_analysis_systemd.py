@@ -1022,6 +1022,7 @@ def main(argv=None):
             stage = "daily-concurrent"
             concurrent_session()
             stage = "daily-conversation"
+            mode(temp, "success")                  # the interrupt stages above left the fixture hanging
             conversation_connection()
             stage = "daily-stop"
             explicit_stop_session()
