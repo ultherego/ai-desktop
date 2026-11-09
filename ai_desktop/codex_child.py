@@ -37,6 +37,27 @@ def private_input(raw):
         raise AnalysisDenied("input") from None
 
 
+LIVE_MODES = ("assistant", "question")      # answers the terminal may show while they are written
+
+
+def _live_mode(request):
+    try:
+        return json.loads(request).get("mode") in LIVE_MODES
+    except (ValueError, AttributeError):
+        return False
+
+
+def _live_writer(token):
+    """Live answer text as its own stdout lines before the final result line; the supervisor removes them before the
+    result checks. The access token never leaves, even in a delta."""
+    def write(delta):
+        if token in delta:
+            return
+        sys.stdout.write(canonical({"partial": delta}) + "\n")
+        sys.stdout.flush()
+    return write
+
+
 def main(argv):
     try:
         if len(argv) == 2 and argv[0] in ("quota-connect", "quota-read"):
@@ -82,7 +103,8 @@ def main(argv):
                 with failure_stage("native-exec"):
                     text = run(str(BINARY), request, env=client_environment(token),
                                model=selected["model"], effort=selected["effort"],
-                               timeout=request_seconds(selected["effort"]))
+                               timeout=request_seconds(selected["effort"]),
+                               on_delta=_live_writer(token) if _live_mode(request) else None)
                 # Only a closed final result crosses back to the supervisor.
                 # Native stderr, RPC messages and credentials remain private.
                 meta = getattr(text, "meta", None)

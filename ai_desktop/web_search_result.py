@@ -250,6 +250,44 @@ def _message(event, role):
     return message["content"]
 
 
+_INLINE_LINK = re.compile(r"\[([^\[\]\n]*)\]\(\s*([^()\s]*)\s*(?:\"[^\"\n]*\")?\)")
+_DEFINITION = re.compile(r"^ {0,3}\[[^\]\n]+\]:[^\n]*(?:\n|$)", re.M)
+_ADDRESS = re.compile(r"(?i)(?:\b[a-z][a-z0-9+.-]*://|\bwww\.)[^\s<>()\[\]`]*")
+_TRAILING = ".,;:!?'\""
+
+
+def _without_addresses(answer, sources):
+    """The answer text with the model's own links and addresses taken out. Inline links keep their text, reference
+    definitions are removed, and a bare address becomes the number of the listed source it names, or is dropped."""
+    def number(url):
+        url = url.rstrip("/")
+        for index, source in enumerate(sources, 1):
+            if source.rstrip("/") == url:
+                return "[%d]" % index
+        return None
+
+    def inline(match):
+        text, cited = match.group(1).strip(), number(match.group(2))
+        if text.isdigit():
+            return "[%s]" % text                  # "[1](...)" is the model's reference to source 1
+        if cited and cited not in text:
+            return (text + " " + cited).strip()
+        return text or (cited or "")
+
+    def bare(match):
+        url = match.group(0)
+        tail = ""
+        while url and url[-1] in _TRAILING:
+            url, tail = url[:-1], url[-1] + tail
+        return (number(url) or "(address removed)") + tail
+
+    answer = _INLINE_LINK.sub(inline, answer)
+    answer = _DEFINITION.sub("", answer)
+    answer = re.sub(r"<((?i:[a-z][a-z0-9+.-]*://|www\.)[^<>\s]*)>", r"\1", answer)   # autolinks
+    answer = _ADDRESS.sub(bare, answer)
+    return answer.strip()
+
+
 def _answer(raw, observed):
     check = 'web-answer-json'
     try:
@@ -267,11 +305,13 @@ def _answer(raw, observed):
         if any(type(url) is not str or url not in observed for url in sources) or len(set(sources)) != len(sources):
             raise ValueError("invented source")
         check = "web-answer-url"
+        # Addresses are shown only in the program's list of proven sources. A link or address the model wrote into
+        # the text is removed instead of refusing the whole answer: a listed source becomes its number, anything else
+        # is dropped.
+        answer = _without_addresses(answer, sources)
         if re.search(r"(?i)[a-z][a-z0-9+.-]*://|www\.", answer):
             raise ValueError("references")
         check = "web-answer-link"
-        # An inline link, or a reference definition. A definition is Markdown only at the start of a line (indented at
-        # most three spaces); "news in release [1]: ..." inside a sentence is ordinary text and stays allowed.
         if re.search(r"\]\(", answer) or re.search(r"^ {0,3}\[[0-9]+\]:", answer, re.M):
             raise ValueError("references")
         check = "web-answer-references"

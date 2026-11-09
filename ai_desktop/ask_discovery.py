@@ -149,6 +149,17 @@ class DiscoveryLedger:
         if text and "/" not in name:
             self.hints += "\n" + text
 
+    def add_web(self, text):
+        """The checked answer of this question's web search, as data for the next round (at most once)."""
+        if any(step["op"] == "web" for step in self.steps):
+            raise ValueError("web")
+        step = {"op": "web", "text": text}
+        document = self.document()
+        document["steps"].append(step)
+        if self._diagnostic_bytes(document) > self.limits.discovery_bytes:
+            raise BudgetExhausted("discovery_bytes")
+        self.steps.append(step)
+
     def add_run(self, step):
         # Test and undo must finish after an approved live change. Keep their status even if command
         # output cannot fit on the wire. snapshot() refuses a transfer if the statuses alone overflow.

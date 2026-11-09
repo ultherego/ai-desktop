@@ -581,6 +581,23 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
             context = None
             skill_rounds = 0
             while True:
+                if plan["action"] == "web" and plan.get("continue") and snapshot.policy is not None:
+                    # Search first, then the local part of the same question (an edit, commands, reads). The search
+                    # carries nothing local; its checked answer goes to the next round as data. One search only:
+                    # next_plan never accepts another web step.
+                    permit.continue_after_web()
+                    progress("answer-request")
+                    found = request(question, args, reader, web=True, check=permit.check, question_consent=permit)
+                    permit.check()
+                    _show_web(found, args)
+                    try:
+                        ledger.add_web(found)
+                    except ask_discovery.BudgetExhausted as exhausted:
+                        _budget_stop(snapshot.policy, exhausted.name)
+                    conversation_state.note_action("Searched the web; the checked answer and its sources were shown "
+                                                   "and given to the model for the rest of this question.")
+                    plan = next_plan()
+                    continue
                 if snapshot.policy is None and (plan["action"] in ("list", "find", "run", "read-range", "search-content")
                                                 or plan["action"] == "read" and plan["files"]):
                     raise AccessDenied()
@@ -733,6 +750,16 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
         return answer
     finally:
         permit.close()
+
+
+def _show_web(text, args):
+    """The checked web answer, shown before the local part of the question continues."""
+    from .analysis_terminal import render_answer
+    from .terminal_style import rule
+    print("\n" + rule() + "\n")
+    print(render_answer(text, output_format=getattr(args, "format", "auto")))
+    print("\n" + rule() + "\n")
+    print(paint("  The question continues with the local part.", "muted"), flush=True)
 
 
 from .skill_runtime import version_scope

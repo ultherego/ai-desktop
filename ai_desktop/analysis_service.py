@@ -333,11 +333,12 @@ def _serve(conn, uid):
         from . import account_runtime
         account = (selected or {}).get("account")
         with (account_runtime.selected(uid, provider, account) if account else nullcontext()):
+            live = _live_sender(conn)
             if selected is not None and selected["provider"] == "codex":
                 from .codex_runtime import run_client as run_codex
-                result = run_codex(action, model_input.encode("utf-8"), cancelled=cancelled, mode=mode)
+                result = run_codex(action, model_input.encode("utf-8"), cancelled=cancelled, mode=mode,
+                                   partial=live.text)
             else:
-                live = _live_sender(conn)
                 result = run_client(action, model_input.encode("utf-8"), cancelled=cancelled, mode=mode,
                                     partial=live.text, status=live.status)
         response = result_packet(sha256, text=result, mode=mode, meta=getattr(result, "meta", None))

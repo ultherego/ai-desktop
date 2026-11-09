@@ -95,6 +95,7 @@ class QuestionConsent:
         self._skill_batch = False
         self._planner_sent = False
         self._seeded_skills = False
+        self._web_sent = self._web_continues = False
         self._skill_loader = None
         self._reused_bodies = {}
 
@@ -291,6 +292,17 @@ class QuestionConsent:
             self.close()
             raise AnalysisDenied("consent")
 
+    def continue_after_web(self):
+        """The next web request of this question is followed by local planning: after its answer the question goes on
+        (discovery rounds, an edit) instead of ending. Only once, only before anything local was collected, so a
+        search never carries local data; a second search is refused."""
+        self.require_web()
+        if (self._phase != "context" or not self._planner_sent or self._web_sent or self._pending is not None
+                or (self._discovery_snapshot is not None and not self._seeded_skills)):
+            self.close()
+            raise AnalysisDenied("consent")
+        self._web_continues = True
+
     def require_write_scope(self, policy, scope_id):
         self.check()
         allowed = {item["id"] for item in json.loads(self._access).get("write", [])}
@@ -361,6 +373,8 @@ class QuestionConsent:
             # the question and the selected files, and the discovery snapshot is still rechecked by _validate.
             if self._discovery_snapshot is not None and not self._seeded_skills and mode == "web":
                 raise AnalysisDenied("consent")
+            if mode == "web" and self._web_sent:
+                raise AnalysisDenied("consent")        # one search per question
             gate.check(None, question="" if task is not None else question, task=task, context=context, access=access,
                        sha256=gate.sha256, nonce=gate.nonce, web=web,
                        **({"discovery": discovery} if discovery is not None else {}))
@@ -388,7 +402,10 @@ class QuestionConsent:
                     self._skill_sent += 1
                 else:
                     self._discovery_sent += 1
-            self._phase = "context" if mode in ("planner", "discovery") else "complete"
+            if mode == "web":
+                self._web_sent = True
+            self._phase = ("context" if mode in ("planner", "discovery") or mode == "web" and self._web_continues
+                           else "complete")
             return gate.authorize(None, question="" if task is not None else question, task=task, context=context, access=access,
                                   sha256=gate.sha256, nonce=gate.nonce, web=web,
                                   **({"discovery": discovery} if discovery is not None else {}))

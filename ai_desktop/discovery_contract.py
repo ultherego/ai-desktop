@@ -12,7 +12,8 @@ import unicodedata
 MAX_SKILL_ROUNDS = 3
 MAX_REUSED_SKILLS = 4
 MAX_COMMAND_ROUNDS = 128      # ceiling of [files] command_rounds; output stays bounded by discovery_bytes
-MAX_STEPS = 8 + 4 + MAX_COMMAND_ROUNDS + MAX_SKILL_ROUNDS * 4 + MAX_REUSED_SKILLS
+MAX_STEPS = 8 + 4 + MAX_COMMAND_ROUNDS + MAX_SKILL_ROUNDS * 4 + MAX_REUSED_SKILLS + 1   # + one web answer
+MAX_WEB_TEXT = 32 * 1024      # the checked web answer with its source list
 MAX_DIRECTORIES = 4            # directories in one list step
 CEILING_ENTRIES = 512          # entries of one list/find step
 CEILING_TOTAL_ENTRIES = 1024   # entries of the whole document
@@ -173,6 +174,14 @@ def _step(value, total):
                 or any(char not in "\n\t" and unicodedata.category(char) in ("Cc", "Cf", "Cs") for char in value["text"])):
             raise ValueError("discovery")
         return dict(value)
+    if op == "web":
+        # The program-checked answer of this question's web search (its source list is the program's own).
+        if (set(value) != {"op", "text"} or type(value["text"]) is not str or not value["text"].strip()
+                or len(value["text"].encode("utf-8")) > MAX_WEB_TEXT
+                or any(char not in "\n\t" and unicodedata.category(char) in ("Cc", "Cf", "Cs", "Zl", "Zp")
+                       for char in value["text"])):
+            raise ValueError("discovery")
+        return {"op": "web", "text": value["text"]}
     if op == "refusal":
         if (set(value) != {"op", "code", "selectors", "limit"} or type(value["code"]) is not str
                 or value["code"] not in REFUSAL_CODES or type(value["selectors"]) is not list
@@ -204,6 +213,8 @@ def validate_discovery(value):
                 raise ValueError()
         total = [0]
         steps = [_step(item, total) for item in value["steps"]]
+        if sum(1 for step in steps if step["op"] == "web") > 1:
+            raise ValueError()
         if total[0] > CEILING_TOTAL_ENTRIES:
             raise ValueError()
         result = {"steps": steps, "remaining": {"rounds": remaining["rounds"], "corrections": remaining["corrections"],
@@ -243,7 +254,7 @@ def scope_ids(document):
             found.update(item["id"] for item in step["directories"])
         elif step["op"] in ("find", "content"):
             found.add(step["id"])
-        elif step["op"] in ("run", "skill"):
+        elif step["op"] in ("run", "skill", "web"):
             continue
         else:
             found.update(item["id"] for item in step["selectors"])

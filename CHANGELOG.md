@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-140: search the web and then edit, Codex answers while written
+
+- One question can now search the web first and then work locally with what was found: change a file (with the usual diff and yes), run your allowed commands or read files. The search answer with its sources is shown first; the search itself still never receives your files or command output, and a question searches at most once.
+- A web answer is no longer refused because the model wrote a link or an address into its text: the address is taken out (a listed source becomes its number, e.g. `[1]`), and addresses stay only in the list of checked sources below the answer.
+- Codex answers in a conversation appear while they are written, like Claude's. Only the answer itself is shown, never Codex's working notes; the final checked answer still decides what is kept.
+
 ## 0.1.0-139: `ai-desktop stop` during an answer keeps the conversation
 
 - `ai-desktop stop` in another terminal while a conversation is waiting for an answer no longer ends the whole conversation with `Could not get an answer (input)`: that question ends, the conversation continues, and the next question opens a new session.

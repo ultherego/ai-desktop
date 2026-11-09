@@ -290,3 +290,20 @@ def complete_blocks(text):
         if fence is None and stripped == "":
             consumed = position
     return [block for block, _ in found], consumed
+
+
+class CodexStream(ClaudeStream):
+    """The same live preview for the Codex child's output: its `{"partial": text}` lines carry the answer message's
+    deltas and are removed; the final result line and anything else are kept for the unchanged result checks."""
+
+    def _line(self, line):
+        if not line.startswith(b'{"partial":'):
+            return line + b"\n"
+        try:
+            value = json.loads(line)
+        except (ValueError, UnicodeError, RecursionError):
+            return line + b"\n"                 # the result check refuses it as before
+        if type(value) is not dict or set(value) != {"partial"} or type(value["partial"]) is not str:
+            return line + b"\n"
+        self._add(value["partial"])
+        return b""

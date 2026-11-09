@@ -218,14 +218,32 @@ class WebSearchResultTests(unittest.TestCase):
         for update in ({"sources": []}, {"sources": ["https://www.python.org/about/"] * 2},
                        {"sources": "https://www.python.org/about/"}, {"answer": "Bez źródła"},
                        {"answer": "Wynik [2]."}, {"answer": "Wynik [1] [99999]."},
-                       {"answer": "Wynik [1]. https://www.python.org/about/"},
-                       {"answer": "Wynik [1](javascript:bad)."}, {"answer": "Wynik [1].\n[1]: /hidden"},
+                       {"answer": "Zobacz https://other.example/"},      # an unlisted address is no citation
                        {"answer": "x" * 8193 + " [1]"}, {"answer": "\x1b[31mWynik [1]"},
                        {"extra": True}):
             events = web_events()
             final_answer(events, **update)
             with self.subTest(update=update):
                 self.assert_refused(events)
+
+    def test_links_and_addresses_in_the_text_are_removed_instead_of_refusing_the_answer(self):
+        # Only the program's list of proven sources shows addresses (CachyOS check: a whole answer was refused for a
+        # Markdown link). A listed source becomes its number, anything else is dropped.
+        for answer, shown, hidden in (
+                ("Wynik [1]. https://www.python.org/about/", "Wynik [1]. [1]", "https://www.python.org/about/ "),
+                ("Wynik [1](javascript:bad).", "Wynik [1].", "javascript"),
+                ("Wynik [1].\n[1]: /hidden", "Wynik [1].", "/hidden"),
+                ("Zobacz [stronę](https://www.python.org/about/).", "Zobacz stronę [1].", "]("),
+                ("Wynik [1], więcej na www.example.com/x.", "więcej na (address removed).", "example.com"),
+                ("Wynik [1] <https://evil.example/a>.", "Wynik [1] (address removed).", "evil.example")):
+            events = web_events()
+            final_answer(events, answer=answer)
+            with self.subTest(answer=answer):
+                text = web_text(stream(events))
+                body = text.split("\nSources:\n")[0]
+                self.assertIn(shown, body)
+                self.assertNotIn(hidden, body)
+                self.assertIn("[1] About Python", text)
 
     def test_a_reference_followed_by_a_colon_inside_a_sentence_is_text(self):
         events = web_events()
