@@ -992,6 +992,8 @@ class MaterialResumeTests(Base):
         self.run_cli(["Drugie pytanie?", "/exit"], ["yes"], argv=[str(self.file), "-c"])
         self.assertIn("Conversation:", self.output)
         self.assertNotIn("No saved conversation", self.output)
+        self.assertIn("Earlier in this conversation:", self.output)
+        self.assertIn("› Pierwsze pytanie?", self.output)
         self.assertEqual(json.loads(self.sent[-1].payload)["material"]["history"][-1]["answer"], "Pierwsza.")
         self.file.write_text(TEXT + "nowa linia\n")
         self.run_cli(["Trzecie?", "/exit"], ["yes"], argv=[str(self.file), "-c"])

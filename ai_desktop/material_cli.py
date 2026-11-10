@@ -439,6 +439,17 @@ class Session:
             saved.session_id, kind, shlex.quote(path)))
         return saved
 
+    def show_earlier(self, limit=4):
+        """On resume: the last questions with the controller-recorded outcomes, so the user sees where the task stands."""
+        if not self.history:
+            return
+        print("Earlier in this conversation:")
+        for turn in self.history[-limit:]:
+            # A plain line: the saved answer's Markdown marks (`code`, **bold**, # headings) would show as raw characters.
+            answer = " ".join(str(turn.get("answer", "")).replace("**", "").replace("`", "").replace("#", "").split())
+            print("  › %s" % _safe(str(turn.get("question", "")), 100))
+            print("    %s" % _safe(answer, 160))
+
     def attach_conversation(self, kind, path, binding):
         from .conversation_sessions import load_session
         from .execution import current
@@ -1317,6 +1328,8 @@ def main(argv=None, *, reader=input, clock=time.monotonic, sleep=time.sleep, win
         session._auto_save = args.session is None and not args.no_save and reader is input and saving()
         session._save_target = ("material", selected, material.sha256)
         session.attach_conversation("material", selected, material.sha256)
+        if args.session not in (None, "new"):
+            session.show_earlier()
         with conversation(session, linked=window is None):
             return session.run()
     except (OSError, ValueError):

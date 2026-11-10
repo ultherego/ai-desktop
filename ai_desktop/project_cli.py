@@ -226,17 +226,6 @@ class ProjectSession(Session):
         self.can_send = provider_allowed(policy)
         self.binding = Binding(project.project_id, project.manifest_sha256())
 
-    def show_earlier(self, limit=4):
-        """On resume: the last questions with the controller-recorded outcomes, so the user sees where the task stands."""
-        if not self.history:
-            return
-        print("Earlier in this conversation:")
-        for turn in self.history[-limit:]:
-            # A plain line: the saved answer's Markdown marks (`code`, **bold**, # headings) would show as raw characters.
-            answer = " ".join(str(turn.get("answer", "")).replace("**", "").replace("`", "").replace("#", "").split())
-            print("  › %s" % _safe(str(turn.get("question", "")), 100))
-            print("    %s" % _safe(answer, 160))
-
     def _gate_kwargs(self, packet):
         return dict(question=packet.question, context=None, project=packet.material)
 
