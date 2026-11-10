@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** CachyOS check of candidate 155 in a terminal and a multiplexer (`/settings` and the `/` list during an answer, a `max` web question), merge PR #50 (candidates 138–155), then a real Codex request with its answer while written (after the maintainer's Codex limit resets around 2026-11-12), then the S9 task flow. S0 and S7 remain deferred.
+**Next step:** a short CachyOS check of candidate 156 (text before a menu), merge PR #50 (candidates 138–156), then a real Codex request with its answer while written (after the maintainer's Codex limit resets around 2026-11-12), then the S9 task flow. S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -261,6 +261,10 @@ Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaini
 
 Earlier dated entries preserve the evidence and status at that point. The latest entry supersedes historical pending/next-step statements.
 
+### 2026-11-10 — Candidate 156: text printed before a menu
+
+CachyOS acceptance of candidate 155 (a terminal inside a multiplexer): `/settings` and the other menus open idle and during an answer, the `/` list during an answer leaves no gaps, and a `max` web question about recent events in a city answered with eight checked sources (the `web-telemetry` refusals are gone). One display defect remained: a command that printed text and then opened its menu (`/settings` printing the settings, `/model` printing "Getting the model list…") had that text overwritten on one line by what came next, because the menu's leave returned to the conversation position saved before the command printed. `overlay_menu._idle` now saves the conversation's end (`frame.enter`) before drawing. Test in `tests/test_overlay_menu.py`. **READY FOR TEST**, candidate **0.1.0-156**.
+
 ### 2026-11-10 — Candidate 155: `/settings` during an answer, the waiting line with the `/` list, nested WebSearch progress
 
 CachyOS check of candidate 154 (a terminal inside a multiplexer): `/model` and `/effort` menus work. Found:
@@ -269,7 +273,7 @@ CachyOS check of candidate 154 (a terminal inside a multiplexer): `/model` and `
 - During an answer, each opening of the `/` list scrolled the whole conversation up by the list's height even with free rows below it; the waiting line was then drawn lower and its old copy and blank rows stayed (reproduced on the screen model). In the full-screen view the conversation now moves up only as far as needed to keep its end above the list.
 - A `max` web question was refused as `web-telemetry-tool-parent` (the new code from 154). Published SDK descriptions say a non-null `parent_tool_use_id` marks an event from inside another tool call. With WebSearch as the web mode's only tool, the accepted parent is a WebSearch call id of this transcript (its own search runs nested); any other parent is refused, and agent/task fields and replays have their own codes (`web-telemetry-tool-agent`, `-replay`).
 - The maintainer measured the same question in the Claude app with Fable 5.2 at Max: 12 min 34 s, within the 15-minute `max` budget.
-- Tests: `ListDuringTurnTests` (`tests/test_fullscreen_view.py`), nested-parent and refusal cases in `tests/test_web_stream_telemetry.py`. **READY FOR TEST**, candidate **0.1.0-155**.
+- Tests: `ListDuringTurnTests` (`tests/test_fullscreen_view.py`), nested-parent and refusal cases in `tests/test_web_stream_telemetry.py`. Accepted on CachyOS (see candidate 156).
 
 ### 2026-11-10 — Candidate 154: menus in a terminal and a multiplexer, the waiting line, `max` web search
 

@@ -94,6 +94,11 @@ def _idle(frame, picker):
     if not os.isatty(fd):
         raise MenuInputError("menu-terminal")
     original = termios.tcgetattr(fd)
+    # What the command printed before its menu (the settings, "Getting the model list…") is part of the
+    # conversation: the menu returns below it, never over it (CachyOS check of candidate 155).
+    enter = getattr(frame, "enter", None)
+    if callable(enter):
+        enter()
     raw = original[:]
     raw[6] = original[6][:]
     raw[0] &= ~(termios.ICRNL | termios.INLCR | termios.IGNCR | termios.IXON | termios.IXOFF)

@@ -186,6 +186,22 @@ class IdleMenuTests(unittest.TestCase):
                     patch.object(overlay_menu.termios, "tcflush"):
                 self.assertIsNone(overlay_menu._idle(frame, overlay_menu.Picker("/effort", ["low", "high"])))
 
+    def test_the_menu_returns_below_what_its_command_printed(self):
+        import threading
+        master, slave = pty.openpty()
+        self.addCleanup(os.close, master)
+        self.addCleanup(os.close, slave)
+        calls = []
+        frame = SimpleNamespace(stream=io.StringIO(), note="", show_commands=lambda rows, pick: None,
+                                draw=lambda *a, **k: calls.append("draw"), leave=lambda: calls.append("leave"),
+                                enter=lambda: calls.append("enter"))
+        threading.Timer(0.3, os.write, (master, b"\r")).start()
+        with patch.object(__import__("sys"), "stdin", SimpleNamespace(fileno=lambda: slave)), \
+                patch.object(overlay_menu.termios, "tcflush"):
+            overlay_menu._idle(frame, overlay_menu.Picker("/model", ["Auto"]))
+        self.assertEqual(calls[0], "enter")                    # the end of the conversation is saved first
+        self.assertEqual(calls[-1], "leave")
+
 
 if __name__ == "__main__":
     unittest.main()

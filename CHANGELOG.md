@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-156: text printed before a menu stays readable
+
+- After a `/` command printed something and then opened its menu (for example `/settings` or `/model`), the next text no longer overwrites it on the same line.
+
 ## 0.1.0-155: `/settings` during an answer, a tidy screen, web search with `max`
 
 - `/settings` (and any menu with a long entry) opens again during an answer: the Skills entry is shortened ("Skills: 20 on (…)") and a too long menu entry is cut instead of blocking the menu.
