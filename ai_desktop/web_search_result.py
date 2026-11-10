@@ -205,9 +205,16 @@ def _telemetry(event, pending, done=()):
         numbers = ("elapsed_time_seconds",)
         if event.get("tool_name") != "WebSearch":
             raise TelemetryRefused("tool-name")
-        if event.get("parent_tool_use_id", None) is not None or any(
-                name in event for name in ("agent_id", "task_id", "subagent_type", "isReplay")):
+        parent = event.get("parent_tool_use_id", None)
+        # A non-null parent marks progress from inside another tool call. With WebSearch as the only tool, the one
+        # accepted parent is a WebSearch call of this transcript (its own search runs nested; CachyOS check of
+        # candidate 154 with `max` reasoning). Any other parent, an agent, a task or a replay is other activity.
+        if parent is not None and (type(parent) is not str or (parent not in pending and parent not in done)):
             raise TelemetryRefused("tool-parent")
+        if any(name in event for name in ("agent_id", "task_id", "subagent_type")):
+            raise TelemetryRefused("tool-agent")
+        if event.get("isReplay", False) is not False:
+            raise TelemetryRefused("tool-replay")
         if type(event.get("tool_use_id")) is not str:
             raise TelemetryRefused("tool-call")
         _string(event["tool_use_id"], 256)

@@ -225,7 +225,18 @@ class Frame:
         if not delta:
             return
         old = self._top()
-        if delta > 0:
+        if delta > 0 and self.screen is not None:
+            # Full-screen view: the conversation moves up only as far as its end must, to stay above the list; with
+            # room below it nothing moves (no copies of the waiting line, no gaps; CachyOS check of candidate 154).
+            end = self.screen.model.saved[0] + 1               # 1-based row of the conversation's end
+            need = max(0, end - (old - delta))
+            if need:
+                self.stream.write("\x1b[%d;1H" % old + "\n" * need)
+            self.extra = wanted
+            self.stream.write("\x1b[1;%dr" % self._top())
+            if need:
+                self.stream.write("\x1b8\x1b[%dA\x1b7" % need)
+        elif delta > 0:
             self.stream.write("\x1b[%d;1H" % old + "\n" * delta)
             self.extra = wanted
             self.stream.write("\x1b[1;%dr" % self._top())

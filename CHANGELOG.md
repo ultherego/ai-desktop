@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-155: `/settings` during an answer, a tidy screen, web search with `max`
+
+- `/settings` (and any menu with a long entry) opens again during an answer: the Skills entry is shortened ("Skills: 20 on (…)") and a too long menu entry is cut instead of blocking the menu.
+- Opening the `/` list during an answer no longer leaves copies of the waiting line and empty gaps: the conversation moves up only when the list would cover its end.
+- A web search with `max` reasoning is no longer refused as `web-telemetry-tool-parent`: progress reported from inside this question's own WebSearch call is accepted. Progress from any other source (another tool, an agent, a task, a replay) is still refused with its own code.
+
 ## 0.1.0-154: menus in a terminal and a multiplexer, a clean waiting line, web search with `max`
 
 - `/model`, `/effort`, `/agent` and the other menus no longer close the moment they open in some terminals (a terminal inside a multiplexer): a key still arriving from the command that opened the menu is ignored. If a menu still cannot open, the message says why (`menu-…`).

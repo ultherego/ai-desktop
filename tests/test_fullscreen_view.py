@@ -536,3 +536,45 @@ class MenuSettleTests(unittest.TestCase):
         with patch.object(sys, "stdin", SimpleNamespace(fileno=lambda: slave)):
             answer = overlay_menu._idle(frame, overlay_menu.Picker("/model", ["Auto", "Opus 5.5"]))
         self.assertEqual(answer, 1)
+
+
+class ListDuringTurnTests(unittest.TestCase):
+    """CachyOS check of candidate 154: opening the `/` list during an answer left copies of the waiting line and blank
+    gaps, because the conversation was scrolled up by the list's height even with room below it."""
+
+    def run_turn(self, lines):
+        frame, terminal = FrameTests.frame(self)
+        for number in range(lines):
+            print("answer line %d" % number)
+        frame.enter()
+        frame.draw("", 0, typing=False)
+        frame.stream.write("\x1b8")
+
+        class Owner:
+            lock = __import__("threading").RLock()
+
+            def band_cursor(self):
+                return "\x1b[%d;%dH" % frame.cursor_at
+        out = terminal_input._Output(frame.stream, Owner())
+        frame.stream.write("\x1b7")
+        out.write("\r\x1b[2K⠋ Reading (1)")
+        commands = [("/c%d" % index, "x") for index in range(8)]
+        for step in range(4):
+            frame.show_commands(commands if step % 2 == 0 else (), 0)
+            frame.draw("/" if step % 2 == 0 else "", 1 if step % 2 == 0 else 0, typing=False)
+            out.write("\r\x1b[2K⠋ Reading (%d)" % (step + 2))
+        model = frame.screen.model
+        rows = [ScreenModel.render(row) for row in list(model.history) + model.grid[:frame._top()]]
+        while rows and not rows[-1]:
+            rows.pop()
+        return rows
+
+    def test_with_room_below_nothing_moves_and_the_waiting_line_stays_one(self):
+        rows = self.run_turn(5)
+        self.assertEqual(rows, ["answer line %d" % n for n in range(5)] + ["⠋ Reading (5)"])
+
+    def test_a_full_screen_moves_only_as_far_as_needed(self):
+        rows = self.run_turn(40)
+        self.assertEqual(rows[-2:], ["answer line 39", "⠋ Reading (5)"])
+        self.assertEqual(sum(1 for row in rows if row.startswith("⠋")), 1)
+        self.assertNotIn("", rows[-12:])

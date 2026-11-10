@@ -35,6 +35,8 @@ WEB_DIAGNOSTICS = frozenset({
     'web-telemetry-tool',
     'web-telemetry-tool-name',
     'web-telemetry-tool-parent',
+    'web-telemetry-tool-agent',
+    'web-telemetry-tool-replay',
     'web-telemetry-tool-call',
     'web-telemetry-tool-heartbeat',
     'web-telemetry-tool-field',

@@ -36,10 +36,21 @@ CUSTOM = "custom"                            # "Other ID" in the model menu: the
 SETTINGS = ("/model", "/effort", "/agent", "/provider", "/skills")
 
 
+def _fit(label, limit=200):
+    """A menu row never blocks its menu: a label longer than a row allows is cut with an ellipsis."""
+    label = str(label)
+    if len(label.encode("utf-8")) <= limit:
+        return label
+    while len((label + "\u2026").encode("utf-8")) > limit:
+        label = label[:-1]
+    return label.rstrip() + "\u2026"
+
+
 def _pick(title, options, default=0):
     """An index into `options`, or None when cancelled or when there is no terminal for a menu. Long lists are paged,
     because one menu frame holds a limited number of rows."""
-    options = tuple(options)
+    options = tuple(_fit(option) for option in options)
+    title = _fit(title)
     page = default // PAGE
     while True:
         start = page * PAGE
@@ -283,7 +294,8 @@ class Controls:
                 try:
                     _, profile = self._profile()
                     chosen = profile.skills if self.skills is None else self.skills
-                    rows.append("Skills: " + (", ".join(chosen) or "none"))
+                    shown = ", ".join(chosen[:3]) + (" +%d more" % (len(chosen) - 3) if len(chosen) > 3 else "")
+                    rows.append("Skills: %d on%s" % (len(chosen), " (" + shown + ")" if chosen else ""))
                 except (OSError, ValueError, KeyError):
                     rows.append("Skills")
         if not rows:

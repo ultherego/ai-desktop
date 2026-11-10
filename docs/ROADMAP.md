@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** CachyOS check of candidate 154 in a terminal and a multiplexer (`/model`, `/effort`, `/settings` menus, a `max` web question, several terminals at once incl. a queue), merge PR #50 (candidates 138–154), then a real Codex request with its answer while written (after the maintainer's Codex limit resets around 2026-11-12), then the S9 task flow. S0 and S7 remain deferred.
+**Next step:** CachyOS check of candidate 155 in a terminal and a multiplexer (`/settings` and the `/` list during an answer, a `max` web question), merge PR #50 (candidates 138–155), then a real Codex request with its answer while written (after the maintainer's Codex limit resets around 2026-11-12), then the S9 task flow. S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -261,6 +261,16 @@ Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaini
 
 Earlier dated entries preserve the evidence and status at that point. The latest entry supersedes historical pending/next-step statements.
 
+### 2026-11-10 — Candidate 155: `/settings` during an answer, the waiting line with the `/` list, nested WebSearch progress
+
+CachyOS check of candidate 154 (a terminal inside a multiplexer): `/model` and `/effort` menus work. Found:
+
+- `/settings` (idle and during an answer) printed `The menu could not open (menu-label)`: its Skills entry listed every Skill and passed the 256-byte menu label limit. The entry now shows the count and the first three names, and `ask_commands._pick` cuts any too long label with an ellipsis instead of failing the menu.
+- During an answer, each opening of the `/` list scrolled the whole conversation up by the list's height even with free rows below it; the waiting line was then drawn lower and its old copy and blank rows stayed (reproduced on the screen model). In the full-screen view the conversation now moves up only as far as needed to keep its end above the list.
+- A `max` web question was refused as `web-telemetry-tool-parent` (the new code from 154). Published SDK descriptions say a non-null `parent_tool_use_id` marks an event from inside another tool call. With WebSearch as the web mode's only tool, the accepted parent is a WebSearch call id of this transcript (its own search runs nested); any other parent is refused, and agent/task fields and replays have their own codes (`web-telemetry-tool-agent`, `-replay`).
+- The maintainer measured the same question in the Claude app with Fable 5.2 at Max: 12 min 34 s, within the 15-minute `max` budget.
+- Tests: `ListDuringTurnTests` (`tests/test_fullscreen_view.py`), nested-parent and refusal cases in `tests/test_web_stream_telemetry.py`. **READY FOR TEST**, candidate **0.1.0-155**.
+
 ### 2026-11-10 — Candidate 154: menus in a terminal and a multiplexer, the waiting line, `max` web search
 
 CachyOS check of candidate 153 (a terminal inside a multiplexer): a 29+16-command question about the computer worked. Found:
@@ -268,7 +278,7 @@ CachyOS check of candidate 153 (a terminal inside a multiplexer): a 29+16-comman
 - `/effort`, `/model`, `/agent` and `/skills` at the idle prompt did not show a menu: `/effort` ended at once as cancelled and `/model` chose the current value at once ("No change"). In a plain pty the menu opens and works, so the cause was reproduced only by reasoning: a key still arriving after the command was submitted (for example an Enter reported again in the kitty keyboard protocol form, or an Escape-led sequence) reached the menu as Enter or Escape. `overlay_menu._idle` now waits `SETTLE_SECONDS` (0.12 s) and drops pending input before reading keys; a menu that cannot open prints `The menu could not open (menu-…)` instead of falling back silently.
 - A message printed during an answer (the settings hint of a `/` command) was glued to the waiting indicator's line, which is drawn in place without a newline. `terminal_input._Output` clears that line before such a message; the indicator draws itself again on its next tick.
 - A `max` web question was refused as `web-telemetry-tool` twice (the silent retry failed the same way). Progress events never count as evidence (sources come only from paired WebSearch results), so a WebSearch `tool_progress` with a call id this transcript has not announced, before its call, without a parent field, or with an extra simple field is now accepted; another tool, subagent fields, a non-string call id, a malformed heartbeat or a complex extra field are refused with their own codes (`web-telemetry-tool-name`, `-parent`, `-call`, `-heartbeat`, `-field`). The field list was checked against published SDK message documentation; the exact event the client sent is not known, so the new codes will name it if it still fails.
-- Tests: `TurnOutputTests`, `MenuSettleTests` (`tests/test_fullscreen_view.py`), the rewritten progress test in `tests/test_web_stream_telemetry.py`, the diagnostic code in `tests/test_web_failure_diagnostics.py`. **READY FOR TEST**, candidate **0.1.0-154**.
+- Tests: `TurnOutputTests`, `MenuSettleTests` (`tests/test_fullscreen_view.py`), the rewritten progress test in `tests/test_web_stream_telemetry.py`, the diagnostic code in `tests/test_web_failure_diagnostics.py`. Checked on CachyOS: `/model` and `/effort` menus work; the remaining findings are fixed in 155.
 
 ### 2026-11-09 — Candidate 153: a review of the whole project, fixed in one pass
 
