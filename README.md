@@ -30,7 +30,7 @@ The interface and settings are in English, and the selected model answers in the
 
 This is a development version, not a 1.0 release.
 
-The current candidate package is **0.1.0-160** (changes: [CHANGELOG.md](CHANGELOG.md)).
+The current candidate package is **0.1.0-161** (changes: [CHANGELOG.md](CHANGELOG.md)).
 
 What was checked on CachyOS, and what was not, is in the progress log of [docs/ROADMAP.md](docs/ROADMAP.md), the only roadmap and progress record. Read [docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md) before using this on important data.
 

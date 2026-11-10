@@ -249,3 +249,47 @@ class UnsafeWorkspaceTests(ChainBase):
         self.session(["stwórz x"], ["yes"], self.transport(lambda path, old: "x\n"))
         self.assertRegex(self.output, r"Refused\s+The write scope in permissions.toml does not point to a safe working directory")
         self.assertFalse((self.proj / "docs/x.txt").exists())
+
+
+class ExcerptEditChainTests(ChainBase):
+    """S3 in `project`: a file above read_file_size is edited from the lines Claude already received."""
+
+    def setUp(self):
+        super().setUp()
+        text = self.config.read_text().replace("[files]\n", '[files]\nread_file_size = "1KiB"\n')
+        self.config.write_text(text)
+        self.config.chmod(0o600)
+        self.big = self.proj / "src/big.conf"
+        self.lines = ["opcja_%03d = %d\n" % (i, i) for i in range(1, 200)] + ["limit = 50\n"] + ["koniec = 1\n"]
+        self.big.write_text("".join(self.lines))
+        self.assertGreater(self.big.stat().st_size, 1024)
+
+    def send(self, approval):
+        payload = json.loads(approval.payload)
+        self.transported.append(payload)
+        return json.dumps({"summary": "Limit 200.", "files": [
+            {"path": "src/big.conf", "replacements": [{"old": "limit = 50", "new": "limit = 200"}]}]})
+
+    def test_the_edit_sends_only_the_read_lines_and_changes_the_whole_file_locally(self):
+        number = len(self.lines) - 1
+        self.model = script({"action": "read", "path": "src/big.conf", "ranges": [{"first": number, "last": number}]},
+                            {"action": "edit", "files": ["src/big.conf"], "create": [], "check": "text"})
+        self.session(["Zmień limit na 200"], ["yes", "yes"], self.send)
+        edited, = self.transported
+        item, = edited["task"]["files"]
+        self.assertEqual(set(item), {"path", "excerpts", "size", "writable"})
+        self.assertEqual(item["excerpts"], [{"first": number, "last": number, "text": "limit = 50\n"}])
+        self.assertNotIn("opcja_001", json.dumps(edited["task"]))            # the rest of the file never left
+        self.assertNotIn(PROMPTS["project-edit"], self.prompts)              # nothing new was sent: no second yes
+        self.assertEqual(self.big.read_text(), "".join(self.lines).replace("limit = 50", "limit = 200"))
+        plan = __import__("re").search(r"--plan ([0-9a-f]{12})\n", self.output).group(1)
+        code, text = self.cli("rollback", "--workspace", self.workspace, "--plan", plan)
+        self.assertEqual(code, 0, text)
+        self.assertEqual(self.big.read_text(), "".join(self.lines))          # the short ID undid exactly this task
+
+    def test_without_read_lines_the_edit_is_refused_with_the_setting_named(self):
+        self.model = script({"action": "edit", "files": ["src/big.conf"], "create": [], "check": "text"})
+        self.session(["Zmień limit na 200"], ["yes"], self.send)
+        self.assertEqual(self.transported, [])
+        self.assertIn("is larger than files.read_file_size (1.0 KiB)", self.output)
+        self.assertEqual(self.big.read_text(), "".join(self.lines))

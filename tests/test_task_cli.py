@@ -674,3 +674,22 @@ class TaskPresentationTests(unittest.TestCase):
         confirm.assert_not_called()
         self.assertIn("limit of 128", out.getvalue())
         self.assertIn("history and undo are still available", out.getvalue())
+
+
+class PlanPrefixTests(unittest.TestCase):
+    """The undo hint names a task by 12 hex digits; only an exact or unique, long enough prefix selects it."""
+
+    def test_whole_id_or_a_long_hex_prefix_matches(self):
+        record = {"plan": "ab" * 32}
+        self.assertTrue(cli._plan_matches(record, "ab" * 32))
+        self.assertTrue(cli._plan_matches(record, "ab" * 6))
+        for wanted in ("ab" * 5, "AB" * 6, "abababababa*", "zz" * 6):
+            with self.subTest(wanted=wanted):
+                self.assertFalse(cli._plan_matches(record, wanted))
+
+    def test_a_prefix_naming_two_tasks_is_refused(self):
+        from types import SimpleNamespace
+        records = [{"plan": "ab" * 6 + "0" * 52, "status": "saved"}, {"plan": "ab" * 6 + "1" * 52, "status": "saved"}]
+        with self.assertRaises(ValueError) as caught:
+            cli.rollback_task(SimpleNamespace(plan="ab" * 6, details=False, workspace="/w"), records, lambda _: "y")
+        self.assertEqual(str(caught.exception), "ambiguous plan")

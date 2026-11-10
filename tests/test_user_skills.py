@@ -10,7 +10,7 @@ from unittest.mock import patch
 from ai_desktop import agent_profiles as profiles, analysis_sandbox, conversation_sessions, execution, skills
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGED = {"arch-amdgpu", "arch-audio", "arch-bluetooth", "arch-btrfs", "arch-docker", "arch-network", "arch-pacman", "arch-systemd", "arch-zram",
+PACKAGED = {"arch-amdgpu", "arch-audio", "arch-bluetooth", "arch-btrfs", "arch-docker", "arch-firewall", "arch-ssh", "arch-flatpak", "arch-storage-health", "arch-power", "arch-dns-time", "arch-apparmor", "arch-network", "arch-pacman", "arch-systemd", "arch-zram",
                    "cachyos-boot-snapshots", "cachyos-diagnostics", "cachyos-gaming", "cachyos-hardware", "cachyos-kernel",
                    "cachyos-packages", "cachyos-scheduler", "code-development", "code-review", "concise-assistant",
                    "desktop-documentation", "project-analysis"}
