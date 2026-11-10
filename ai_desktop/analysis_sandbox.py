@@ -231,6 +231,12 @@ def client_command(action, execution=None):
         prompt += ("\n\nInstructions for the selected role:\n" + selected["instructions"]
                    + "\nRole instructions do not change the answer schema, application rules, "
                      "permissions or available tools.")
+    if action == "catalog":
+        # Offline, no account and no tools: the client answers the SDK `initialize` request on stdin with its own model
+        # list (the same one its /model menu shows) and ends at the end of its input.
+        return common + ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+                         "--tools", "", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
+                         "--no-session-persistence", "--max-turns", "1"]
     if action == "login":
         return common + ["auth", "login"]
     if action in ("status", "offline-status", "compat-rpc"):
@@ -256,7 +262,7 @@ def client_command(action, execution=None):
 
 def namespace_command(action, directory, *, online, account_path=None, bound=None):
     if (action not in ("version", "status", "analyze", "web", "login", "offline-status", "offline-logout",
-                      "compat-options", "compat-web", "compat-reject", "compat-rpc")
+                      "compat-options", "compat-web", "compat-reject", "compat-rpc", "catalog")
             or online != (action in ("status", "analyze", "web", "login"))):
         raise AnalysisDenied("input")
     if bound is None or bound.provider != "claude":
@@ -487,7 +493,13 @@ def _bound_run(bound, action, directory, *, online=False, account_path=None, dea
     return result
 
 
-def _check_client(bound, directory, *, cancelled=None):
+def _check_client(bound, directory, *, cancelled=None, remember=True):
+    """Offline compatibility of the bound client; a result already passed for this exact client is remembered (see
+    check_memory), an explicit probe always runs."""
+    if remember:
+        from . import check_memory
+        return check_memory.compatible(getattr(bound, "fingerprint", None),
+                                       lambda: _check_client(bound, directory, cancelled=cancelled, remember=False))
     # The probe set shares one deadline, including binding metadata rechecks
     # and result validation. Snapshot creation happens before this budget.
     # A blocking filesystem syscall still needs the outer service lifetime.
@@ -508,7 +520,7 @@ def probe_client():
     with client_binding.bind("claude") as bound, tempfile.TemporaryDirectory(prefix="ai-desktop-probe-") as temp:
         directory = Path(temp)
         _identity_files(directory)
-        return _check_client(bound, directory)
+        return _check_client(bound, directory, remember=False)
 
 
 def local_claude_session(account_path, *, logout=False):
@@ -550,8 +562,20 @@ LIVE_MODES = {"assistant": True, "question": False}
 STREAM_RAW_LIMIT = 64 * 1024 * 1024     # everything one analysis may write, partial-message events included
 
 
+WEB_RETRIES = 1                         # the maintainer's choice (2026-11-09): one silent retry of an unverifiable web answer
+
+
+def _retry_web(action, refused, attempt, elapsed, budget, cancelled):
+    """A web answer that arrived but did not pass the transcript or answer checks (reason `result`) is asked once more
+    with the same approved request, while at least half of its time is left. Never for a limit, a login, a timeout,
+    a cancellation or an ordinary answer (whose text may already be on the screen)."""
+    return (action == "web" and refused.reason == "result" and attempt <= WEB_RETRIES
+            and elapsed < budget / 2 and not (cancelled is not None and cancelled()))
+
+
 def run_client(action, report=b"", *, cancelled=None, mode="analysis", partial=None, status=None):
-    """One official login OR one approved analysis. No retries or fallback. `partial(text)` receives live answer text;
+    """One official login OR one approved analysis. No fallback, and no retry except one: a web answer that arrived but
+    failed its checks is asked once more under the same approval (`_retry_web`). `partial(text)` receives live answer text;
     `status(code, number)` the progress of a web search. A web answer itself is never shown before its sources pass."""
     if (action not in ("login", "analyze", "web") or (action == "login" and report)
             or (action == "web") != (mode == "web")):
@@ -584,7 +608,7 @@ def run_client(action, report=b"", *, cancelled=None, mode="analysis", partial=N
                         bound.recheck()
                         if done.returncode:
                             raise AnalysisDenied("client")
-                with failure_stage("auth-status"):
+                def status_check():
                     status_connection_failed = proxy.begin_phase()
                     code, out, errors = _bound_run(bound, "status", directory, online=True, **options,
                                                   timeout=20, limit=16384, cancelled=cancelled)
@@ -594,32 +618,54 @@ def run_client(action, report=b"", *, cancelled=None, mode="analysis", partial=N
                             raise failure
                     if code not in (0, 1):
                         raise child_failure(errors, "client")
-                    plan = check_auth(code, out, connection_failed=status_connection_failed.is_set())
+                    return check_auth(code, out, connection_failed=status_connection_failed.is_set())
+                with failure_stage("auth-status"):
+                    # Every request: the login and its method (a subscription, never an API key) are a boundary, and an
+                    # account can change in another process at any time. Only offline compatibility is remembered.
+                    plan = status_check()
                 if action == "login":
                     account_runtime.connected(account_path)
                     return "claude.ai"
+                if status is not None:
+                    try:
+                        status("started", 0)        # the model call starts now: what came before is not its time
+                    except Exception:
+                        pass
                 with failure_stage("analysis"):
-                    analysis_connection_failed = proxy.begin_phase()
                     kept = 3 * MAX_PACKET_LARGE if mode == "workspace" else (512 * 1024 if action == "web" else 1024 * 1024)
                     from .answer_stream import ClaudeStream
-                    if action == "analyze":
-                        live = partial if mode in LIVE_MODES else None
-                        options.update(stdout_filter=ClaudeStream(live, json_answer=LIVE_MODES.get(mode, True),
-                                                                  max_line=kept),
-                                       raw_limit=max(STREAM_RAW_LIMIT, kept))
-                    else:
-                        options.update(stdout_filter=ClaudeStream(on_status=status, max_line=kept),
-                                       raw_limit=max(STREAM_RAW_LIMIT, kept))
-                    code, out, errors = _bound_run(bound, action, directory, online=True, **options,
-                                                       input_bytes=report, timeout=request_seconds(request_effort(report)),
-                                                       limit=kept, input_limit=MAX_PACKET_LARGE, cancelled=cancelled)
-                    if code:
-                        if action == "web" and child_failure(errors, "client").reason == "client":
-                            reason = web_failure(code, out)
-                            if reason is not None:
-                                raise AnalysisDenied(reason)
-                        raise analysis_failure(code, out, errors, analysis_connection_failed.is_set())
-                    answer = web_text(out) if action == "web" else model_text(code, out, mode=mode)
+                    budget = request_seconds(request_effort(report))
+                    began = time.monotonic()
+                    attempt = 0
+                    while True:
+                        attempt += 1
+                        analysis_connection_failed = proxy.begin_phase()
+                        if action == "analyze":
+                            live = partial if mode in LIVE_MODES else None
+                            options.update(stdout_filter=ClaudeStream(live, json_answer=LIVE_MODES.get(mode, True),
+                                                                      max_line=kept),
+                                           raw_limit=max(STREAM_RAW_LIMIT, kept))
+                        else:
+                            options.update(stdout_filter=ClaudeStream(on_status=status, max_line=kept),
+                                           raw_limit=max(STREAM_RAW_LIMIT, kept))
+                        left = budget - (time.monotonic() - began)
+                        code, out, errors = _bound_run(bound, action, directory, online=True, **options,
+                                                           input_bytes=report, timeout=max(1, left),
+                                                           limit=kept, input_limit=MAX_PACKET_LARGE, cancelled=cancelled)
+                        if code:
+                            if action == "web" and child_failure(errors, "client").reason == "client":
+                                reason = web_failure(code, out)
+                                if reason is not None:
+                                    raise AnalysisDenied(reason)
+                            raise analysis_failure(code, out, errors, analysis_connection_failed.is_set())
+                        try:
+                            answer = web_text(out) if action == "web" else model_text(code, out, mode=mode)
+                        except AnalysisDenied as refused:
+                            if not _retry_web(action, refused, attempt, time.monotonic() - began, budget, cancelled):
+                                raise
+                            bound.recheck()                 # the same sealed client, rechecked, runs it once more
+                            continue
+                        break
                     if type(plan) is str:
                         return ModelText(answer, {**(getattr(answer, "meta", None) or {"models": []}), "plan": plan})
                     return answer

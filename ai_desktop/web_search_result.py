@@ -10,14 +10,15 @@ import ipaddress
 import json
 import math
 import re
+import unicodedata
 from urllib.parse import urlsplit
 
 from .analysis_contract import AnalysisDenied, MAX_TEXT, ModelText, terminal_text
 from .e2_ipc import _unique_pairs
 from .provider_errors import classify_failure
 
-MAX_STREAM_BYTES = 131072
-MAX_EVENTS = 64
+MAX_STREAM_BYTES = 512 * 1024      # the service keeps the same; `max` reasoning writes many thinking blocks
+MAX_EVENTS = 512                    # `max` reasoning adds many thinking-token notices
 MAX_CALLS = 2
 MAX_TURNS = 4
 MAX_SOURCES = 8
@@ -36,6 +37,28 @@ def _string(value, limit, *, lines=False):
             or terminal_text(value) != value or (not lines and any(c in value for c in "\r\n\t"))):
         raise ValueError("text")
     return value
+
+
+MAX_TITLE = 200                     # characters of one shown source title
+
+
+def _title(value):
+    """A source title as plain, bounded display text: format and control characters (a soft hyphen, a zero-width
+    space) are dropped, any line break or other spacing becomes one space, a long title is shortened visibly.
+    None when nothing printable is left; the caller then shows the host name."""
+    if type(value) is not str:
+        return None
+    kept = []
+    for char in value[:4 * MAX_TITLE]:
+        category = unicodedata.category(char)
+        if category in ("Zl", "Zp") or char.isspace():
+            kept.append(" ")
+        elif category[0] != "C":
+            kept.append(char)
+    title = " ".join("".join(kept).split())
+    if len(title) > MAX_TITLE:
+        title = title[:MAX_TITLE - 1].rstrip() + "…"
+    return title or None
 
 
 def _host(value):
@@ -151,7 +174,11 @@ def _rate_status(event):
 
 
 
-def _telemetry(event, pending):
+class TelemetryRefused(ValueError):
+    """Which part of a progress event was refused: a fixed code for the diagnostic, never a native value."""
+
+
+def _telemetry(event, pending, done=()):
     """Accept only bounded, inert SDK progress; it never proves a search.
 
     SDKThinkingTokensMessage and SDKToolProgressMessage are documented at
@@ -165,27 +192,50 @@ def _telemetry(event, pending):
                    "estimated_tokens", "estimated_tokens_delta"}
         numbers = ("estimated_tokens", "estimated_tokens_delta")
         if set(event) - allowed:
-            raise ValueError("thinking telemetry")
+            raise TelemetryRefused("thinking")
         if "user_message_uuid" in event:
             _string(event["user_message_uuid"], 256)
     elif kind == "tool_progress":
+        # Inert progress of a search: it never supplies a result, a URL or a turn, so only what would mean other
+        # activity is refused: another tool, a subagent's work, or a malformed value. Extra simple fields (a newer client)
+        # are ignored, and so is a call id this transcript has not announced (long `max` reasoning, CachyOS check of
+        # candidate 153); the answer's sources still come only from paired WebSearch results.
         allowed = {"type", "session_id", "uuid", "tool_use_id", "tool_name",
                    "parent_tool_use_id", "elapsed_time_seconds", "heartbeat"}
         numbers = ("elapsed_time_seconds",)
-        call_id = event.get("tool_use_id")
-        if (set(event) - allowed or event.get("tool_name") != "WebSearch"
-                or type(call_id) is not str or call_id not in pending
-                or event.get("parent_tool_use_id", "missing") is not None
-                or ("heartbeat" in event and type(event["heartbeat"]) is not bool)):
-            raise ValueError("tool telemetry")
+        if event.get("tool_name") != "WebSearch":
+            raise TelemetryRefused("tool-name")
+        parent = event.get("parent_tool_use_id", None)
+        # A non-null parent marks progress from inside another tool call. With WebSearch as the only tool, the one
+        # accepted parent is a WebSearch call of this transcript (its own search runs nested; CachyOS check of
+        # candidate 154 with `max` reasoning). Any other parent, an agent, a task or a replay is other activity.
+        if parent is not None and (type(parent) is not str or (parent not in pending and parent not in done)):
+            raise TelemetryRefused("tool-parent")
+        if any(name in event for name in ("agent_id", "task_id", "subagent_type")):
+            raise TelemetryRefused("tool-agent")
+        if event.get("isReplay", False) is not False:
+            raise TelemetryRefused("tool-replay")
+        if type(event.get("tool_use_id")) is not str:
+            raise TelemetryRefused("tool-call")
+        _string(event["tool_use_id"], 256)
+        if "heartbeat" in event and type(event["heartbeat"]) is not bool:
+            raise TelemetryRefused("tool-heartbeat")
+        for name in set(event) - allowed:
+            if (type(name) is not str or len(name) > 64
+                    or type(event[name]) not in (bool, int, float, str, type(None))
+                    or type(event[name]) is str and len(event[name]) > 256):
+                raise TelemetryRefused("tool-field")
     else:
         return False
     if "uuid" in event:
         _string(event["uuid"], 256)
     for name in numbers:
-        value = event.get(name)
-        if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
-            raise ValueError("telemetry number")
+        if name not in event:
+            continue                                   # a counter may be left out; nothing depends on it
+        value = event[name]
+        if (type(value) not in (int, float) or not math.isfinite(value)
+                or (value < 0 and not name.endswith("_delta"))):
+            raise TelemetryRefused("number")
     return True
 
 def _query(value):
@@ -232,8 +282,13 @@ def _sources(value, query):
         for item in result["content"]:
             if type(item) is not dict:
                 raise ValueError("source")
-            title, url = _string(item.get("title"), 1024), _url(item.get("url"))
-            sources.setdefault(url, title)
+            # One unusual result (an international or underscore host, a port, quotes in the address) is left out
+            # instead of refusing the whole answer. It can never be cited: a cited address must have been observed.
+            try:
+                url = _url(item.get("url"))
+            except (ValueError, TypeError, UnicodeError):
+                continue
+            sources.setdefault(url, _title(item.get("title")) or urlsplit(url).hostname)
     if len(sources) > 256:
         raise ValueError("sources")
     return sources
@@ -248,6 +303,72 @@ def _message(event, role):
             or type(message.get("content")) is not list or not 1 <= len(message["content"]) <= 16):
         raise ValueError("message")
     return message["content"]
+
+
+# The destination may hold one level of balanced parentheses (a Wikipedia "Foo_(bar)" page); the optional link title
+# may be in double or single quotes.
+_INLINE_LINK = re.compile(r"\[([^\[\]\n]*)\]\(\s*((?:[^()\s]|\([^()\s]*\))*)\s*(?:\"[^\"\n]*\"|'[^'\n]*')?\s*\)")
+_DEFINITION = re.compile(r"^ {0,3}\[[^\]\n]+\]:[^\n]*(?:\n|$)", re.M)
+_ADDRESS = re.compile(r"(?i)(?:\b[a-z][a-z0-9+.-]*://|\bwww\.)[^\s<>()\[\]`]*")
+_TRAILING = ".,;:!?'\""
+
+
+def _without_addresses(answer, sources):
+    """The answer text with the model's own links and addresses taken out. Inline links keep their text, reference
+    definitions are removed, and a bare address becomes the number of the listed source it names, or is dropped."""
+    def number(url):
+        url = url.rstrip("/")
+        for index, source in enumerate(sources, 1):
+            if source.rstrip("/") == url:
+                return "[%d]" % index
+        return None
+
+    def inline(match):
+        text, cited = match.group(1).strip(), number(match.group(2))
+        if text.isdigit():
+            return "[%s]" % text                  # "[1](...)" is the model's reference to source 1
+        if cited and cited not in text:
+            return (text + " " + cited).strip()
+        return text or (cited or "")
+
+    def bare(match):
+        url = match.group(0)
+        tail = ""
+        while url and url[-1] in _TRAILING:
+            url, tail = url[:-1], url[-1] + tail
+        return (number(url) or "(address removed)") + tail
+
+    def unknown(match):
+        return "" if not 1 <= int(match.group(2)) <= len(sources) else match.group(0)
+
+    def clean(prose):
+        prose = _INLINE_LINK.sub(inline, prose)
+        # A number that names no listed source is taken out; the sources are listed below the answer anyway.
+        prose = re.sub(r"( ?)(?<![\w\])\]])\[([0-9]+)\](?!\()", unknown, prose)
+        prose = _DEFINITION.sub("", prose)
+        prose = re.sub(r"<((?i:[a-z][a-z0-9+.-]*://|www\.)[^<>\s]*)>", r"\1", prose)   # autolinks
+        return _ADDRESS.sub(bare, prose)
+
+    parts, last = [], 0
+    for code in _CODE.finditer(answer):                   # code stays exactly as written
+        parts += [clean(answer[last:code.start()]), code.group(0)]
+        last = code.end()
+    parts.append(clean(answer[last:]))
+    return "".join(parts).strip()
+
+
+_CODE = re.compile(r"(?ms)^ {0,3}(```|~~~).*?(?:^ {0,3}\1[^\n]*$|\Z)|`[^`\n]*`")
+
+
+def _prose(answer):
+    """The answer without its code (fenced blocks and inline code): code is shown as written, never rewritten or
+    read as citations (CachyOS check of candidate 141: a prime-number script was refused for `sieve[0]`)."""
+    return _CODE.sub("", answer)
+
+
+def _references(answer):
+    """Source numbers the prose cites. An index right after a name or a bracket (`a[1][2]`) is not a citation."""
+    return {int(number) for number in re.findall(r"(?<![\w\])\]])\[([0-9]+)\]", _prose(answer))}
 
 
 def _answer(raw, observed):
@@ -267,18 +388,19 @@ def _answer(raw, observed):
         if any(type(url) is not str or url not in observed for url in sources) or len(set(sources)) != len(sources):
             raise ValueError("invented source")
         check = "web-answer-url"
-        if re.search(r"(?i)[a-z][a-z0-9+.-]*://|www\.", answer):
+        # Addresses are shown only in the program's list of proven sources. A link or address the model wrote into
+        # the text is removed instead of refusing the whole answer: a listed source becomes its number, anything else
+        # is dropped.
+        answer = _without_addresses(answer, sources)
+        if re.search(r"(?i)[a-z][a-z0-9+.-]*://|www\.", _prose(answer)):
             raise ValueError("references")
         check = "web-answer-link"
-        # An inline link, or a reference definition. A definition is Markdown only at the start of a line (indented at
-        # most three spaces); "news in release [1]: ..." inside a sentence is ordinary text and stays allowed.
-        if re.search(r"\]\(", answer) or re.search(r"^ {0,3}\[[0-9]+\]:", answer, re.M):
+        if re.search(r"\]\(", _prose(answer)) or re.search(r"^ {0,3}\[[0-9]+\]:", _prose(answer), re.M):
             raise ValueError("references")
         check = "web-answer-references"
-        # Every reference must name a listed source and at least one must be cited. A listed source the text does
-        # not cite stays in the list: its address was already proven to come from this search.
-        references = {int(number) for number in re.findall(r"\[([0-9]+)\]", answer)}
-        if not references or not references <= set(range(1, len(sources) + 1)):
+        # Source numbers in the text are optional (the maintainer: the sources at the end are enough); one that names
+        # no listed source was already taken out above, so this only guards that removal.
+        if not _references(answer) <= set(range(1, len(sources) + 1)):
             raise ValueError("references")
         check = "web-answer-render"
         lines = [answer, "", "Sources:"]
@@ -316,7 +438,7 @@ def web_text(raw):
         session = _string(initial.get("session_id"), 256)
         for notice in events[:start]:
             _ui_invalidation(notice, session=session)
-        pending, calls, completed, observed = {}, set(), 0, {}
+        pending, calls, completed, observed, done = {}, set(), 0, {}, set()
         final = None
         windows = {}
         for index, event in enumerate(events[start + 1:], start + 1):
@@ -359,6 +481,7 @@ def web_text(raw):
                     raise ValueError("tool result")
                 check = "web-search-source"
                 observed.update(_sources(event.get("tool_use_result"), pending.pop(call_id)))
+                done.add(call_id)
                 completed += 1
             elif kind == "result":
                 check = "web-final-order"
@@ -389,7 +512,12 @@ def web_text(raw):
                 _ui_invalidation(event, session=session)
             else:
                 check = "web-telemetry"
-                if not _telemetry(event, pending):
+                try:
+                    known = _telemetry(event, pending, done)
+                except TelemetryRefused as refused:
+                    check = "web-telemetry-" + str(refused)
+                    raise
+                if not known:
                     check = "web-event-type"
                     raise ValueError("unexpected event")
         check = "web-missing-result"

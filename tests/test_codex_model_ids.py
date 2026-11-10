@@ -27,15 +27,24 @@ class ModelShapeTests(unittest.TestCase):
                 with self.assertRaises(profiles.ProfileError):
                     profiles.Profile(provider="codex", model=model)
 
-    def test_claude_stays_a_closed_alias_list(self):
-        for model in ("default", "sonnet", "opus", "haiku"):
-            self.assertTrue(execution.model_allowed("claude", model))
-        for model in ("gpt-example-1.2", "claude-opus-4", "--flag"):
-            self.assertFalse(execution.model_allowed("claude", model))
+    def test_claude_accepts_any_well_formed_id_the_client_owns_the_verdict(self):
+        # Nothing baked in: a model Anthropic adds later is accepted without an update of this program.
+        # A bracketed variant such as "opus[1m]" (1M context) is a documented --model value (code.claude.com model-config).
+        for model in ("default", "sonnet", "opus", "haiku", "claude-opus-4", "claude-opus-9", "a" * 96, "opus[1m]",
+                      "claude-opus-4-6[1m]"):
+            with self.subTest(model=model):
+                self.assertTrue(execution.model_allowed("claude", model))
+        for model in ("", "--flag", "-x", "Bad Model!", "OPUS", "opus 5", "opus/5", "opus\n", "x" * 97,
+                      "opus[]", "opus[1m", "opus[1m]x", "[1m]", "opus[TOOLONGXX]", None, 5):
+            with self.subTest(model=model):
+                self.assertFalse(execution.model_allowed("claude", model))
 
     def test_execution_snapshot_validates_the_provider_specific_id(self):
         self.assertEqual(execution.validate(CODEX), CODEX)
-        for bad in (dict(CODEX, model="opus"), dict(CODEX, model="--x"), dict(CODEX, provider="claude")):
+        claude = dict(CODEX, provider="claude", model="claude-opus-9")
+        self.assertEqual(execution.validate(claude), claude)
+        for bad in (dict(CODEX, model="opus"), dict(CODEX, model="--x"), dict(claude, model="--x"),
+                    dict(claude, model="Bad Model!")):
             with self.assertRaises(ValueError):
                 execution.validate(bad)
 

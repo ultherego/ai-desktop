@@ -290,7 +290,8 @@ class AskCliTests(unittest.TestCase):
         with patch.object(ask.time, "monotonic", side_effect=lambda: now[0]):
             r = self.run_ui(session=session, send=send)
         self.assertEqual(r.code, 2, r.output)
-        self.assertIn("The last call waited 77 s (limit 150 s).", r.output)
+        from ai_desktop.analysis_service import answer_seconds
+        self.assertIn("The last call waited 77 s (limit %d s)." % answer_seconds(None), r.output)
 
     def test_success_waits_for_cleanup_and_provider_failure_is_not_retried(self):
         for failure in (None, AnalysisDenied("client"), AnalysisDenied("auth-required")):

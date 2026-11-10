@@ -9,6 +9,7 @@ import subprocess
 import time
 
 from . import agent_profiles as profiles
+from .execution import provider_name
 from .account_store import AccountStore, named_account
 from .terminal_style import paint
 
@@ -17,7 +18,9 @@ def login_status(message, tone, provider=None, account=None):
     """Only the controller's own labels and validated local aliases go into a status line."""
     line = paint(message, tone, "bold")
     if provider is not None:
-        target = {"claude": "Claude", "codex": "Codex"}[provider]
+        if provider not in ("claude", "codex"):
+            raise KeyError(provider)
+        target = provider_name(provider)
         if account == "default" or named_account(account):
             target += " / " + account
         line += "  " + target

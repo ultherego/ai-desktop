@@ -163,7 +163,7 @@ class MenuTests(unittest.TestCase):
                 redirect_stdout(io.StringIO()):
             values, labels, note = management_cli.model_choices("codex")
         self.assertEqual(values, ("default", "gpt-6.1-sol", "gpt-6-astra", "gpt-5.5", "custom"))
-        self.assertEqual(labels[0], "Auto (client default)")
+        self.assertEqual(labels[0], "Auto")
         self.assertEqual(labels[1], "GPT-6.1-Sol (gpt-6.1-sol)")
         self.assertEqual(labels[-1], "Other ID (type it)")
         self.assertIsNone(note)
@@ -175,12 +175,15 @@ class MenuTests(unittest.TestCase):
         self.assertEqual(values, ("default", "custom"))
         self.assertIn("unavailable", note)
 
-    def test_claude_uses_the_client_aliases_without_starting_anything(self):
-        with patch.object(management_cli.model_catalog, "fetch", side_effect=AssertionError("must not run")):
+    def test_claude_without_its_list_offers_only_auto_and_other_id(self):
+        # The Claude list comes from the client (tests/test_claude_model_catalog.py); never from the Codex catalog.
+        with patch.object(management_cli.model_catalog, "fetch", side_effect=AssertionError("must not run")), \
+                patch.object(management_cli.model_catalog, "fetch_claude",
+                             side_effect=management_cli.model_catalog.CatalogUnavailable()):
             values, labels, note = management_cli.model_choices("claude")
-        self.assertEqual(values, ("default", "best", "fable", "opus", "sonnet", "haiku", "opusplan"))
-        self.assertEqual(len(values), len(labels))
-        self.assertIsNone(note)
+        self.assertEqual(values, ("default", "custom"))            # nothing baked into this program
+        self.assertEqual(labels, ("Auto", "Other ID (type it)"))
+        self.assertIn("unavailable", note)
 
 
 if __name__ == "__main__":

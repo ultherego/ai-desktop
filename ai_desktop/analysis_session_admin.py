@@ -52,7 +52,7 @@ def units(uid):
     return ["ai-desktop-analysis@" + str(uid) + suffix for suffix in (".socket", ".service")]
 
 
-MAX_SESSIONS = 16                  # open terminals of one user with a session at the same time
+MAX_SESSIONS = 64                  # open terminals of one user with a session at the same time
 _OWNER = (0, 0)                    # every claim, lock and claims directory belongs to root:root
 LIVE = ("active", "activating", "deactivating", "reloading")
 
@@ -240,6 +240,20 @@ def cleaned(uid):
             raise AnalysisDenied("cleanup")
 
 
+def stop_unclaimed(uid):
+    """Call under session_lock when no session claims the user's units: they must not run. A cleanup whose stop failed
+    or timed out leaves them active with no claim; without this every later open would be refused as busy and
+    `ai-desktop stop` could not end them. Stops them when any runs, then refuses unless they really ended."""
+    if claims(uid) or os.path.lexists(legacy_claim(uid)):
+        raise AnalysisDenied("busy")
+    for unit in units(uid):
+        values = properties(unit)
+        if values.get("ActiveState") not in ("inactive", "failed") or values.get("MainPID", "0") != "0":
+            command("/usr/bin/systemctl", "stop", *units(uid))
+            break
+    cleaned(uid)
+
+
 def cleanup(uid, nonce):
     """ExecStopPost of one session's helper: forget its claim; after the last session, stop the user's units."""
     state_directory()
@@ -252,7 +266,10 @@ def cleanup(uid, nonce):
             legacy_claim(uid).unlink()                 # a session of the previous layout ending after an upgrade
         prune(uid)
         if not claims(uid) and not os.path.lexists(legacy_claim(uid)):
-            command("/usr/bin/systemctl", "stop", *units(uid))
+            try:
+                command("/usr/bin/systemctl", "stop", *units(uid))
+            except AnalysisDenied:
+                stop_unclaimed(uid)            # once more; if it still fails, the next open or stop recovers it
             cleaned(uid)
     os.write(1, STOPPED)
 
@@ -266,6 +283,11 @@ def hold(uid, nonce):
         if len(claims(uid)) >= MAX_SESSIONS:
             raise AnalysisDenied("busy")           # rechecked under the lock: two opens may pass the first look
         first = not claims(uid)
+        if first:
+            # No session claims the units: anything still running is left over from a cleanup that could not stop
+            # it. Stop it first instead of refusing this and every later terminal.
+            unit_policy(uid)
+            stop_unclaimed(uid)
         unit_policy(uid, inactive=first)
         create_claim(uid, nonce)  # Before any activation, including a partial start.
         if first:
@@ -334,7 +356,7 @@ def stop_session(uid):
         prune(uid)
         if claims(uid) or os.path.lexists(legacy_claim(uid)):
             raise AnalysisDenied("busy")           # a terminal opened a new session meanwhile
-        cleaned(uid)
+        stop_unclaimed(uid)                        # also units left running by a failed cleanup, with no claim
     os.write(1, STOPPED)
 
 

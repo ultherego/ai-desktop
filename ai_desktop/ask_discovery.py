@@ -12,9 +12,10 @@ import re
 from . import directory_context, permissions
 from .skill_runtime import MAX_KNOWLEDGE_BYTES, observe_command
 from .discovery_contract import (CEILING_TOTAL_ENTRIES, REFUSAL_CODES, MAX_SELECTORS, clean_path, document_bytes,
-                                 diagnostic_bytes, skill_bytes, validate_discovery)
+                                 diagnostic_bytes, skill_bytes, validate_discovery, web_data)
 
 REFUSAL_RESERVE = 2400
+WEB_MINIMUM = 512          # bytes of a shortened web answer below which it is not worth sending
 OVERHEAD = 1024            # envelope of a document with its counters; leaves room for the remaining steps' framing
 
 
@@ -148,6 +149,33 @@ class DiscoveryLedger:
         self.steps.append(step)
         if text and "/" not in name:
             self.hints += "\n" + text
+
+    def add_web(self, text):
+        """The checked answer of this question's web search, as data for the next round (at most once)."""
+        if any(step["op"] == "web" for step in self.steps):
+            raise ValueError("web")
+        # Normalized and bounded like the contract requires (separators, MAX_WEB_TEXT). When the owner's discovery
+        # budget is smaller, a visibly shortened answer is kept rather than stopping the question; the full answer
+        # was already shown. Only when not even a short part fits is the budget reported.
+        original = web_data(text)
+        if original is None:
+            raise ValueError("web")
+        limit = len(original.encode("utf-8"))
+        for _ in range(8):
+            shortened = web_data(original, limit)
+            if shortened is None:
+                break
+            step = {"op": "web", "text": shortened}
+            document = self.document()
+            document["steps"].append(step)
+            over = self._diagnostic_bytes(document) + (OVERHEAD if shortened != original else 0) - self.limits.discovery_bytes
+            if over <= 0:
+                self.steps.append(step)
+                return step
+            limit -= over + 64
+            if limit < WEB_MINIMUM:
+                break
+        raise BudgetExhausted("discovery_bytes")
 
     def add_run(self, step):
         # Test and undo must finish after an approved live change. Keep their status even if command

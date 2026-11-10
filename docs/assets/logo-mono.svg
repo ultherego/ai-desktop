@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title id="title">AI Desktop</title>
+  <!-- single-colour variant (uses the surrounding text colour): small sizes, status bars, dark or light pages -->
+  <path d="M30 34h68a8 8 0 0 1 8 8v40a8 8 0 0 1-8 8H62l-14 12v-12H30a8 8 0 0 1-8-8V42a8 8 0 0 1 8-8z"
+        fill="none" stroke="currentColor" stroke-width="7" stroke-linejoin="round"/>
+  <path d="M64 46c2 9 5 12 14 14-9 2-12 5-14 14-2-9-5-12-14-14 9-2 12-5 14-14z" fill="currentColor"/>
+</svg>

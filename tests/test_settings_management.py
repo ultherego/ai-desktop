@@ -86,10 +86,18 @@ class SettingsManagementTests(unittest.TestCase):
         for alias in ("sonnet", "opus", "haiku", "max"):
             self.assertNotIn(alias, text)
         self.assertEqual(self.store.load(), before)
-        code, legacy = self.call(["models"], neutral=False)
+        # The Claude models are the client's own list; without it only Auto is shown, nothing baked in.
+        listed = (("default", "Default", ""), ("opus", "Opus", ""), ("sonnet", "Sonnet", ""), ("haiku", "Haiku", ""))
+        with patch.object(management_cli.model_catalog, "fetch_claude", return_value=listed):
+            code, legacy = self.call(["models"], neutral=False)
         self.assertEqual(code, 0)
         for alias in ("sonnet", "opus", "haiku", "max"):
             self.assertIn(alias, legacy)
+        code, legacy = self.call(["models"], neutral=False)
+        self.assertEqual(code, 0)
+        self.assertIn("Auto", legacy)
+        for alias in ("sonnet", "opus", "haiku"):
+            self.assertNotIn(alias, legacy)
 
     def test_nonterminal_summary_recommends_the_canonical_settings_command(self):
         with patch.object(management_cli.sys.stdin, "isatty", return_value=False), \
@@ -176,7 +184,7 @@ class SettingsManagementTests(unittest.TestCase):
                 return next(index for index, label in enumerate(options) if label.startswith("Service:"))
             if len(calls) == 2:
                 self.assertIn("no login", title)
-                return next(index for index, label in enumerate(options) if label.startswith("ChatGPT / Codex"))
+                return next(index for index, label in enumerate(options) if label.startswith("Codex"))
             return None
         code, _ = self.call([], chooser=choose)
         self.assertEqual(code, 0)

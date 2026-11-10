@@ -581,6 +581,26 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
             context = None
             skill_rounds = 0
             while True:
+                if plan["action"] == "web" and plan.get("continue") and snapshot.policy is not None:
+                    # Search first, then the local part of the same question (an edit, commands, reads). The search
+                    # carries nothing local; its checked answer goes to the next round as data. One search only:
+                    # next_plan never accepts another web step.
+                    permit.continue_after_web()
+                    progress("answer-request")
+                    from .analysis_contract import web_followup
+                    with web_followup():
+                        found = request(question, args, reader, web=True, check=permit.check,
+                                        question_consent=permit)
+                    permit.check()
+                    _show_web(found, args)
+                    # Recorded first, so a later turn can refer to what was shown even if this question stops below.
+                    conversation_state.note_action(conversation_state.web_note(found))
+                    try:
+                        ledger.add_web(found)
+                    except ask_discovery.BudgetExhausted as exhausted:
+                        _budget_stop(snapshot.policy, exhausted.name)
+                    plan = next_plan()
+                    continue
                 if snapshot.policy is None and (plan["action"] in ("list", "find", "run", "read-range", "search-content")
                                                 or plan["action"] == "read" and plan["files"]):
                     raise AccessDenied()
@@ -616,8 +636,10 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                     if "commands" in plan:
                         # One planner step, many reads: the model gets all the results in its next single round.
                         _group(ledger, len(plan["commands"]))
-                        for argv in plan["commands"]:
-                            if ledger.commands_left <= 0:
+                        for index, argv in enumerate(plan["commands"]):
+                            # The first one always goes through the budget check: with no rounds left it is recorded
+                            # as refused (or ends the question with the budget message), never silently skipped.
+                            if ledger.commands_left <= 0 and index:
                                 break
                             permit.renew()    # commands may take their full timeout each; the question ceiling still holds
                             _run_command(snapshot, ledger, {"action": "run", "argv": argv}, permit, args, reader)
@@ -733,6 +755,16 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
         return answer
     finally:
         permit.close()
+
+
+def _show_web(text, args):
+    """The checked web answer, shown before the local part of the question continues."""
+    from .analysis_terminal import render_answer
+    from .terminal_style import rule
+    print("\n" + rule() + "\n")
+    print(render_answer(text, output_format=getattr(args, "format", "auto")))
+    print("\n" + rule() + "\n")
+    print(paint("  The question continues with the local part.", "muted"), flush=True)
 
 
 from .skill_runtime import version_scope

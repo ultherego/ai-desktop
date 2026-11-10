@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title id="title">AI Desktop</title>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2B2F45"/>
+      <stop offset="1" stop-color="#171A28"/>
+    </linearGradient>
+    <linearGradient id="spark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7DE3FF"/>
+      <stop offset="1" stop-color="#8C7BFF"/>
+    </linearGradient>
+  </defs>
+  <!-- the tile -->
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#tile)"/>
+  <!-- a desktop window that is also a speech bubble: the place where you talk to the assistant -->
+  <path d="M30 34h68a8 8 0 0 1 8 8v40a8 8 0 0 1-8 8H62l-14 12v-12H30a8 8 0 0 1-8-8V42a8 8 0 0 1 8-8z"
+        fill="none" stroke="#C9D1EA" stroke-width="6" stroke-linejoin="round"/>
+  <!-- the assistant: a four-point spark -->
+  <path d="M64 46c2 9 5 12 14 14-9 2-12 5-14 14-2-9-5-12-14-14 9-2 12-5 14-14z" fill="url(#spark)"/>
+</svg>

@@ -356,9 +356,12 @@ class ProfileStoreTests(unittest.TestCase):
         self.assertNotIn("- cachyos-diagnostics:", profiles.resolve(profile="reviewer", store=self.store)["instructions"])
 
     def test_menu_uses_snapshot_and_returns_clean_summary(self):
+        # The model list is the client's own (here a fixed one); the 4th entry is Opus.
+        listed = (("default", "Default", ""), ("fable", "Fable", ""), ("sonnet", "Sonnet", ""), ("opus", "Opus", ""))
         reader = iter(("2", "4"))
         output = io.StringIO()
-        with redirect_stdout(output):
+        with redirect_stdout(output), \
+                patch.object(management_cli.model_catalog, "fetch_claude", return_value=listed):
             code = management_cli.main(["menu"], store=self.store, reader=lambda _: next(reader))
         self.assertEqual(code, 0)
         self.assertEqual(self.store.load().config.profiles["default"].model, "opus")

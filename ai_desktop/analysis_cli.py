@@ -27,8 +27,9 @@ HINTS = {
     "endpoint": "Could not start or connect the session. Check ai-desktop status; to recover: ai-desktop stop.",
     "auth-required": "Connect your account: ai-desktop login (choose Claude). Then start a new analysis and approve the new preview.",
     "auth-method": "A claude.ai subscription login in a separate profile is required; other methods are rejected.",
-    "busy": "The session or profile is busy, or an unfinished cycle remains. Check ai-desktop status; to recover your own session: ai-desktop stop.",
-    "timeout": "The time limit was exceeded. The result is not confirmed; there is no automatic retry.",
+    "busy": "The service is busy (other terminals' questions, a sign-in, or an unfinished cycle). Ask again in a moment. "
+            "If no other terminal is working and it stays busy, recover with: ai-desktop stop (it ends every terminal's session).",
+    "timeout": "The time limit was exceeded. The result is not confirmed; a timed-out request is not retried automatically.",
     "client": "The client did not finish the analysis. Check your network access and subscription. There is no automatic retry or switch to the API.",
     "consent": "The send was not approved or the approval expired. On a new analysis, check the preview and type yes (y) to approve or no (n) to decline. The report was not sent.",
     "authorization": "Could not get permission to start a separate session. The report was not sent.",

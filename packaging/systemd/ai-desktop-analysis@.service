@@ -18,13 +18,14 @@ StandardOutput=null
 StandardError=null
 UMask=0077
 Restart=no
-# One terminal session may last a whole conversation (HOLD_SECONDS) plus a minute; the worker leaves sooner when idle.
+# One terminal session may last a whole conversation (HOLD_SECONDS) plus a minute; the worker leaves sooner when idle,
+# and before this limit on its own without cutting off an answer (analysis_service.WORKER_SECONDS must match).
 RuntimeMaxSec=15480
 TimeoutStopSec=3
 KillMode=control-group
 # Up to four requests at once (PARALLEL_REQUESTS), each with up to 768 MiB sealed client + 768 MiB child tmpfs
-# and 1.5 GiB native headroom: a ceiling, not a reservation.
-TasksMax=384
+# and 1.5 GiB native headroom: a ceiling, not a reservation. One thread per connection (MAX_CONNECTIONS = 64) on top.
+TasksMax=448
 MemoryMax=12G
 LimitCORE=0
 NoNewPrivileges=yes

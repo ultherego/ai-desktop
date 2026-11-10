@@ -1,6 +1,6 @@
 # `permissions.toml`: settings reference
 
-File: `~/.config/ai-desktop/permissions.toml`, owned by you, mode `0600`. Template: [`config/permissions.example.toml`](../config/permissions.example.toml). A missing key means "off"; an unknown key or bad value stops the program and names the problem. Details and examples: [README](../README.md#commands-commands).
+File: `~/.config/ai-desktop/permissions.toml`, owned by you, mode `0600`. Template: [`config/permissions.example.toml`](../config/permissions.example.toml). A missing key means "off"; an unknown key or bad value stops the program and names the problem. Details and examples: [CONFIGURATION.md](CONFIGURATION.md).
 
 ## Top level
 

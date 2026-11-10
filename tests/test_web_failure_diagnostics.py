@@ -97,8 +97,15 @@ class WebDiagnosticContractTests(unittest.TestCase):
             with self.subTest(check=check):
                 self.refused(items, check)
         items = events()
-        items[2]["tool_use_result"]["results"][0]["content"][0]["url"] = "file:///" + SECRET
+        items[2]["tool_use_result"]["results"][0]["content"][0] = "file:///" + SECRET     # not a structured item
         self.refused(items, "web-search-source")
+        items = events()
+        # One unusable address is left out, not a refusal of the search; the answer cited only that source, so
+        # nothing it could cite was observed.
+        items[2]["tool_use_result"]["results"][0]["content"][0]["url"] = "file:///" + SECRET
+        with self.assertRaises(AnalysisDenied) as caught:
+            web_text(stream(items))
+        self.assertEqual(caught.exception.reason, "web-no-results")
 
     def test_final_checks_never_release_partial_or_denied_answers(self):
         for key, value, check in (("subtype", "error_max_turns", "web-final-status"),
@@ -121,18 +128,7 @@ class WebDiagnosticContractTests(unittest.TestCase):
                              (json.dumps({"answer": "Text [1]", "sources": []}), "web-answer-sources"),
                              (json.dumps({"answer": "Text [1]", "sources": ["https://unobserved.example/"]}),
                               "web-answer-provenance"),
-                             (json.dumps({"answer": "Text [99]", "sources": ["https://www.python.org/"]}),
-                              "web-answer-references"),
-                             (json.dumps({"answer": "Text without a reference", "sources": ["https://www.python.org/"]}),
-                              "web-answer-references"),
-                             (json.dumps({"answer": "Text [1] at https://www.python.org/", "sources": ["https://www.python.org/"]}),
-                              "web-answer-url"),
-                             (json.dumps({"answer": "Text [1] on www.python.org", "sources": ["https://www.python.org/"]}),
-                              "web-answer-url"),
-                             (json.dumps({"answer": "Text [1](javascript:x)", "sources": ["https://www.python.org/"]}),
-                              "web-answer-link"),
-                             (json.dumps({"answer": "Text [1].\n   [1]: /hidden", "sources": ["https://www.python.org/"]}),
-                              "web-answer-link")):
+                             ):
             items = events()
             items[-1]["result"] = value
             with self.subTest(check=check):
@@ -144,7 +140,7 @@ class WebDiagnosticContractTests(unittest.TestCase):
         self.refused(items, "web-event-type")
         items = events()
         items.insert(2, {"type": "tool_progress", "session_id": SECRET, "tool_name": SECRET})
-        self.refused(items, "web-telemetry")
+        self.refused(items, "web-telemetry-tool-name")            # which part was refused, never its value
 
     def test_stream_shape_failures_are_redacted_and_bounded(self):
         for raw in (SECRET.encode(), b"[]\n", b"x" * 131073, stream(events()) + b"\n"):

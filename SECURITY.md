@@ -69,8 +69,11 @@ The policy `~/.config/ai-desktop/permissions.toml` is the source of permissions 
 It is bound to the question: changing the file midway stops the current operation, and the next question requires new consent. `task run` does not use the policy:
 you name the files by hand in the command.
 
-An exhausted budget, a wrong model response, a file change or a missing sandbox end in refusal. The program does not retry a request by itself and does not
-switch to another service, a client on the host or an API key.
+An exhausted budget, a wrong model response, a file change or a missing sandbox end in refusal. The program never switches to another service, a client on
+the host or an API key. It repeats a request in two cases only. A web answer that arrived but failed the transcript or answer checks (reason `result`) is
+asked once more, silently, with the same approved request, while at least half of its time is left; never after a limit, a login failure, a timeout, a
+cancellation, `web-no-results` or an ordinary answer. A request on a kept conversation connection that was closed before the service took it is sent once
+on a new connection; the service never saw it, so nothing runs twice.
 
 ## What model output can and cannot do
 

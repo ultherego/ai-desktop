@@ -90,7 +90,13 @@ Optional (local commands, nothing is sent):
   /find TEXT    search the file for this exact text (shows line numbers)
   /show A-B      show lines A-B (up to 40 lines)
   /log        what the app handed to Claude in this session
-  /exit           quit (also Ctrl+D)"""
+  /model         choose the model (/model ID sets one directly)
+  /effort        choose the reasoning level
+  /agent NAME    change the role (a saved conversation keeps its own)
+  /settings      show and change these settings
+  /exit           quit (also /quit, /q or Ctrl+D)"""
+SETTING_COMMANDS = ("/model", "/effort", "/sila", "/agent", "/settings", "/ustawienia")
+EXIT_COMMANDS = ("/exit", "/quit", "/koniec", "/q")       # the same words as in `ask`
 
 
 Delivery = collections.namedtuple("Delivery", "answer reused opening waiting meta", defaults=(None,))
@@ -1111,6 +1117,14 @@ class Session:
         return False
 
     accepts_pastes = False            # `project` turns large and multi-line pastes into marked attachments
+    _controls = None
+
+    def controls(self):
+        """The `ask` settings controls, limited to what works here (model, reasoning level, agent)."""
+        if self._controls is None:
+            from .ask_commands import Controls
+            self._controls = Controls(session=self.prompt_session, settings=("/model", "/effort", "/agent"))
+        return self._controls
 
     def _read_command(self):
         if self.reader is input and sys.stdin.isatty() and sys.stdout.isatty():
@@ -1125,9 +1139,6 @@ class Session:
         return self.reader("> ")
 
     def _dispatch(self, line):
-        from .run_controls import conversation_command
-        if conversation_command(line, saved=getattr(self, "conversation", None) is not None):
-            return True
         if not line:
             return True
         if line.casefold() in ("koniec", "exit"):         # the bare word ends the session too, it is not a question
@@ -1137,7 +1148,11 @@ class Session:
             return True
         command, _, rest = line.partition(" ")
         rest = rest.strip()
-        if command in ("/koniec", "/exit", "/q"):
+        if command in SETTING_COMMANDS:
+            # The same menus and checks as in `ask`; a saved conversation keeps its agent, its model and level may change.
+            self.controls().handle(line, getattr(self, "conversation", None), reader=self.reader)
+            return True
+        if command in EXIT_COMMANDS:
             return False
         if command in ("/pomoc", "/help", "/?"):
             print(recipient(HELP))

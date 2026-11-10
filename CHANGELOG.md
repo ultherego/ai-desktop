@@ -1,5 +1,102 @@
 # Changelog
 
+## 0.1.0-157: arrows in the `/` list during an answer
+
+- While an answer is being written, Up and Down move the highlight in the `/` list again (in terminals that send arrows in the keyboard protocol's long form, such as a terminal inside a multiplexer).
+
+## 0.1.0-156: text printed before a menu stays readable
+
+- After a `/` command printed something and then opened its menu (for example `/settings` or `/model`), the next text no longer overwrites it on the same line.
+
+## 0.1.0-155: `/settings` during an answer, a tidy screen, web search with `max`
+
+- `/settings` (and any menu with a long entry) opens again during an answer: the Skills entry is shortened ("Skills: 20 on (…)") and a too long menu entry is cut instead of blocking the menu.
+- Opening the `/` list during an answer no longer leaves copies of the waiting line and empty gaps: the conversation moves up only when the list would cover its end.
+- A web search with `max` reasoning is no longer refused as `web-telemetry-tool-parent`: progress reported from inside this question's own WebSearch call is accepted. Progress from any other source (another tool, an agent, a task, a replay) is still refused with its own code.
+
+## 0.1.0-154: menus in a terminal and a multiplexer, a clean waiting line, web search with `max`
+
+- `/model`, `/effort`, `/agent` and the other menus no longer close the moment they open in some terminals (a terminal inside a multiplexer): a key still arriving from the command that opened the menu is ignored. If a menu still cannot open, the message says why (`menu-…`).
+- A message printed while an answer is being written no longer sticks to the end of the waiting line.
+- A web search with `max` reasoning is no longer refused because of the search's progress signals (`web-telemetry-tool`); they never count as search results. If one is still refused, the message names the part (`web-telemetry-tool-name`, `-parent`, `-call`, `-heartbeat` or `-field`).
+
+## 0.1.0-153: a full review of the project, fixed
+
+A review of the whole program found places where one failure ended more than it should, where two parts disagreed, and where several terminals could get in each other's way. All of them are fixed here.
+
+- **A failing question ends only that question.** A weather source that does not answer, an expired approval, a busy service, an invalid `permissions.toml` or Ctrl+C in a `/` menu used to end the whole conversation; now the conversation continues and you can ask again.
+- **Any number of terminals, really.** A question waiting for a free place no longer times out because of other terminals (you see "waiting for a free place", and that time does not count against the question). The service hands over to a fresh one before its time limit instead of cutting an answer off, `ai-desktop stop` also repairs units left running without a session, and up to 64 terminals can hold a conversation.
+- **One model list, from the clients.** `/model` in a conversation, during an answer and in `ai-desktop settings` shows the same list, read from your Claude and Codex clients (new models appear when the client knows them, without an update of AI Desktop), with readable labels ("Opus 5.5", "very high"). "Other ID" accepts any well-formed ID, also variants such as `opus[1m]`. `/settings` now opens a menu.
+- **The editor during an answer works like the idle one:** Shift+Enter and `\`+Enter for a new line, Up/Down for history, large pastes as `[paste #N]`, Tab completion.
+- **Web search:** one unusual search result is left out instead of refusing the whole answer, links with parentheses are cleaned, and a search answer is kept in the conversation for the next question.
+- **New look of the documentation:** a short README with a logo; installation, usage, configuration, troubleshooting and testing moved to `docs/`.
+
+## 0.1.0-152: the Claude model list comes from the client
+
+- `/model` for Claude lists what your installed Claude client offers, with the model each choice is now (for example "Opus 5.5 — Best for everyday, complex tasks", "Default (recommended) — currently Opus 5.5"), like Claude Code's own menu. The list is read from the client offline, without your account. Codex already read its list from its client. When the list cannot be read, the client's aliases are offered as before.
+
+## 0.1.0-151: one silent retry of a web search
+
+- When a web search answer arrives but cannot be verified (for example `web-telemetry` or `web-stream`), the same approved question is searched once more without asking, if at least half of its time is left, and the answer is shown as soon as it passes. A limit, a login problem, a timeout or a cancelled question is never retried, and ordinary answers are not retried (their text may already be on the screen).
+
+## 0.1.0-150: web search with long reasoning
+
+- A web search with `max` reasoning is no longer refused as `web-telemetry` when a progress signal of a search arrives just after its result, or a thinking counter is left out or goes down. Progress signals never count as search results. When such a signal is still refused, the message now says which part (`web-telemetry-thinking`, `-tool` or `-number`).
+
+## 0.1.0-149: the login is checked for every question again
+
+- The login check is no longer remembered between questions (it was for 2 minutes since 0.1.0-145): it also confirms that the subscription login is used and never an API key, and an account may change at any time. Only the client's version checks are remembered, so a following question starts the client twice instead of six times.
+
+## 0.1.0-148: a selection scrolls at the edge
+
+- Dragging a selection to the top of the conversation scrolls back through earlier text while the button is held there, and dragging down over the input scrolls forward; the selection grows with it. The mouse wheel during a drag scrolls without losing the selection.
+
+## 0.1.0-147: selecting, editing keys, resizing
+
+- Select text in the conversation with the mouse: drag with the left button, and releasing copies it to the clipboard (through the terminal, which also works inside Zellij or tmux, and with `wl-copy` on Wayland when it is installed). A double click selects a word or a path. Rows the window wrapped are copied as one line.
+- The input knows the usual editing keys: Ctrl/Alt+Left/Right move by words, Ctrl+Backspace, Alt+Backspace and Ctrl+W delete a word back, Ctrl+Delete and Alt+D a word forward, Ctrl+U and Ctrl+K to the start and end of the line, Home/End go to the start and end of the line (Ctrl+Home/End: of the whole message), Ctrl+Z undoes. The same keys work while an answer is being written.
+- Resizing the window no longer leaves empty rows between a question and what follows: the conversation stays right above the input, and earlier rows come back when the window grows.
+- A web search with `max` reasoning is no longer refused as `web-stream`: the transcript may now hold as much as the service keeps (512 KiB, 512 events).
+
+## 0.1.0-146: full-screen conversation view
+
+- A conversation opens in a full-screen view: the input never scrolls away. PgUp/PgDn or the mouse wheel show earlier text, End or any key returns to the live conversation, and text arriving meanwhile is shown when you return. Hold Shift to select text with the mouse. The conversation is left in the terminal's history when it ends.
+- `ai-desktop ask --inline` or `inline` in `~/.config/ai-desktop/view` keeps the previous view.
+
+## 0.1.0-145: faster questions
+
+- Each question used to start the Claude client six times: four checks of its version and options, one login check and the answer itself. Checks already passed are now remembered for a while for the same client and account, so a following question starts the client once (Codex: the version checks too). Every question still runs in its own fresh sandbox, and a changed client or a login problem is checked again at once.
+
+## 0.1.0-144: the search knows the question goes on
+
+- When a question searches first and then continues locally, the search answer no longer says it cannot create the file or gives a command to save it by hand: it explains, shows code in code blocks, and the next step proposes the change with the usual diff.
+
+## 0.1.0-143: source numbers never refuse a web answer
+
+- Source numbers in a web answer's text are optional; the checked sources are always listed at the end. A number that names no listed source is taken out of the text instead of refusing the answer.
+
+## 0.1.0-142: code in a web answer is left alone
+
+- A web answer with code (for example `sieve[0] = sieve[1] = False`) is no longer refused with `web-answer-references`: brackets in code are not source numbers. Code in a web answer is shown exactly as written; only the text around it has its links and addresses removed.
+
+## 0.1.0-141: a web answer without reference numbers is shown
+
+- A web answer whose text cites no source number (for example one with only a code example) is no longer refused with `web-answer-references`; its checked sources are listed below it as always. A number that names no listed source is still refused.
+
+## 0.1.0-140: search the web and then edit, Codex answers while written
+
+- One question can now search the web first and then work locally with what was found: change a file (with the usual diff and yes), run your allowed commands or read files. The search answer with its sources is shown first; the search itself still never receives your files or command output, and a question searches at most once.
+- A web answer is no longer refused because the model wrote a link or an address into its text: the address is taken out (a listed source becomes its number, e.g. `[1]`), and addresses stay only in the list of checked sources below the answer.
+- Codex answers in a conversation appear while they are written, like Claude's. Only the answer itself is shown, never Codex's working notes; the final checked answer still decides what is kept.
+
+## 0.1.0-139: `ai-desktop stop` during an answer keeps the conversation
+
+- `ai-desktop stop` in another terminal while a conversation is waiting for an answer no longer ends the whole conversation with `Could not get an answer (input)`: that question ends, the conversation continues, and the next question opens a new session.
+
+## 0.1.0-138: an unconfirmed session cleanup is never reported as success
+
+- If the kept session of a conversation ended without confirming its cleanup (for example its helper failed, or `ai-desktop stop` ran in another terminal), the conversation still goes on with a new session, but when it ends it says it could not confirm that the session ended, points to `ai-desktop stop` and exits with code 2.
+
 ## 0.1.0-137: a conversation keeps its session
 
 - A conversation (`ai-desktop ask`) opens its session once and keeps it, together with its connection to the service, for the following questions: no `sudo` and no service start before each question, so answers start sooner. Every question is still approved, checked and answered in a fresh sandbox on its own.

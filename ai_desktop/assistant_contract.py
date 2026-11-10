@@ -187,12 +187,14 @@ def parse_plan(raw, access):
         check = "action"
         if value.get("action") == "web":
             check = "shape"
-            if set(value) != {"action"}:
+            # "continue": the search result comes back as a discovery step and the model plans local work after it
+            # (an edit, commands, reads). Local data never goes into the search; only the search goes into the plan.
+            if set(value) - {"continue"} != {"action"} or value.get("continue", True) is not True:
                 raise ValueError("assistant-plan")
             check = "access"
             if access.get("web") is not True:
                 raise ValueError("assistant-plan")
-            return {"action": "web"}
+            return {"action": "web", "continue": True} if "continue" in value else {"action": "web"}
         if value.get("action") == "skill":
             check = "shape"
             names = value.get("names")

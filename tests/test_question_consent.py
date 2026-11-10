@@ -155,6 +155,38 @@ class QuestionConsentTests(unittest.TestCase):
                 permit.claim(self.gate(**values), QUESTION, **values)
         self.assert_closed(permit)
 
+    def test_a_continued_search_keeps_the_question_open_for_local_planning_but_never_a_second_search(self):
+        permit, snapshot, _ = self.fixture(web=True)
+        self.transfer(permit, access=snapshot.access)
+        permit.continue_after_web()
+        self.transfer(permit, web=True)
+        self.assertEqual(permit._phase, "context")              # bind_discovery may follow (op=web)
+        permit.check()
+        with self.assertRaises(AnalysisDenied):
+            permit.claim(self.gate(web=True), QUESTION, web=True)
+        self.assert_closed(permit)
+
+    def test_continuing_after_a_search_needs_web_the_planner_and_nothing_local_yet(self):
+        permit, snapshot, _ = self.fixture(web=False)
+        self.transfer(permit, access=snapshot.access)
+        with self.assertRaises(AnalysisDenied):
+            permit.continue_after_web()                            # no web permission
+        self.assert_closed(permit)
+        permit, snapshot, _ = self.fixture(web=True)
+        with self.assertRaises(AnalysisDenied):
+            permit.continue_after_web()                            # before the planner
+        permit, snapshot, _ = self.fixture(web=True)
+        self.transfer(permit, access=snapshot.access)
+        permit._discovery_snapshot = object()                      # local steps already collected
+        with self.assertRaises(AnalysisDenied):
+            permit.continue_after_web()
+        permit, snapshot, _ = self.fixture(web=True)
+        self.transfer(permit, access=snapshot.access)
+        self.transfer(permit, web=True)                            # a plain search ends the question as before
+        self.assertEqual(permit._phase, "complete")
+        with self.assertRaises(AnalysisDenied):
+            permit.continue_after_web()
+
     def test_web_requires_explicit_captured_permission_and_planning_phase(self):
         for case in ("absent", "first", "after-direct-answer"):
             permit, snapshot, _ = self.fixture(web=case != "absent")

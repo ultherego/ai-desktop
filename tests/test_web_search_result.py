@@ -199,10 +199,57 @@ class WebSearchResultTests(unittest.TestCase):
                     "https://python.org/`hidden`", "https://python.org/a\nheader", "https://python.org/\\hidden",
                     "https://python.org/%s" % "\x1b", "https://python.org./", "https://python.org\u202e/"):
             events = web_events()
-            events[2]["tool_use_result"]["results"][0]["content"][0]["url"] = url
+            # The unusable address is left out of the observed sources (not a refusal of the whole search), so an
+            # answer that cites it fails provenance.
+            events[2]["tool_use_result"]["results"][0]["content"].append({"title": "Bad", "url": url})
             final_answer(events, sources=[url])
             with self.subTest(url=url):
                 self.assert_refused(events)
+
+    def test_one_unusual_search_result_is_left_out_instead_of_refusing_the_answer(self):
+        good = "https://www.python.org/about/"
+        for item in ({"title": "Exampleland", "url": "https://zażółć.pl/a"},
+                     {"title": "Port", "url": "https://python.org:8443/"},
+                     {"title": "Underscore", "url": "https://my_host.example.com/"},
+                     {"title": "Quote", "url": 'https://python.org/"a"'},
+                     {"title": "No address"}, {"title": None, "url": None},
+                     {"title": "x" * 5000, "url": "ftp://python.org/"}):
+            events = web_events()
+            events[2]["tool_use_result"]["results"][0]["content"].insert(0, item)
+            with self.subTest(item=item):
+                text = web_text(stream(events))
+                self.assertIn("[1] About Python — `%s`" % good, text)
+                self.assertNotIn("[2]", text)
+
+    def test_source_titles_are_cleaned_and_bounded(self):
+        url = "https://www.python.org/about/"
+        for title, shown in (("Ab\u00adout\u200b Python", "About Python"), ("About\u2028Python\nnow", "About Python now"),
+                             ("\u200b\u00ad", "www.python.org"), (None, "www.python.org"),
+                             ("\x1b[31mRed", "[31mRed")):
+            events = web_events()
+            events[2]["tool_use_result"]["results"][0]["content"][0] = {"title": title, "url": url}
+            with self.subTest(title=title):
+                text = web_text(stream(events))
+                self.assertIn("[1] " + shown.replace("[", "\\[").replace(".", "\\."), text)
+        events = web_events()
+        events[2]["tool_use_result"]["results"][0]["content"][0] = {"title": "y" * 5000, "url": url}
+        line = web_text(stream(events)).splitlines()[-1]
+        self.assertLess(len(line), 300)
+        self.assertIn("…", line)
+
+    def test_links_with_parentheses_or_single_quoted_titles_are_cleaned(self):
+        url = "https://en.wikipedia.org/wiki/Foo_(bar)"
+        events = web_events()
+        events[2]["tool_use_result"]["results"][0]["content"].append({"title": "Foo", "url": url})
+        final_answer(events, answer="Zobacz [Foo](%s) oraz [drugi](https://www.python.org/about/ 'Tytuł'). "
+                                    "Kod `[x](y)` zostaje." % url,
+                     sources=["https://www.python.org/about/", url])
+        text = web_text(stream(events))
+        body = text.split("\nSources:\n")[0]
+        self.assertIn("Foo [2]", body)
+        self.assertIn("drugi [1]", body)
+        self.assertIn("`[x](y)`", body)
+        self.assertNotIn("wikipedia", body)
 
     def test_http_metadata_and_literal_punctuation_survive_rendering(self):
         events = web_events()
@@ -216,16 +263,61 @@ class WebSearchResultTests(unittest.TestCase):
 
     def test_answer_requires_exact_schema_bounded_unique_sources_and_references(self):
         for update in ({"sources": []}, {"sources": ["https://www.python.org/about/"] * 2},
-                       {"sources": "https://www.python.org/about/"}, {"answer": "Bez źródła"},
-                       {"answer": "Wynik [2]."}, {"answer": "Wynik [1] [99999]."},
-                       {"answer": "Wynik [1]. https://www.python.org/about/"},
-                       {"answer": "Wynik [1](javascript:bad)."}, {"answer": "Wynik [1].\n[1]: /hidden"},
+                       {"sources": "https://www.python.org/about/"}, 
                        {"answer": "x" * 8193 + " [1]"}, {"answer": "\x1b[31mWynik [1]"},
                        {"extra": True}):
             events = web_events()
             final_answer(events, **update)
             with self.subTest(update=update):
                 self.assert_refused(events)
+
+    def test_links_and_addresses_in_the_text_are_removed_instead_of_refusing_the_answer(self):
+        # Only the program's list of proven sources shows addresses (CachyOS check: a whole answer was refused for a
+        # Markdown link). A listed source becomes its number, anything else is dropped.
+        for answer, shown, hidden in (
+                ("Wynik [1]. https://www.python.org/about/", "Wynik [1]. [1]", "https://www.python.org/about/ "),
+                ("Wynik [1](javascript:bad).", "Wynik [1].", "javascript"),
+                ("Wynik [1].\n[1]: /hidden", "Wynik [1].", "/hidden"),
+                ("Zobacz [stronę](https://www.python.org/about/).", "Zobacz stronę [1].", "]("),
+                ("Wynik [1], więcej na www.example.com/x.", "więcej na (address removed).", "example.com"),
+                ("Wynik [1] <https://evil.example/a>.", "Wynik [1] (address removed).", "evil.example")):
+            events = web_events()
+            final_answer(events, answer=answer)
+            with self.subTest(answer=answer):
+                text = web_text(stream(events))
+                body = text.split("\nSources:\n")[0]
+                self.assertIn(shown, body)
+                self.assertNotIn(hidden, body)
+                self.assertIn("[1] About Python", text)
+
+    def test_an_answer_without_reference_numbers_is_shown_with_its_checked_sources(self):
+        for answer in ("Bez numerów źródeł.", "Zobacz [dokumentację](https://other.example/x).",
+                       "```python\nprint(2)\n```"):
+            events = web_events()
+            final_answer(events, answer=answer)
+            with self.subTest(answer=answer):
+                text = web_text(stream(events))
+                self.assertIn("\nSources:\n[1] About Python", text)
+                self.assertNotIn("other.example", text)
+
+    def test_indexes_in_code_are_not_source_numbers(self):
+        answer = ("Sito Eratostenesa [1]:\n\n```python\nsieve = [True] * (n + 1)\nsieve[0] = sieve[1] = False\n"
+                  "print(primes[25])\n```\n\nW tekście `a[7]` to kod, a matrix[2][3] też.")
+        events = web_events()
+        final_answer(events, answer=answer)
+        text = web_text(stream(events))
+        self.assertIn("sieve[0] = sieve[1] = False", text)
+        events = web_events()
+        code = "Wywołanie [1]:\n\n```python\nhandlers[0](event)\nurl = \"https://example.org/api\"\n```"
+        final_answer(events, answer=code)
+        self.assertIn('handlers[0](event)\nurl = "https://example.org/api"', web_text(stream(events)))
+        self.assertIn("[1] About Python", text)
+        for answer, shown in (("Wynik [2].", "Wynik."), ("Wynik [1] [99999].", "Wynik [1]."),
+                              ("[3] Na początku.", "Na początku.")):
+            events = web_events()                     # a number naming no listed source is taken out, never refused
+            final_answer(events, answer=answer)
+            with self.subTest(answer=answer):
+                self.assertTrue(web_text(stream(events)).startswith(shown + "\n\nSources:"))
 
     def test_a_reference_followed_by_a_colon_inside_a_sentence_is_text(self):
         events = web_events()

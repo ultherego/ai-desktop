@@ -26,14 +26,26 @@ ATTACH_MIN_BYTES = 400                # shorter single-line pastes simply become
 HISTORY_LIMIT = 50
 CTRL_C_HINT = "(Press Ctrl+C again to exit)"
 FOOTER = "enter send \u00b7 \\ enter new line \u00b7 / commands \u00b7 ctrl+c clear"
+
+
+def footer_text(session, attach):
+    """The key hint under the input: only what works at this prompt (a line break only where the message may have
+    several lines, the `/` list only where there is one)."""
+    return " \u00b7 ".join(("enter send",) + (("\\ enter new line",) if attach else ()) +
+                           (("/ commands",) if session is not None and session.commands else ("/help",)) +
+                           ("ctrl+c clear",))
 FOLLOWUP_PROMPT = "> "
 _PASTE_START = b"[200~"
 _PASTE_END = b"\x1b[201~"
+# The one table of plain editing keys (escape sequences without their ESC), shared by the idle editor and the input
+# that stays live during a turn (terminal_input). Up/Down are "ignore" here: each editor gives them their meaning
+# (the `/` list, a line of a multi-line message, the message history).
 _KEYS = {b"[D": "left", b"OD": "left", b"[C": "right", b"OC": "right",
          b"[H": "home", b"OH": "home", b"[1~": "home", b"[7~": "home",
          b"[F": "end", b"OF": "end", b"[4~": "end", b"[8~": "end",
          b"[3~": "delete", b"[A": "ignore", b"[B": "ignore",
          b"OA": "ignore", b"OB": "ignore"}
+UP_DOWN = (b"[A", b"OA", b"[B", b"OB")
 
 
 _TOKEN = r"\[paste #\d: \d+ lines?, [0-9. ]+(?:B|KiB)\]"
@@ -61,6 +73,7 @@ class PromptSession:
         self._clock = time.monotonic
         self.commands, self.pick, self.shown = (), 0, 0     # the `/` list: (name, description) pairs set by the caller
         self.paste_bytes = PASTES_TOTAL_BYTES               # `ask` allows more: a pasted text is what it is about
+        self.prefill = ""                                   # what the next prompt starts with (e.g. "/model " to finish)
 
     ARM_SECONDS = 3.0
 
@@ -87,8 +100,24 @@ class PromptSession:
         self._pastes.append((number, text))
         return number
 
-    def reset_pastes(self):
-        self._pastes = []
+    def reset_pastes(self, keep=""):
+        """Forget the pasted blocks, except those whose marker is in `keep` (a draft carried to the next prompt)."""
+        self._pastes = [(n, t) for n, t in self._pastes if keep and paste_token(n, t) in keep]
+
+    def attach(self, block):
+        """A pasted block as it goes into the line: a marker for a multi-line or large one (kept here until the message
+        is sent), the text itself otherwise. QuestionInputError when it does not fit."""
+        if "\n" in block or len(block.encode("utf-8")) >= ATTACH_MIN_BYTES:
+            return paste_token(self._add_paste(block), block)
+        return block
+
+    def expand(self, text, consume=True):
+        """The message with every paste marker replaced by its block; the blocks are forgotten unless `consume` is
+        False (to measure the message first)."""
+        kept = self.take_pastes(text) if consume else [(n, t) for n, t in self._pastes if paste_token(n, t) in text]
+        for number, block in kept:
+            text = text.replace(paste_token(number, block), block.strip("\n"))
+        return text
 
     def take_pastes(self, line):
         """Pastes whose marker is still in the submitted text (deleting the marker drops the block)."""
@@ -127,19 +156,127 @@ def _window(shown, cursor, available):
     return shown[start:end], widths[cursor] - widths[start]
 
 
+_WORD = re.compile(r"\w", re.UNICODE)
+EDITS = ("left", "right", "home", "end", "text-start", "text-end", "backspace", "delete", "up", "down",
+         "word-left", "word-right", "kill-word-back", "kill-word-forward", "kill-start", "kill-end", "undo")
+MAX_UNDO = 200
+
+
+def edit_key(key):
+    """The editing action of an escape sequence (without its ESC), or None. Covers the forms terminals send for
+    Ctrl/Alt with arrows, Home/End and Delete, Alt+letter, and the kitty keyboard protocol."""
+    alt = {b"b": "word-left", b"f": "word-right", b"d": "kill-word-forward", b"\x7f": "kill-word-back",
+           b"\x08": "kill-word-back", b"B": "word-left", b"F": "word-right", b"D": "kill-word-forward"}
+    if key in alt:
+        return alt[key]
+    match = re.fullmatch(rb"\[1;(\d+)([ABCDHF])", key) or re.fullmatch(rb"O(\d)([ABCDHF])", key)
+    if match:
+        held = (int(match.group(1)) - 1) & ~(64 | 128)
+        if not held & (2 | 4):
+            return None                                              # plain or Shift: the ordinary key decoding
+        return {b"C": "word-right", b"D": "word-left", b"A": "up", b"B": "down",
+                b"H": "text-start", b"F": "text-end"}[match.group(2)]
+    match = re.fullmatch(rb"\[3;(\d+)~", key)
+    if match:
+        return "kill-word-forward" if ((int(match.group(1)) - 1) & (2 | 4)) else None
+    match = re.fullmatch(rb"\[(\d+);(\d+)u", key)                   # kitty: [code;modifiers u
+    if match:
+        code, held = int(match.group(1)), (int(match.group(2)) - 1) & ~(64 | 128)
+        if code in (127, 8) and held & (2 | 4):
+            return "kill-word-back"
+        if held == 4:
+            return {119: "kill-word-back", 117: "kill-start", 107: "kill-end", 122: "undo", 95: "undo"}.get(code)
+        if held == 2:
+            return alt.get(bytes([code])) if code < 128 else None
+    return None
+
+
+CONTROL_EDITS = {b"\x17": "kill-word-back", b"\x15": "kill-start", b"\x0b": "kill-end", b"\x08": "kill-word-back",
+                 b"\x1f": "undo", b"\x1a": "undo"}
+
+
 class _Line:
     def __init__(self, limit):
         self.text, self.cursor, self.limit = "", 0, limit
         self.rows_total, self.row_drawn = 1, 0         # what is on the screen now (for redrawing a multi-row prompt)
+        self._undo = []
+
+    def _remember(self):
+        if not self._undo or self._undo[-1] != (self.text, self.cursor):
+            self._undo.append((self.text, self.cursor))
+            del self._undo[:-MAX_UNDO]
 
     def insert(self, text):
         result = self.text[:self.cursor] + text + self.text[self.cursor:]
         if len(result.encode("utf-8")) > self.limit:
             raise QuestionInputError("question limit")
+        if not text.isalnum():                       # a word typed is undone at once, not letter by letter
+            self._remember()
         self.text = result
         self.cursor += len(text)
 
+    def _word_start(self, position):
+        while position and not _WORD.match(self.text[position - 1]):
+            position -= 1
+        while position and _WORD.match(self.text[position - 1]):
+            position -= 1
+        return position
+
+    def _word_end(self, position):
+        length = len(self.text)
+        while position < length and not _WORD.match(self.text[position]):
+            position += 1
+        while position < length and _WORD.match(self.text[position]):
+            position += 1
+        return position
+
+    def _line_bounds(self):
+        start = self.text.rfind("\n", 0, self.cursor) + 1
+        end = self.text.find("\n", self.cursor)
+        return start, len(self.text) if end == -1 else end
+
+    def _cut(self, start, end):
+        """Delete text[start:end]; a paste marker it touches goes as one unit."""
+        for marker in _TOKEN_START.finditer(self.text):
+            if marker.start() < end and marker.end() > start:
+                start, end = min(start, marker.start()), max(end, marker.end())
+        if start < end:
+            self._remember()
+            self.text = self.text[:start] + self.text[end:]
+        self.cursor = start
+
     def edit(self, key):
+        if key == "word-left":
+            self.cursor = self._word_start(self.cursor)
+        elif key == "word-right":
+            self.cursor = self._word_end(self.cursor)
+        elif key == "kill-word-back":
+            self._cut(self._word_start(self.cursor), self.cursor)
+        elif key == "kill-word-forward":
+            self._cut(self.cursor, self._word_end(self.cursor))
+        elif key == "kill-start":
+            start, _ = self._line_bounds()
+            self._cut(start if start < self.cursor else max(0, start - 1), self.cursor)
+        elif key == "kill-end":
+            _, end = self._line_bounds()
+            self._cut(self.cursor, end if end > self.cursor else min(len(self.text), end + 1))
+        elif key == "undo":
+            if self._undo:
+                self.text, self.cursor = self._undo.pop()
+        elif key == "text-start":
+            self.cursor = 0
+        elif key == "text-end":
+            self.cursor = len(self.text)
+        elif key in ("home", "end") and "\n" in self.text:
+            start, end = self._line_bounds()                  # in a multi-line message: the current line
+            self.cursor = start if key == "home" else end
+        elif key in ("backspace", "delete"):
+            self._remember()
+            self._plain(key)
+        else:
+            self._plain(key)
+
+    def _plain(self, key):
         if key == "left":
             self.cursor = max(0, self.cursor - 1)
         elif key == "right":
@@ -251,6 +388,63 @@ def _without_locks(key):
     return key
 
 
+SCROLL_KEYS = (b"page-up", b"page-down", b"wheel-up", b"wheel-down", b"scroll-end")
+_MOUSE = re.compile(rb"\[<(\d{1,3});\d{1,5};\d{1,5}[Mm]")
+
+
+def scroll_key(key):
+    """PgUp/PgDn (also with Shift) and the mouse wheel (SGR mouse reports) move the full-screen view; any other mouse
+    report is ignored. None for every other key."""
+    if key in (b"[5~", b"[5;2~"):
+        return b"page-up"
+    if key in (b"[6~", b"[6;2~"):
+        return b"page-down"
+    if key in (b"[1;2F",):
+        return b"scroll-end"
+    match = _MOUSE.fullmatch(key)
+    if match:
+        button = int(match.group(1)) & ~(4 | 8 | 16)              # without Shift/Alt/Ctrl
+        return b"wheel-up" if button == 64 else b"wheel-down" if button == 65 else b"ignore"
+    return None
+
+
+class HistoryWalk:
+    """Up/Down through the session's sent messages, from the text being edited (kept to come back to)."""
+
+    def __init__(self, session):
+        self.session, self.position, self.draft = session, None, ""
+
+    def step(self, line, older):
+        history = self.session.history if self.session is not None else []
+        if not history:
+            return
+        if self.position is None:
+            self.position, self.draft = len(history), line.text
+        self.position = max(0, self.position - 1) if older else min(len(history), self.position + 1)
+        line.text = self.draft if self.position == len(history) else history[self.position]
+        line.cursor = len(line.text)
+
+
+def modified_key(key):
+    """An escape sequence (without its ESC) of a key reported with modifiers by the keyboard protocols (kitty CSI u,
+    xterm modifyOtherKeys): b"newline" for Shift/Alt/Ctrl+Enter, the plain form of Ctrl+A/B/C/D/E/F, else None."""
+    match = re.fullmatch(rb"\[(\d+)(?:;(\d+))?u", key) or re.fullmatch(rb"\[27;(\d+);(\d+)~", key)
+    if not match:
+        return None
+    code, mods = (int(match.group(1)), int(match.group(2) or 1)) if key.endswith(b"u") else (int(match.group(2)), int(match.group(1)))
+    held = (mods - 1) & ~(64 | 128)                            # Shift 1, Alt 2, Ctrl 4, Super 8 ... without Caps/Num Lock
+    if code == 13 and held:
+        return b"newline"
+    if held == 4 and code in _CTRL_LETTERS:
+        return _CTRL_LETTERS[code]
+    return None
+
+
+def opens_list(text, pick):
+    """A bare `/` sent with the first entry highlighted opens the full commands menu instead of running that entry."""
+    return text == "/" and pick == 0
+
+
 def _escape_ext(fd):
     """One escape sequence for a PromptSession: known keys, `newline` (Alt/Shift/Ctrl+Enter), `ctrl-c`/`ctrl-d`
     reported by the keyboard protocol, otherwise `ignore`. Unknown keys never abort the prompt."""
@@ -263,7 +457,8 @@ def _escape_ext(fd):
         second = os.read(fd, 1) if select.select([fd], [], [], .15)[0] else b""
         return first + second if first + second in _KEYS else b"ignore"
     if first != b"[":
-        return b"ignore"
+        named = edit_key(first)                                # Alt+B/F/D/Backspace
+        return b"edit:" + named.encode() if named else b"ignore"
     body = b""
     while len(body) < 24 and select.select([fd], [], [], .15)[0]:
         byte = os.read(fd, 1)
@@ -273,18 +468,18 @@ def _escape_ext(fd):
         if 0x40 <= byte[0] <= 0x7E:
             break
     key = b"[" + body
+    scroll = scroll_key(key)
+    if scroll == b"ignore":
+        return b"mouse:" + key                                  # a click or drag: the full-screen view's selection
+    if scroll is not None:
+        return scroll
+    named = edit_key(key)
+    if named is not None:
+        return b"edit:" + named.encode()
     key = _without_locks(key)
     if key in _KEYS or key == _PASTE_START:
         return key
-    match = re.fullmatch(rb"\[(\d+)(?:;(\d+))?u", key) or re.fullmatch(rb"\[27;(\d+);(\d+)~", key)
-    if match:
-        code, mods = (int(match.group(1)), int(match.group(2) or 1)) if key.endswith(b"u") else (int(match.group(2)), int(match.group(1)))
-        held = (mods - 1) & ~(64 | 128)                        # Shift 1, Alt 2, Ctrl 4, Super 8 ... without Caps/Num Lock
-        if code == 13 and held:
-            return b"newline"                                  # Shift/Alt/Ctrl+Enter
-        if held == 4 and code in _CTRL_LETTERS:
-            return _CTRL_LETTERS[code]                         # Ctrl+A/B/C/D/E/F as the keyboard protocol reports them
-    return b"ignore"
+    return modified_key(key) or b"ignore"                      # Shift/Alt/Ctrl+Enter, Ctrl+A..F via the protocols
 
 
 def _discard_paste(fd, *, idle=0.3, limit=64 * 1024 * 1024):
@@ -418,7 +613,7 @@ def _row(output, visible, first):
     return head + visible + "\x1b[K\x1b[0m"
 
 
-def _footer(line, session, output):
+def _footer(line, session, output, attach=True):
     """The muted key hint under the input band, then the cursor goes back where it was. Colour terminals only, and never
     over the `/` command list."""
     if session is None or session.shown or not bar(output):
@@ -432,7 +627,7 @@ def _footer(line, session, output):
     else:
         rows, cursor_row, cell = line.layout(columns)
         below = len(rows) - 1 - cursor_row
-    hint = "  " + FOOTER[:max(0, columns - 3)]
+    hint = "  " + footer_text(session, attach)[:max(0, columns - 3)]
     output.write(("\x1b[%dB" % below if below else "") + "\r\n\x1b[2K" + paint(hint, "muted", stream=output)
                  + "\x1b[%dA\r" % (below + 1) + ("\x1b[%dC" % cell if cell else ""))
     output.flush()
@@ -478,7 +673,7 @@ def read_question(*, max_bytes=MAX_QUESTION_BYTES, followup=False, prompt=None, 
         if frame is None:
             _draw(line, output)
             _suggest(line, session, output)
-            _footer(line, session, output)
+            _footer(line, session, output, attach)
             return
         found = _matches(session, line.text) if "\n" not in line.text else ()
         if found:
@@ -491,10 +686,14 @@ def read_question(*, max_bytes=MAX_QUESTION_BYTES, followup=False, prompt=None, 
     try:
         termios.tcflush(fd, termios.TCIFLUSH)
         line = _Line(max_bytes)
+        if session is not None and not draft and session.prefill:
+            draft = session.prefill                         # a command to finish, e.g. "/model " for an ID to type
+        if session is not None:
+            session.prefill = ""
         if draft:
             line.insert(_safe_text(draft.encode("utf-8"), newlines=True))    # typed during the previous turn
         if session is not None:
-            session.reset_pastes()
+            session.reset_pastes(keep=draft)                # a paste in that draft keeps its block
             # Asked before the prompt is drawn (and only once per process) so that no typed key can be mistaken for the reply.
             if _kitty_query(fd, output):
                 output.write("\x1b[>1u")
@@ -505,12 +704,13 @@ def read_question(*, max_bytes=MAX_QUESTION_BYTES, followup=False, prompt=None, 
         if frame is not None:
             frame.enter()
             output.write("\x1b[?2004h")
+            terminal_frame._call(frame, "mouse", True)
             redraw()
         else:
             output.write("\x1b[?2004h" + _styled_prompt(prompt if prompt is not None else FOLLOWUP_PROMPT if followup else PROMPT, output))
             output.flush()
-            _footer(line, session, output)
-        position, draft = None, ""
+            _footer(line, session, output, attach)
+        walk = HistoryWalk(session)
         while True:
             idle = _wait(fd, idle)
             try:
@@ -520,6 +720,16 @@ def read_question(*, max_bytes=MAX_QUESTION_BYTES, followup=False, prompt=None, 
                     extended = _escape_ext(fd)
                     if extended == b"ctrl-c":
                         raise KeyboardInterrupt()
+                if extended is not None and extended.startswith(b"mouse:"):
+                    if frame is not None:
+                        terminal_frame._call(frame, "mouse_event", extended[6:])
+                    continue
+                if extended in SCROLL_KEYS:
+                    if frame is not None:
+                        terminal_frame._call(frame, "scroll", extended)                      # the full-screen view's history; the text stays
+                    continue
+                if frame is not None and extended != b"ignore":
+                    terminal_frame._call(frame, "scroll", b"scroll-end")                     # typing returns to the live conversation
             except KeyboardInterrupt:
                 if session is None:
                     raise
@@ -538,7 +748,7 @@ def read_question(*, max_bytes=MAX_QUESTION_BYTES, followup=False, prompt=None, 
                     continue
                 output.write("\r\x1b[2K" + CTRL_C_HINT + "\r\n" + _row(output, "", True))
                 output.flush()
-                _footer(line, session, output)
+                _footer(line, session, output, attach)
                 continue
             if session is not None and value != b"\x1b":
                 session.armed = False
@@ -554,7 +764,7 @@ def read_question(*, max_bytes=MAX_QUESTION_BYTES, followup=False, prompt=None, 
                 continue
             if value in (b"\r", b"\n"):
                 found = _matches(session, line.text)
-                if found and line.text not in (item[0] for item in found):
+                if found and line.text not in (item[0] for item in found) and not opens_list(line.text, session.pick):
                     line.text = found[session.pick][0]      # `/mo` + Enter runs what the list has highlighted
                     line.cursor = len(line.text)
                     session.pick = 0
@@ -575,8 +785,10 @@ def read_question(*, max_bytes=MAX_QUESTION_BYTES, followup=False, prompt=None, 
                 if not line.text:
                     raise EOFError()
                 line.edit("delete")
-            elif value in (b"\x08", b"\x7f"):
+            elif value == b"\x7f":
                 line.edit("backspace")
+            elif value in CONTROL_EDITS:
+                line.edit(CONTROL_EDITS[value])                     # Ctrl+W/U/K, Ctrl+Backspace, Ctrl+Z
             elif value in (b"\x01", b"\x05", b"\x02", b"\x06"):
                 line.edit({b"\x01": "home", b"\x05": "end", b"\x02": "left", b"\x06": "right"}[value])
             elif value == b"\x1b":
@@ -592,12 +804,10 @@ def read_question(*, max_bytes=MAX_QUESTION_BYTES, followup=False, prompt=None, 
                         line.insert("\n")
                 elif key == b"ignore":
                     pass
+                elif key.startswith(b"edit:"):
+                    line.edit(key[5:].decode())
                 elif key == _PASTE_START and attach:
-                    block = _paste(fd, session.paste_bytes + 1024, newlines=True)
-                    if "\n" in block or len(block.encode("utf-8")) >= ATTACH_MIN_BYTES:
-                        line.insert(paste_token(session._add_paste(block), block))
-                    else:
-                        line.insert(block)
+                    line.insert(session.attach(_paste(fd, session.paste_bytes + 1024, newlines=True)))
                 elif key == _PASTE_START:
                     line.insert(_paste(fd, max_bytes - len(line.text.encode("utf-8"))))
                 elif key in (b"[A", b"OA", b"[B", b"OB") and _matches(session, line.text):
@@ -605,14 +815,8 @@ def read_question(*, max_bytes=MAX_QUESTION_BYTES, followup=False, prompt=None, 
                     session.pick = (session.pick + (-1 if key in (b"[A", b"OA") else 1)) % count
                 elif key in (b"[A", b"OA", b"[B", b"OB") and session is not None and "\n" in line.text:
                     line.edit("up" if key in (b"[A", b"OA") else "down")
-                elif key in (b"[A", b"OA", b"[B", b"OB") and session is not None:
-                    if session.history:
-                        older = key in (b"[A", b"OA")
-                        if position is None:
-                            position, draft = len(session.history), line.text
-                        position = max(0, position - 1) if older else min(len(session.history), position + 1)
-                        line.text = draft if position == len(session.history) else session.history[position]
-                        line.cursor = len(line.text)
+                elif key in UP_DOWN and session is not None:
+                    walk.step(line, key in (b"[A", b"OA"))
                 else:
                     line.edit(_KEYS[key])
             else:
@@ -629,6 +833,8 @@ def read_question(*, max_bytes=MAX_QUESTION_BYTES, followup=False, prompt=None, 
             finally:
                 keys = "\x1b[<u" if pushed == "kitty" else "\x1b[>4;0m" if pushed == "xterm" else ""
                 if frame is not None:
+                    terminal_frame._call(frame, "mouse", False)
+                    terminal_frame._call(frame, "scroll", b"scroll-end")
                     output.write(keys + "\x1b[?2004l")
                     if result is not None:
                         frame.submitted(result)

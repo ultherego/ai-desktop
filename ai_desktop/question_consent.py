@@ -92,9 +92,10 @@ class QuestionConsent:
         self._discovery_bytes = None
         self._discovery_sent = 0
         self._skill_sent = 0
-        self._skill_batch = False
+        self._skill_batch = self._web_batch = False
         self._planner_sent = False
         self._seeded_skills = False
+        self._web_sent = self._web_continues = False
         self._skill_loader = None
         self._reused_bodies = {}
 
@@ -167,6 +168,16 @@ class QuestionConsent:
         if now > self._expires:
             return
         self._expires = max(self._expires, min(now + consent_seconds(self._effort), self._born + CONSENT_CEILING))
+
+    def excuse(self, seconds):
+        """Time the request waited for a free place among other terminals' questions (or for the next service worker)
+        is not part of the window or the ceiling, like waiting for the user: both move forward by exactly that long,
+        bounded by the longest wait the terminal accepts."""
+        from .analysis_contract import QUEUE_EXCUSE_SECONDS
+        if (type(seconds) in (int, float) and seconds > 0 and self._approved and not self._closed):
+            gone = min(float(seconds), QUEUE_EXCUSE_SECONDS)
+            self._born += gone
+            self._expires += gone
 
     @contextmanager
     def waiting(self):
@@ -249,10 +260,13 @@ class QuestionConsent:
                 raise ValueError()
             added = document["steps"][len(before):]
             self._skill_batch = all(step["op"] == "skill" for step in added)
+            # The one web answer of a question is not a discovery round of the owner's budgets (the ledger does not
+            # count it either): the local rounds after it keep their full number.
+            self._web_batch = all(step["op"] == "web" for step in added)
             if self._skill_batch:
                 if len(added) > MAX_REUSED_SKILLS or (not seed_skills and self._skill_sent >= MAX_SKILL_ROUNDS):
                     raise ValueError()
-            elif self._discovery_sent >= rounds:
+            elif not self._web_batch and self._discovery_sent >= rounds:
                 raise ValueError()
             recheck_discovery(snapshot)
             self._discovery_bytes = canonical(document)
@@ -290,6 +304,17 @@ class QuestionConsent:
                 or self._snapshot.sources.get("web") is not True):
             self.close()
             raise AnalysisDenied("consent")
+
+    def continue_after_web(self):
+        """The next web request of this question is followed by local planning: after its answer the question goes on
+        (discovery rounds, an edit) instead of ending. Only once, only before anything local was collected, so a
+        search never carries local data; a second search is refused."""
+        self.require_web()
+        if (self._phase != "context" or not self._planner_sent or self._web_sent or self._pending is not None
+                or (self._discovery_snapshot is not None and not self._seeded_skills)):
+            self.close()
+            raise AnalysisDenied("consent")
+        self._web_continues = True
 
     def require_write_scope(self, policy, scope_id):
         self.check()
@@ -361,6 +386,8 @@ class QuestionConsent:
             # the question and the selected files, and the discovery snapshot is still rechecked by _validate.
             if self._discovery_snapshot is not None and not self._seeded_skills and mode == "web":
                 raise AnalysisDenied("consent")
+            if mode == "web" and self._web_sent:
+                raise AnalysisDenied("consent")        # one search per question
             gate.check(None, question="" if task is not None else question, task=task, context=context, access=access,
                        sha256=gate.sha256, nonce=gate.nonce, web=web,
                        **({"discovery": discovery} if discovery is not None else {}))
@@ -386,9 +413,12 @@ class QuestionConsent:
                     self._planner_sent = True
                 elif self._skill_batch:
                     self._skill_sent += 1
-                else:
+                elif not self._web_batch:
                     self._discovery_sent += 1
-            self._phase = "context" if mode in ("planner", "discovery") else "complete"
+            if mode == "web":
+                self._web_sent = True
+            self._phase = ("context" if mode in ("planner", "discovery") or mode == "web" and self._web_continues
+                           else "complete")
             return gate.authorize(None, question="" if task is not None else question, task=task, context=context, access=access,
                                   sha256=gate.sha256, nonce=gate.nonce, web=web,
                                   **({"discovery": discovery} if discovery is not None else {}))

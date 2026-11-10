@@ -66,7 +66,7 @@ def build_parser():
     target.add_argument("--claude", "--allow-claude-login", dest="provider", action="store_const", const="claude",
                         help="Log in and choose Claude")
     target.add_argument("--codex", "--allow-chatgpt-login", dest="provider", action="store_const", const="codex",
-                        help="Log in and choose ChatGPT / Codex")
+                        help="Log in and choose Codex")
     login.add_argument("--v", "--verbose", "-v", "--details", dest="details", action="store_true",
                        help="Show diagnostics of the login unit")
 
@@ -151,9 +151,10 @@ Help for a command: ai-desktop COMMAND --help
 def login_menu(*, details=False):
     from .terminal_menu import choose, MenuInputError
     from .login_flow import login_status
+    from .execution import provider_name
     try:
         selected = choose("Log in and choose the active service",
-                          ("Claude — subscription", "ChatGPT / Codex — subscription", "Cancel"))
+                          tuple(provider_name(name) + " — subscription" for name in ("claude", "codex")) + ("Cancel",))
     except MenuInputError:
         login_status("Sign-in failed", "red")
         print("  Run ai-desktop login in an interactive terminal.")
@@ -209,9 +210,13 @@ def main(argv=None):
     if argv[:1] == ["settings"]:
         from . import management_cli
         return management_cli.main(argv[1:], prog="ai-desktop settings", provider_neutral=True)
-    if argv[:1] in (["claude"], ["agents"]):
+    if argv[:1] == ["agents"]:
         from . import management_cli
-        return management_cli.main((["agents"] if argv[0] == "agents" else []) + argv[1:])
+        # Agents belong to every service: the same provider-neutral rules as `ai-desktop settings`.
+        return management_cli.main(["agents"] + argv[1:], prog="ai-desktop", provider_neutral=True)
+    if argv[:1] == ["claude"]:
+        from . import management_cli
+        return management_cli.main(argv[1:])
     if argv[:1] == ["codex"]:
         from .codex_cli import main as codex_main
         return codex_main(argv[1:])

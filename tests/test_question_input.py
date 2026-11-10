@@ -376,18 +376,18 @@ class PromptSessionTerminalTests(unittest.TestCase):
         band = "\x1b[48;2;40;42;54m"
         self.assertIn(band, output)
         self.assertIn("abc\x1b[K\x1b[0m", output)                       # the band reaches the right edge, then resets
-        self.assertIn(editor.FOOTER, output)
+        self.assertIn(editor.footer_text(editor.PromptSession(), True), output)
         self.assertRegex(output, r"\x1b\[\?2004l\r*\n\x1b\[J")              # the hint is erased when the message is sent
         self.assertIn("RESTORED=True", output)
         plain = self.run_script(self.READS.format(attach=True, count=1), [b"abc\r"])
         self.assertNotIn(band, plain)
-        self.assertNotIn(editor.FOOTER, plain)
+        self.assertNotIn(editor.footer_text(editor.PromptSession(), True), plain)
 
     def test_a_pinned_frame_keeps_the_input_at_the_bottom_and_puts_the_sent_message_into_the_thread(self):
         colour = {key: value for key, value in os.environ.items() if key != "NO_COLOR"}
         colour.update(TERM="xterm-256color", COLORTERM="truecolor")
         body = ("import ai_desktop.terminal_frame as frame\n"
-                "frame.start(sys.stdout, 'SYNTHETIC status')\n" + self.READS.format(attach=True, count=2) +
+                "frame.start(sys.stdout, 'SYNTHETIC status', fullscreen=False)\n" + self.READS.format(attach=True, count=2) +
                 "frame.stop()\n")
         output = self.run_script(body, [b"abc\r", b"/he", b"\x03", b"\x03", b"\x03"], env=colour)
         # The frame draws without line breaks, so a result line starts after the last drawn bytes, not at a new line.
@@ -409,7 +409,7 @@ class PromptSessionTerminalTests(unittest.TestCase):
         colour.update(TERM="xterm-256color", COLORTERM="truecolor")
         body = ("import time\nimport ai_desktop.terminal_frame as frame, ai_desktop.terminal_input as live\n"
                 "from ai_desktop.terminal_consent import fresh_input\n"
-                "f = frame.start(sys.stdout, 'SYNTHETIC status')\n"
+                "f = frame.start(sys.stdout, 'SYNTHETIC status', fullscreen=False)\n"
                 "live.start(f, sys.stdout)\n"
                 "time.sleep(1.3)\n"
                 "answer = fresh_input('Send this request? [y/n]: ')\n"
@@ -429,7 +429,7 @@ class PromptSessionTerminalTests(unittest.TestCase):
         colour = {key: value for key, value in os.environ.items() if key != "NO_COLOR"}
         colour.update(TERM="xterm-256color", COLORTERM="truecolor")
         body = ("import time\nimport ai_desktop.terminal_frame as frame, ai_desktop.terminal_input as live\n"
-                "f = frame.start(sys.stdout, 'SYNTHETIC status')\n"
+                "f = frame.start(sys.stdout, 'SYNTHETIC status', fullscreen=False)\n"
                 "live.start(f, sys.stdout)\n"
                 "time.sleep(0.4)\n"
                 "with live.lease():\n"
@@ -450,7 +450,7 @@ class PromptSessionTerminalTests(unittest.TestCase):
         colour = {key: value for key, value in os.environ.items() if key != "NO_COLOR"}
         colour.update(TERM="xterm-256color", COLORTERM="truecolor")
         body = ("import time\nimport ai_desktop.terminal_frame as frame, ai_desktop.terminal_input as live\n"
-                "f = frame.start(sys.stdout, 'SYNTHETIC status')\n"
+                "f = frame.start(sys.stdout, 'SYNTHETIC status', fullscreen=False)\n"
                 "live.start(f, sys.stdout)\n"
                 "time.sleep(0.6)\n"
                 "with live.lease():\n"
@@ -531,6 +531,17 @@ class PromptSessionTerminalTests(unittest.TestCase):
                 self.assertNotIn("⏎", output)                        # a real second row, not a symbol
                 self.assertIn("> a\r\n  b", output.replace("\n", "\r\n") if "\r\n" not in output else output)
 
+    def test_a_bare_slash_and_enter_is_sent_so_the_commands_menu_opens(self):
+        body = ("session.commands = (('/help', 'list'), ('/model', 'model'))\n"
+                + self.READS.format(attach=True, count=3))
+        output = self.run_script(body, [b"/\r", b"/\x1b[B\r", b"/mo\r"])
+        self.assertEqual([r[0] for r in self.results(output)], ["/", "/model", "/model"])
+
+    def test_a_prefilled_command_starts_the_next_prompt_once(self):
+        body = "session.prefill = '/model '\n" + self.READS.format(attach=True, count=2)
+        output = self.run_script(body, [b"gpt-x\r", b"next\r"])
+        self.assertEqual([r[0] for r in self.results(output)], ["/model gpt-x", "next"])
+
     def test_without_attachments_a_line_break_key_is_ignored_and_enter_still_sends(self):
         output = self.run_script(self.READS.format(attach=False, count=1), [b"a\x1b\rb\n"])
         self.assertEqual(self.results(output)[0][0], "ab")
@@ -584,7 +595,7 @@ class PromptSessionTerminalTests(unittest.TestCase):
     def test_history_and_cursor_keys_work_with_lock_bits_and_other_modifiers_are_ignored(self):
         output = self.run_script(self.READS.format(attach=False, count=2),
                                  [b"pierwsze\r", b"\x1b[1;129A\x1b[1;129D\x1b[3;129~\x1b[1;5C\x1b[1;2A\r"])
-        # Up (num lock) recalls, Left moves, Delete removes one character, Ctrl+Right and Shift+Up are ignored
+        # Up (num lock) recalls, Left moves, Delete removes one character, Ctrl+Right moves a word (already at the end), Shift+Up is ignored
         self.assertEqual([r[0] for r in self.results(output)], ["pierwsze", "pierwsz"])
 
 
@@ -630,9 +641,9 @@ class KeyDecodingMatrixTests(unittest.TestCase):
                 with self.subTest(lock=name, code=code):
                     self.assertEqual(self.decode(b"[%s;%du" % (code, 5 + lock)), expected)
                     self.assertEqual(self.decode(b"[27;%d;%s~" % (5 + lock, code)), expected)
-            with self.subTest(lock=name, other="ctrl+shift+c, alt+c, ctrl+left"):
+            with self.subTest(lock=name, other="ctrl+shift+c, alt+c; ctrl+left moves a word"):
                 self.assertEqual(self.decode(b"[99;%du" % (6 + lock)), b"ignore")
                 self.assertEqual(self.decode(b"[99;%du" % (3 + lock)), b"ignore")
-                self.assertEqual(self.decode(b"[1;%dD" % (5 + lock)), b"ignore")
+                self.assertEqual(self.decode(b"[1;%dD" % (5 + lock)), b"edit:word-left")
         self.assertEqual(self.decode(b"[15~"), b"ignore")                                      # F5
         self.assertEqual(self.decode(b"[?0u"), b"ignore")                                      # a late keyboard-protocol reply

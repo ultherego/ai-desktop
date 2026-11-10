@@ -101,7 +101,8 @@ def native_input(action, raw):
 
 def main(argv):
     try:
-        if len(argv) != 2 or argv[0] not in PROBE_ACTIONS | {"status", "analyze", "web", "login", "offline-status", "offline-logout"}:
+        if len(argv) != 2 or argv[0] not in PROBE_ACTIONS | {"status", "analyze", "web", "login", "offline-status",
+                                                             "offline-logout", "catalog"}:
             raise AnalysisDenied("input")
         with failure_stage("boundary"):
             check_boundary(json.loads(argv[1]))
@@ -112,7 +113,7 @@ def main(argv):
             with failure_stage("input"):
                 body, selected = native_input(argv[0], sys.stdin.buffer.read(MAX_PACKET_LARGE + 1))
         command = client_command(argv[0], selected)
-        if argv[0] in PROBE_ACTIONS | {"offline-status", "offline-logout"}:
+        if argv[0] in PROBE_ACTIONS | {"offline-status", "offline-logout", "catalog"}:
             with failure_stage("native-exec"):
                 os.execve(command[0], command, client_environment(argv[0]))
         with failure_stage("bridge"), _Bridge(request_seconds(selected["effort"] if selected else None) + 10,

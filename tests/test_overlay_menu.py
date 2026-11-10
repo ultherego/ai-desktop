@@ -171,6 +171,37 @@ class IdleMenuTests(unittest.TestCase):
         self.assertEqual(overlay_menu.termios.tcgetattr(slave), before)
         self.assertTrue(overlay_menu.termios.tcgetattr(slave)[1] & overlay_menu.termios.OPOST)
 
+    def test_ctrl_c_or_ctrl_d_closes_the_menu_and_never_the_conversation(self):
+        # Review of 2026-11-09: question_input._byte raised KeyboardInterrupt on Ctrl+C, which ended the conversation.
+        for key in (b"\x03", b"\x04"):
+            master, slave = pty.openpty()
+            self.addCleanup(os.close, master)
+            self.addCleanup(os.close, slave)
+            frame = SimpleNamespace(stream=io.StringIO(), note="", show_commands=lambda rows, pick: None,
+                                    draw=lambda *a, **k: None, leave=lambda: None)
+            # Sent once the menu reads in raw mode: before that the terminal driver would turn Ctrl+C into a signal.
+            import threading
+            threading.Timer(0.3, os.write, (master, key)).start()
+            with self.subTest(key=key), patch.object(__import__("sys"), "stdin", SimpleNamespace(fileno=lambda: slave)), \
+                    patch.object(overlay_menu.termios, "tcflush"):
+                self.assertIsNone(overlay_menu._idle(frame, overlay_menu.Picker("/effort", ["low", "high"])))
+
+    def test_the_menu_returns_below_what_its_command_printed(self):
+        import threading
+        master, slave = pty.openpty()
+        self.addCleanup(os.close, master)
+        self.addCleanup(os.close, slave)
+        calls = []
+        frame = SimpleNamespace(stream=io.StringIO(), note="", show_commands=lambda rows, pick: None,
+                                draw=lambda *a, **k: calls.append("draw"), leave=lambda: calls.append("leave"),
+                                enter=lambda: calls.append("enter"))
+        threading.Timer(0.3, os.write, (master, b"\r")).start()
+        with patch.object(__import__("sys"), "stdin", SimpleNamespace(fileno=lambda: slave)), \
+                patch.object(overlay_menu.termios, "tcflush"):
+            overlay_menu._idle(frame, overlay_menu.Picker("/model", ["Auto"]))
+        self.assertEqual(calls[0], "enter")                    # the end of the conversation is saved first
+        self.assertEqual(calls[-1], "leave")
+
 
 if __name__ == "__main__":
     unittest.main()

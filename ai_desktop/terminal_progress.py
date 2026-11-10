@@ -23,7 +23,10 @@ LABELS = {
     "task": "Claude is working",
 }
 # Web search progress reported by the service: fixed labels and a count, never model text.
-STATUS_LABELS = {"search": "Searching the web (%d)", "results": "Reading search results (%d)"}
+STATUS_LABELS = {"search": "Searching the web (%d)", "results": "Reading search results (%d)",
+                 "queued": "Waiting for a free place", "restart": "Waiting for a free place"}
+# `started` ends the wait for a place: the phase label comes back.
+PHASE_STATUS = ("started",)
 INTERVAL = 0.3
 CLEAR_LINE = "\r\x1b[2K"
 
@@ -50,6 +53,7 @@ class WaitingIndicator:
         self._lock = threading.Lock()
         self._thread = None
         self._label = ""
+        self._phase_label = ""
         self._started = None
         self._closed = False
         self._drawn = False
@@ -64,7 +68,7 @@ class WaitingIndicator:
         if not self._enabled or self._closed:
             return
         with self._lock:
-            self._label = self._labels[name]
+            self._label = self._phase_label = self._labels[name]
             if self._started is None:
                 self._started = time.monotonic()
         self._paint()
@@ -78,13 +82,18 @@ class WaitingIndicator:
                 self._thread = thread
 
     def status(self, code, number=0):
-        """Replace the phase label with web search progress; ignored before a phase starts or after stop."""
-        if code not in STATUS_LABELS or type(number) is not int or not 0 <= number <= 99:
+        """Replace the phase label with service progress (web search, waiting for a free place); `started` brings the
+        phase label back. Ignored before a phase starts or after stop."""
+        if (code not in STATUS_LABELS and code not in PHASE_STATUS) or type(number) is not int or not 0 <= number <= 99:
             raise ValueError("unknown status")
         if not self._enabled or self._closed or self._started is None:
             return
         with self._lock:
-            self._label = self._name + ": " + STATUS_LABELS[code] % number
+            if code in PHASE_STATUS:
+                self._label = self._phase_label
+            else:
+                label = STATUS_LABELS[code]
+                self._label = self._name + ": " + (label % number if "%d" in label else label)
         self._paint()
 
     def _paint(self):

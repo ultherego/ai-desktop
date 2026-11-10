@@ -61,7 +61,7 @@ class ControlsTests(unittest.TestCase):
         return items, out.getvalue(), pick
 
     def test_during_a_turn_read_only_commands_show_at_once_and_queue_nothing(self):
-        for line in ("/help", "/settings", "/permissions", "/pomoc"):
+        for line in ("/help", "/permissions", "/pomoc"):
             items, output, pick = self.during(line)
             self.assertEqual(items, [], line)
             self.assertTrue(output.strip(), line)
@@ -109,11 +109,14 @@ class ControlsTests(unittest.TestCase):
         self.assertEqual(execution.current()["effort"], "high")
 
     def test_an_invalid_model_changes_nothing_and_binds_nothing(self):
-        conversation, before = Conversation(), execution.current()
-        output = self.run_line("/model no-such-model", conversation)[1]
-        self.assertEqual(execution.current(), before)
-        self.assertEqual(conversation.bound, [])
-        self.assertNotIn("will ask for consent", output)
+        # Any well-formed ID is left to the client; only a malformed one is invalid here.
+        for bad in ("Bad Model!", "-x", "OPUS"):
+            with self.subTest(model=bad):
+                conversation, before = Conversation(), execution.current()
+                output = self.run_line("/model " + bad, conversation)[1]
+                self.assertEqual(execution.current(), before)
+                self.assertEqual(conversation.bound, [])
+                self.assertNotIn("will ask for consent", output)
 
     def test_skills_toggle_for_this_conversation_without_touching_the_saved_agent(self):
         output = self.run_line("/skills b")[1]
@@ -161,8 +164,9 @@ class ControlsTests(unittest.TestCase):
         with patch.object(commands, "choose", side_effect=stay):
             for line in ("/model", "/effort", "/agent", "/model default"):
                 output = self.run_line(line)[1]
-        self.assertEqual([row[1] for row in offered], ["default", "default", "default"])
-        self.assertIn("now: default", offered[0][0])
+        # The same human labels as `ai-desktop settings`, never the raw values.
+        self.assertEqual([row[1] for row in offered], ["Auto", "auto", "default"])
+        self.assertIn("now: Auto", offered[0][0])
         self.assertIn("No change", output)
         self.assertEqual(execution.current(), before)
 

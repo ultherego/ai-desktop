@@ -24,7 +24,7 @@ Evidence for each candidate (CachyOS checks, GitHub jobs, what was not exercised
 
 - [ ] Build in a clean checkout with `makepkg --cleanbuild` in `packaging/arch`; the same application package is built for every provider selection. Legacy ignored client files must not be read, packaged or used.
 - [ ] The package for distribution does not contain `claude-code` or `codex`.
-- [ ] Install, update and `pacman -R` done according to README; the list of remaining data is correct.
+- [ ] Install, update and `pacman -R` done according to [INSTALLATION.md](INSTALLATION.md); the list of remaining data is correct.
 - [ ] `ai-desktop doctor`, `ai-desktop status` and one real question through `ai-desktop ask` work.
 
 ## System-client and task-flow migration gates

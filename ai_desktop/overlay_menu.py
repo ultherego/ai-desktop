@@ -9,9 +9,11 @@ import os
 import select
 import termios
 import threading
+import time
 
 from . import terminal_frame, terminal_menu
 from .question_input import _byte
+SETTLE_SECONDS = 0.12
 from .terminal_menu import MAX_OPTIONS, MenuInputError, _escape, _label
 
 HINT = "↑/↓ choose · enter selects · esc cancels"
@@ -92,6 +94,11 @@ def _idle(frame, picker):
     if not os.isatty(fd):
         raise MenuInputError("menu-terminal")
     original = termios.tcgetattr(fd)
+    # What the command printed before its menu (the settings, "Getting the model list…") is part of the
+    # conversation: the menu returns below it, never over it (CachyOS check of candidate 155).
+    enter = getattr(frame, "enter", None)
+    if callable(enter):
+        enter()
     raw = original[:]
     raw[6] = original[6][:]
     raw[0] &= ~(termios.ICRNL | termios.INLCR | termios.IGNCR | termios.IXON | termios.IXOFF)
@@ -99,7 +106,10 @@ def _idle(frame, picker):
     raw[6][termios.VMIN], raw[6][termios.VTIME] = 1, 0     # output processing stays on: lines still end properly
     try:
         termios.tcsetattr(fd, termios.TCSANOW, raw)
-        termios.tcflush(fd, termios.TCIFLUSH)      # nothing typed before the menu appeared chooses in it
+        # Nothing typed before the menu appeared chooses in it: also what is still on its way from the key that
+        # opened it (some terminals and multiplexers send an Enter's keyboard-protocol report a moment later).
+        time.sleep(SETTLE_SECONDS)
+        termios.tcflush(fd, termios.TCIFLUSH)
         frame.stream.write("\x1b[?2004h")          # a paste arrives marked and is ignored, never as Enter
         while True:
             frame.show_commands(picker.rows(), picker.pick)
@@ -107,7 +117,11 @@ def _idle(frame, picker):
             frame.draw("", 0, typing=False)
             if not select.select([fd], [], [], None)[0]:
                 continue
-            finished, answer = picker.key(key_of(fd, _byte(fd)))
+            try:
+                key = key_of(fd, _byte(fd))
+            except (KeyboardInterrupt, EOFError):
+                return None                    # Ctrl+C or Ctrl+D closes the menu, never the conversation
+            finished, answer = picker.key(key)
             if finished:
                 return answer
     except (OSError, termios.error, ValueError):

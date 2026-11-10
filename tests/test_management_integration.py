@@ -110,13 +110,17 @@ class ManagementIntegrationTests(unittest.TestCase):
         self.assertEqual(confirm.call_count, 1)  # Only read-task approval; no write approval is requested.
         session._close_section.assert_called()
 
-    def test_saved_conversation_rejects_idle_configuration_change(self):
+    def test_saved_conversation_keeps_its_agent_but_may_change_model(self):
         output = io.StringIO()
         with execution.using(reviewer()), redirect_stdout(output):
             before = execution.current()
-            self.assertTrue(run_controls.conversation_command("/model haiku", saved=True))
+            self.assertTrue(run_controls.conversation_command("/agent default", saved=True))
             self.assertEqual(execution.current(), before)
-        self.assertIn("tied to its agent configuration", output.getvalue())
+            # same_agent binds the service and the role; the model and level may change (item: material/project).
+            self.assertTrue(run_controls.conversation_command("/model haiku", saved=True))
+            self.assertEqual(execution.current()["model"], "haiku")
+        self.assertIn("tied to its agent", output.getvalue())
+        self.assertNotIn("--session new", output.getvalue())
 
     def test_default_claude_conversation_cannot_change_destination_to_codex(self):
         codex = {**reviewer(), "provider": "codex", "model": "default", "profile": "codex-review"}

@@ -110,7 +110,7 @@ The save is in `~/.local/state/ai-desktop/conversations` (directory `0700`, file
 
 ## Commands and changes on the live system
 
-The description of `[commands]` in `permissions.toml` is in [README](../README.md#commands-commands), and the boundaries are in the [threat model](THREAT_MODEL.md#4-command-boundary). In short: `allow` runs in the sandbox without asking, up to 16 commands per step and `command_rounds` per question. `change` runs on the live system after you type `yes`, with a test and an undo. With `systemctl --user` the sandbox has no access to the user session, so such commands may return nothing.
+The description of `[commands]` in `permissions.toml` is in [CONFIGURATION.md](CONFIGURATION.md#commands-commands), and the boundaries are in the [threat model](THREAT_MODEL.md#4-command-boundary). In short: `allow` runs in the sandbox without asking, up to 16 commands per step and `command_rounds` per question. `change` runs on the live system after you type `yes`, with a test and an undo. With `systemctl --user` the sandbox has no access to the user session, so such commands may return nothing.
 
 ## Automatic discovery in `ask`
 
@@ -121,7 +121,7 @@ You do not have to name files. Within one consent the model carries out a finite
 3. `search-content` / `read-range`: bounded content matches or line ranges from authorized, grounded paths, with hashes and coverage.
 4. `read`: selected files from paths shown above or typed by you. A guessed path is `discovery-required`.
 
-`deny` acts first: a name covered by `deny` is not listed, counted or sent. Refusals have fixed codes and contain no system text. Exceeding a budget names the key; the program does not send a selected part as if it were the whole. The budgets are in the table in [README](../README.md#first-run-and-permissions). Every step and correction is an additional request to the model.
+`deny` acts first: a name covered by `deny` is not listed, counted or sent. Refusals have fixed codes and contain no system text. Exceeding a budget names the key; the program does not send a selected part as if it were the whole. The budgets are in the [limits table](CONFIGURATION.md#optional-limits). Every step and correction is an additional request to the model.
 
 In `version = 2` there is no hidden list of names. If `read` covers `~/.config/ai-desktop/` and it is not in `deny`, the model can read there (the template rules this out).
 

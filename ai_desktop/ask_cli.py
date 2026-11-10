@@ -34,10 +34,11 @@ from .run_controls import add_arguments, configured
 ANSWER_SEPARATOR = "─" * 48
 MAX_AUTO_STEPS = 5
 CONTINUE_PREFIX = "Continue the task after the saved change. The user's task: "
-# The provider or the network failed one request and the session closed normally: the conversation can go on. Anything
-# else (cleanup, identity, sandbox, consent...) still ends it, because the next request could not be trusted to be safe.
+# The provider, the network, the service or this question's approval failed one request: the conversation goes on and the
+# next question starts with a fresh snapshot and approval. Anything else (cleanup, identity, sandbox) still ends it,
+# because the next request could not be trusted to be safe.
 SERVICE_FAILURES = frozenset({"timeout", "network", "rate-limit", "provider-unavailable", "web-no-results", "output-limit",
-                              "result", "client"})
+                              "result", "client", "endpoint", "consent", "busy"})   # endpoint: the service went away; the next question reconnects
 LOCAL_REFUSALS = (ContextBudgetExceeded, InputBudgetExceeded, FileReadDenied, ask_edit.EditDenied)
 PREPARATION_PHASES = frozenset({"input", "session", "access", "plan-request", "plan", "collect", "answer-request",
                                 "edit-prepare", "edit-request", "edit-review", "display", "session-save", "internal"})
@@ -58,6 +59,9 @@ def build_parser():
     parser.add_argument("--no-save", action="store_true",
                         help="Do not create or update a local saved conversation")
     parser.add_argument("--format", choices=("auto", "plain", "markdown"), default="auto")
+    parser.add_argument("--inline", action="store_true",
+                        help="Keep the conversation in the terminal's own screen instead of the full-screen view "
+                             "(or put 'inline' in ~/.config/ai-desktop/view)")
     add_arguments(parser, session=True)
     return parser
 
@@ -109,7 +113,8 @@ def request(question, args, reader, *, context=None, access=None, task=None, wri
             if state is not None:
                 state["submitted"] = True
                 state["sent_at"] = time.monotonic()
-                state["limit"] = request_seconds((selected or {}).get("effort")) + SERVICE_MARGIN
+                from .analysis_service import answer_seconds
+                state["limit"] = answer_seconds((selected or {}).get("effort"))   # what the terminal really waits
             mode = "web" if web else "workspace" if task is not None else "assistant" if access is not None else "question"
             progress.phase(mode)
             from . import live_answer
@@ -117,11 +122,16 @@ def request(question, args, reader, *, context=None, access=None, task=None, wri
             if live is not None:
                 live.attach(progress.stop)
             try:
+                # In a conversation on a terminal the live preview exists, so progress (web searches, a wait for a free
+                # place) is shown with it; `ask --question` still waits as long, without the notice.
                 answer = send_once(approval, **({"on_partial": live.feed, "on_status": progress.status}
                                                 if live is not None else {}))
             finally:
                 progress.phase("cleanup")
     if question_consent is not None:
+        # A wait for a free place among other terminals' questions is not this question's time (like a sudo password).
+        waited = getattr(send_once, "last_wait", 0)
+        question_consent.excuse(waited if type(waited) in (int, float) else 0)
         question_consent.check()
     return answer
 
@@ -245,6 +255,23 @@ def _explain_denied(exc, args, state):
             # Say how long the last call really waited and what the limit was, so a slow model is told from a stall.
             print(paint("The last call waited %d s (limit %d s)." % (
                 time.monotonic() - state["sent_at"], state["limit"]), "dim"))
+
+
+def _explain_access(exc):
+    if getattr(exc, "reason", None) == "policy-invalid":
+        print(paint("Invalid permissions.toml. Check version and the read/write/deny rules.", "bold", "red"))
+        if exc.problem:
+            print(paint("Problem:", "bold", "red"))
+            for line in exc.problem:
+                print("  " + paint(terminal_text(line), "yellow"))
+    elif getattr(exc, "reason", None) in ("network-claude-disabled", "network-codex-disabled", "network-local-disabled"):
+        from .execution import provider_name
+        provider = exc.reason.split("-")[1]
+        name = provider_name(provider)
+        print(name + " is blocked (network." + provider + "=false).")
+        print("To allow sending, set " + provider + " = true in [network] of ~/.config/ai-desktop/permissions.toml.")
+    else:
+        print("The access policy does not allow this operation, or it has changed. Check permissions.toml.")
 
 
 def _report_plan_error(exc, args):
@@ -383,7 +410,7 @@ def _main(argv, *, reader, link):
         prompt_session = PromptSession()
         prompt_session.commands = ask_commands.COMMANDS
         prompt_session.paste_bytes = MAX_MESSAGE_BYTES
-        controls = ask_commands.Controls()
+        controls = ask_commands.Controls(session=prompt_session)   # "Other ID" starts the next prompt with /model
         if args.preview and args.session:
             print("Preview does not save or resume a conversation. Remove --session or --preview.")
             return 2
@@ -449,7 +476,8 @@ def _main(argv, *, reader, link):
         if question is None:
             if reader is input:
                 from . import run_controls, terminal_frame
-                frame = terminal_frame.start(sys.stdout, run_controls.label())
+                frame = terminal_frame.start(sys.stdout, run_controls.label(),
+                                             **({"fullscreen": False} if args.inline else {}))
                 if frame is not None:
                     def repaint():
                         from .session_cli import print_thread
@@ -457,6 +485,7 @@ def _main(argv, *, reader, link):
                         if talk.transcript:
                             print_thread(talk.transcript, output_format=args.format)
                     frame.repaint = repaint
+                    frame.begin()                  # the full-screen view starts empty: its head is drawn there
             greeted = False                    # the greeting is shown once, not again after each local command
             while True:
                 question = (_read_message(prompt_session, greeted) if reader is input else reader(QUESTION_PROMPT))
@@ -504,8 +533,10 @@ def _main(argv, *, reader, link):
             finished = False
             if reader is input:
                 _refresh_status()
-                terminal_input.start(terminal_frame.current(), sys.stdout, resolver=controls.during_turn,
-                                     commands=ask_commands.COMMANDS)
+                # The same history, paste markers and /agent rule as the idle prompt (one editor, two moments).
+                terminal_input.start(terminal_frame.current(), sys.stdout,
+                                     resolver=lambda line: controls.during_turn(line, conversation),
+                                     commands=ask_commands.COMMANDS, session=prompt_session)
             from . import live_answer
             showing = (live_answer.turn(render=lambda text: render_answer(text, output_format=args.format), rule=rule)
                        if reader is input and args.format == "auto" and sys.stdout.isatty() else nullcontext(None))
@@ -532,13 +563,32 @@ def _main(argv, *, reader, link):
                 _explain_refusal(refusal)          # a local refusal loses that turn too; the conversation goes on
                 keep_actions()
                 answer, code = None, 2
+            except assistant_flow.AccessDenied as exc:
+                if not interactive:
+                    raise
+                _explain_access(exc)               # fix permissions.toml and ask again: the next turn reads it anew
+                print("The conversation continues. You can ask the question again.")
+                keep_actions()
+                answer, code = None, 2
             except AnalysisDenied as denied:
                 if not interactive or denied.reason not in SERVICE_FAILURES:
                     raise
                 _explain_denied(denied, args, state)
                 if denied.reason == "rate-limit":
                     print("Use /provider to choose another recipient and review the conversation transfer.")
-                print("The conversation continues; the question was not retried. You can ask it again.")
+                print("The conversation continues. You can ask the question again.")
+                keep_actions()
+                answer, code = None, 2
+            except (OSError, ValueError) as exc:
+                if not interactive:
+                    raise
+                # Anything else that stops this question (a weather source that did not answer, a file that changed)
+                # stops only this question: the next one starts from a fresh snapshot and a fresh approval.
+                if args.details:
+                    print("ASK: REFUSED stage=" + state["phase"] + " check=prepare-"
+                          + ("os" if isinstance(exc, OSError) else "value"))
+                print("Could not finish this question (prepare-" + state["phase"] + ").")
+                print("The conversation continues. You can ask the question again.")
                 keep_actions()
                 answer, code = None, 2
             except KeyboardInterrupt:
@@ -646,20 +696,7 @@ def _main(argv, *, reader, link):
         _report_plan_error(exc, args)
         return 2
     except assistant_flow.AccessDenied as exc:
-        if getattr(exc, "reason", None) == "policy-invalid":
-            print(paint("Invalid permissions.toml. Check version and the read/write/deny rules.", "bold", "red"))
-            if exc.problem:
-                print(paint("Problem:", "bold", "red"))
-                for line in exc.problem:
-                    print("  " + paint(terminal_text(line), "yellow"))
-        elif getattr(exc, "reason", None) in ("network-claude-disabled", "network-codex-disabled", "network-local-disabled"):
-            from .execution import provider_name
-            provider = exc.reason.split("-")[1]
-            name = provider_name(provider)
-            print(name + " is blocked (network." + provider + "=false).")
-            print("To allow sending, set " + provider + " = true in [network] of ~/.config/ai-desktop/permissions.toml.")
-        else:
-            print("The access policy does not allow this operation, or it has changed. Check permissions.toml.")
+        _explain_access(exc)
         return 2
     except LOCAL_REFUSALS as refusal:
         _explain_refusal(refusal)

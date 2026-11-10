@@ -11,6 +11,12 @@ Anything else that needs the keyboard takes it over completely:
 - `sudo` and menus take a lease: the thread stops reading and the terminal goes back to its normal mode, so a password
   never reaches the draft.
 Colour terminals with the pinned input only; elsewhere the turn runs as before.
+
+The draft is edited like the idle prompt (question_input), with the same key table: Shift/Alt+Enter and backslash +
+Enter break the line, Up/Down walk the sent messages while the draft has one line, a multi-line or large paste becomes
+the same `[paste #N]` marker (expanded when the message is queued), Tab completes a `/` command with a space after it,
+and a bare `/` + Enter opens the commands menu. Ctrl+D deletes the character under the cursor; on an empty draft it is
+ignored, because ending the conversation in the middle of an answer would lose it (Ctrl+C stops the turn).
 """
 from contextlib import contextmanager
 import os
@@ -24,17 +30,33 @@ import threading
 import time
 
 from .analysis_contract import MAX_MESSAGE_BYTES
-from .question_input import _KEYS, _PASTE_END, _PASTE_START, QuestionInputError, _Line, _safe_text
+from . import question_input
+from .question_input import (_without_locks, _KEYS, _PASTE_END, _PASTE_START, CONTROL_EDITS, UP_DOWN, HistoryWalk, QuestionInputError,
+                             _Line, _safe_text, edit_key, modified_key, opens_list, scroll_key)
 
 _ANSI = re.compile(r"\x1b\[[0-9;?<>]*[A-Za-z]")
 _current = None
-_EDITS = {b"[D": "left", b"OD": "left", b"[C": "right", b"OC": "right", b"[H": "home", b"OH": "home", b"[1~": "home",
-          b"[7~": "home", b"[F": "end", b"OF": "end", b"[4~": "end", b"[8~": "end", b"[3~": "delete"}
 _SLASH = "/"
+_CTRL_C_REPORTED = (b"\x1b[99;5u", b"\x1b[27;5;99~")      # Ctrl+C under the kitty / modifyOtherKeys protocols
 
 
-def current():
-    return _current
+class Prefill(str):
+    """What a `/` menu gives back to the input instead of queueing: the start of a command for the owner to finish
+    (e.g. "/model " after "Other ID", for the model ID to type)."""
+
+
+def _keyboard_modes():
+    """(push, pop): the keyboard protocol the idle prompt uses, so Shift+Enter is told apart from Enter."""
+    if question_input._KITTY:
+        return "\x1b[>1u", "\x1b[<u"
+    return "\x1b[>4;2m", "\x1b[>4;0m"                         # xterm modifyOtherKeys; others ignore it
+
+
+def _view(frame, name, *args):
+    """The full-screen view's scrolling and mouse, when the frame has them (an inline frame or a test stand-in does not)."""
+    method = getattr(frame, name, None)
+    if callable(method):
+        method(*args)
 
 
 class _Output:
@@ -44,10 +66,18 @@ class _Output:
 
     def __init__(self, stream, owner):
         self._stream, self._owner = stream, owner
+        self._redrawn = False          # the last write was a line redrawn in place (the waiting indicator)
 
     def write(self, text):
         with self._owner.lock:
-            self._stream.write("\x1b8" + text + "\x1b7" + self._owner.band_cursor())
+            prefix = ""
+            if text and self._redrawn and not text.startswith("\r"):
+                # A message printed while the waiting indicator's line is on screen starts on a clean line instead
+                # of being glued after it; the indicator draws itself again on its next tick.
+                prefix = "\r\x1b[2K"
+            if text:
+                self._redrawn = text.startswith("\r") and not text.endswith("\n")
+            self._stream.write("\x1b8" + prefix + text + "\x1b7" + self._owner.band_cursor())
             return len(text)
 
     def flush(self):
@@ -59,14 +89,17 @@ class _Output:
 
 
 class TypeAhead:
-    def __init__(self, frame, stream, draft="", resolver=None, commands=()):
+    def __init__(self, frame, stream, draft="", resolver=None, commands=(), session=None):
         self.resolver = resolver                   # turns a `/` command into what waits for the answer
         self.commands, self.pick = tuple(commands), 0   # the `/` list offered above the band, as when idle
+        self.session = session                     # the idle prompt's PromptSession: its history and paste blocks
+        self.walk = HistoryWalk(session)
         self.frame, self.stream = frame, stream
         self.lock = threading.RLock()
         self.line = _Line(MAX_MESSAGE_BYTES)
         self.line.insert(draft)
         self.queue = []
+        self._modes = None                         # the pushed keyboard protocol, popped whenever others read keys
         self.fd = sys.stdin.fileno()
         self._original = termios.tcgetattr(self.fd)
         self._stop, self._pause, self._paused = threading.Event(), threading.Event(), threading.Event()
@@ -92,6 +125,17 @@ class TypeAhead:
 
     def _cooked(self):
         termios.tcsetattr(self.fd, termios.TCSANOW, self._original)
+
+    def _push_keys(self):
+        if self._modes is None:
+            self._modes = _keyboard_modes()
+            self.stream.write(self._modes[0])
+
+    def _pop_keys(self):
+        """Before anyone else reads the keyboard (sudo, a menu) and at the end: they expect plain keys."""
+        if self._modes is not None:
+            self.stream.write(self._modes[1])
+            self._modes = None
 
     # -- drawing -------------------------------------------------------------------------------------------------------
     def band_cursor(self):
@@ -139,6 +183,8 @@ class TypeAhead:
         sys.stdout = self._output
         self._raw()
         self.stream.write("\x1b[?2004h")               # a pasted block arrives marked, never as Enter
+        self._push_keys()
+        _view(self.frame, "mouse", True)
         self.draw()
         # The turn's context (the selected service, model and role) goes with the reader, so a `/` menu opened during
         # the answer offers that service's choices, not the defaults of an empty context.
@@ -156,12 +202,15 @@ class TypeAhead:
                 self._thread.join(timeout=0.1)
         with self.lock:
             self.frame.busy = None
+            _view(self.frame, "mouse", False)
+            _view(self.frame, "scroll", b"scroll-end")
             sys.stdout = self.stream
             try:
                 self._cooked()
             except termios.error:
                 pass
             self.frame.note = ""
+            self._pop_keys()
             self.stream.write("\x1b[?2004l\x1b8")        # back to the end of the conversation
             self.stream.flush()
         return self.line.text, list(self.queue)
@@ -172,6 +221,7 @@ class TypeAhead:
         back afterwards. The end of the turn waits for it (the owner decided an open menu stays usable)."""
         with self.lock:
             self._picker = picker
+            self._pop_keys()                           # the menu reads plain keys
         self.draw()
         try:
             while True:
@@ -202,6 +252,8 @@ class TypeAhead:
         finally:
             with self.lock:
                 self._picker = None
+                if not self._stop.is_set():
+                    self._push_keys()
             self.draw()
 
     @contextmanager
@@ -214,7 +266,10 @@ class TypeAhead:
             self._pause.clear()                        # never hand over a keyboard someone else still reads
             raise OSError("the live input did not pause")
         with self.lock:
+            _view(self.frame, "scroll", b"scroll-end")
+            _view(self.frame, "mouse", False)                     # sudo or a menu reads keys itself: no wheel reports for it
             sys.stdout = self.stream
+            self._pop_keys()
             self.stream.write("\x1b8")
             self.stream.flush()
             self._cooked()
@@ -225,6 +280,9 @@ class TypeAhead:
             with self.lock:
                 self.stream.write("\x1b7")
                 self._raw()
+                if self._picker is None:
+                    self._push_keys()
+                _view(self.frame, "mouse", True)
                 sys.stdout = self._output
             self._pause.clear()
             self.draw()
@@ -327,8 +385,12 @@ class TypeAhead:
                 self._key(value)
                 return
             if kind in ("discard", "stale"):          # an oversized or an earlier paste: wait for its end, keep nothing
-                tail = (buffer + value)[-len(_PASTE_END):]
-                if tail == _PASTE_END:
+                if kind == "stale" and (buffer + value).endswith(_CTRL_C_REPORTED):
+                    self._sequence, self._paste_open = None, False   # Ctrl+C as the keyboard protocol reports it
+                    self._key(b"\x03")
+                    return
+                tail = (buffer + value)[-max(len(_PASTE_END), *map(len, _CTRL_C_REPORTED)):]
+                if tail.endswith(_PASTE_END):
                     self._sequence, self._paste_open = None, False
                 else:
                     self._sequence = (kind, tail)
@@ -338,28 +400,64 @@ class TypeAhead:
                 if buffer.endswith(_PASTE_END):
                     self._sequence, self._paste_open = None, False
                     raw = bytes(buffer[:-len(_PASTE_END)])
-                    if len(raw) <= MAX_MESSAGE_BYTES - len(target.text.encode("utf-8")):
+                    if target is self.line and self.session is not None:
+                        try:                            # a marker, as at the idle prompt; the block waits in the session
+                            target.insert(self.session.attach(_safe_text(raw, newlines=True)))
+                        except QuestionInputError:
+                            print(_note("the paste is too large for one message (at most %d KiB)"
+                                        % (self.session.paste_bytes // 1024)))
+                    elif len(raw) <= MAX_MESSAGE_BYTES - len(target.text.encode("utf-8")):
                         target.insert(_safe_text(raw, newlines=True))
                 elif len(buffer) > MAX_MESSAGE_BYTES + len(_PASTE_END):
                     self._sequence = ("discard", bytearray(buffer[-len(_PASTE_END):]))
                 return
             if kind == "escape":
                 key = bytes(buffer)
+                if key[:1] == b"[" and len(key) > 1 and 0x40 <= key[-1] <= 0x7E:
+                    plain = _without_locks(key)
+                    if plain in _KEYS:
+                        # An arrow or Home/End in the keyboard protocol's long form (ESC[1;1B, lock bits) is the
+                        # plain key, as at the idle prompt (CachyOS check of candidate 156, a terminal inside a multiplexer).
+                        key = plain
                 if key == _PASTE_START:
                     self._sequence, self._paste_open = ("paste", bytearray()), True
                 elif key == _PASTE_END[1:]:
                     self._sequence, self._paste_open = None, False   # the end of a paste whose sequence timed out
+                elif key in (b"\r", b"\n"):                   # Alt+Enter: a line break in the draft
+                    self._sequence = None
+                    if self._question is None:
+                        target.insert("\n")
                 elif key in _KEYS:
                     self._sequence = None
-                    found = self._matches() if self._question is None else ()
-                    if found and key in (b"[A", b"OA", b"[B", b"OB"):
-                        self.pick = (self.pick + (-1 if key in (b"[A", b"OA") else 1)) % len(found)
+                    _view(self.frame, "scroll", b"scroll-end")      # a key: back to the live conversation
+                    if key in UP_DOWN:
+                        self._up_down(key in (b"[A", b"OA"))
                         return
-                    edit = _EDITS.get(key)
-                    if edit:
-                        target.edit(edit)
+                    if _KEYS[key] != "ignore":
+                        target.edit(_KEYS[key])
+                elif key[:1] == b"[" and not 0x40 <= key[-1] <= 0x7E and len(key) < 32:
+                    return                              # a longer sequence (a mouse report, PgUp) is still arriving
+                elif key[:1] == b"O" and len(key) == 2 and key[1:].isdigit():
+                    return                              # O5C: a modified arrow in application mode, one more byte
                 elif not any(known.startswith(key) for known in (*_KEYS, _PASTE_START, _PASTE_END[1:])):
                     self._sequence = None
+                    scroll = scroll_key(key)
+                    named = edit_key(key) if scroll is None else None
+                    modified = modified_key(key) if scroll is None and named is None else None
+                    if modified == b"newline":
+                        if self._question is None:
+                            target.insert("\n")                   # Shift/Ctrl+Enter, as at the idle prompt
+                    elif modified in (b"ctrl-c", b"ctrl-d"):
+                        self._key(b"\x03" if modified == b"ctrl-c" else b"\x04")
+                    elif modified is not None:
+                        target.edit(_KEYS[modified])          # Ctrl+A/B/E/F reported by the keyboard protocol
+                    elif scroll is not None and scroll != b"ignore":
+                        _view(self.frame, "scroll", scroll)       # the full-screen view's history; the draft stays
+                    elif scroll is not None:
+                        _view(self.frame, "mouse_event", key)     # a click or drag: the view's own selection
+                    elif named is not None:
+                        _view(self.frame, "scroll", b"scroll-end")
+                        target.edit(named)                        # Ctrl/Alt with arrows, Delete, Backspace
                 return
             if kind == "char" and len(buffer) == sequence[2]:
                 self._sequence = None
@@ -369,6 +467,7 @@ class TypeAhead:
             self._sequence, self._sequence_at = ("escape", bytearray()), time.monotonic()
             self._sequence_epoch = self._epoch
             return
+        _view(self.frame, "scroll", b"scroll-end")               # typing returns to the live conversation
         if value[0] >= 0x80:
             number = value[0]
             length = 2 if 0xC2 <= number <= 0xDF else 3 if 0xE0 <= number <= 0xEF else 4 if 0xF0 <= number <= 0xF4 else 0
@@ -378,6 +477,53 @@ class TypeAhead:
             return
         self._key(value)
 
+    def _up_down(self, older):
+        """As at the idle prompt: the `/` list, a line of a multi-line draft, or the sent messages."""
+        if self._question is not None:
+            return
+        found = self._matches()
+        if found:
+            self.pick = (self.pick + (-1 if older else 1)) % len(found)
+        elif "\n" in self.line.text:
+            self.line.edit("up" if older else "down")
+        else:
+            self.walk.step(self.line, older)
+
+    def _send(self):
+        """Enter on the draft: queue it (a `/` command goes through the resolver first)."""
+        found = self._matches()
+        if found and self.line.text not in (item[0] for item in found) and not opens_list(self.line.text, self.pick):
+            self.line.text = found[self.pick][0]       # `/mo` + Enter runs what the list has highlighted
+        self.pick = 0
+        text = self.line.text
+        if self.line.text.endswith("\\") and self.line.cursor == len(self.line.text):
+            self.line.text = self.line.text[:-1]       # backslash + Enter: a line break instead of sending
+            self.line.cursor -= 1
+            self.line.insert("\n")
+            return
+        if self.session is not None:
+            sent = self.session.expand(text, consume=False)   # paste markers become their blocks, as when idle
+            if len(sent.encode("utf-8")) > MAX_MESSAGE_BYTES:
+                print(_note("with the paste the message is over %d KiB; shorten it" % (MAX_MESSAGE_BYTES // 1024)))
+                return                                 # nothing is lost: the draft and its blocks stay
+            self.session.remember(text)                # the history is shared with the idle prompt
+            text = self.session.expand(text)
+        self.walk = HistoryWalk(self.session)
+        self.line.text, self.line.cursor = "", 0
+        items = [text]
+        if self.resolver is not None and text[:1] == "/":
+            try:
+                items = self.resolver(text)      # a menu opens above the band; its choice, or the command, waits
+            except Exception:               # a failing menu must not lose what was typed
+                items = [text]
+            prefill = next((item for item in items if isinstance(item, Prefill)), None)
+            items = [item for item in items if not isinstance(item, Prefill)]
+            if prefill is not None:
+                self.line.text, self.line.cursor = str(prefill), len(prefill)
+            for item in items:
+                print(_note("%s \u00b7 after the answer" % getattr(item, "label", item)))
+        self.queue.extend(items)
+
     def _key(self, value):
         target = self._answer if self._question is not None else self.line
         if value == b"\x03":
@@ -386,32 +532,24 @@ class TypeAhead:
             else:
                 os.kill(os.getpid(), signal.SIGINT)    # like Ctrl+C while waiting: stops the turn
             return
+        if value == b"\x04":
+            if target.text:
+                target.edit("delete")                  # on an empty draft ignored: see the module notes
+            return
         if value == b"\t" and self._question is None and self._matches():
-            self.line.text = self._matches()[self.pick][0]
+            self.line.text = self._matches()[self.pick][0] + " "
             self.line.cursor, self.pick = len(self.line.text), 0
             return
         if value in (b"\r", b"\n"):
             if self._question is not None:
                 self._answered.set()
             elif self.line.text.strip():
-                found = self._matches()
-                if found and self.line.text not in (item[0] for item in found):
-                    self.line.text = found[self.pick][0]   # `/mo` + Enter runs what the list has highlighted
-                self.pick = 0
-                text = self.line.text
-                self.line.text, self.line.cursor = "", 0
-                items = [text]
-                if self.resolver is not None and text[:1] == "/":
-                    try:
-                        items = self.resolver(text)  # a menu opens above the band; its choice, or the command, waits
-                    except Exception:           # a failing menu must not lose what was typed
-                        items = [text]
-                    for item in items:
-                        print(_note("%s \u00b7 after the answer" % getattr(item, "label", item)))
-                self.queue.extend(items)
+                self._send()
             return
-        if value in (b"\x08", b"\x7f"):
+        if value == b"\x7f":
             target.edit("backspace")
+        elif value in CONTROL_EDITS:
+            target.edit(CONTROL_EDITS[value])           # Ctrl+W/U/K, Ctrl+Backspace, Ctrl+Z
         elif value in (b"\x01", b"\x05", b"\x02", b"\x06"):
             target.edit({b"\x01": "home", b"\x05": "end", b"\x02": "left", b"\x06": "right"}[value])
         elif b" " <= value < b"\x7f":
@@ -428,15 +566,17 @@ def current():
     return _current
 
 
-def start(frame, stream, resolver=None, commands=()):
-    """Keep the input live for this turn; returns the owner or None when there is no pinned input."""
+def start(frame, stream, resolver=None, commands=(), session=None):
+    """Keep the input live for this turn; returns the owner or None when there is no pinned input. `session`: the idle
+    prompt's PromptSession, so queued messages join its history and pastes become the same markers."""
     global _current
     if _current is not None or frame is None:
         return _current
     try:
         if not (stream.isatty() and sys.stdin.isatty()):
             return None
-        owner = TypeAhead(frame, stream, draft=getattr(frame, "draft", ""), resolver=resolver, commands=commands)
+        owner = TypeAhead(frame, stream, draft=getattr(frame, "draft", ""), resolver=resolver, commands=commands,
+                          session=session)
         owner.start()
     except (OSError, ValueError, termios.error):
         return None

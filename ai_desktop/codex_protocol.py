@@ -411,6 +411,8 @@ class Protocol:
         self.plan = None
         self.usage = {"input": None, "output": None, "window": None}
         self.bytes = self.messages = self.delta_bytes = 0
+        self.on_delta = None              # display-only live text; the final item still decides the answer
+        self.live_item = None             # the one answer message whose deltas are shown (never commentary)
 
     @property
     def done(self):
@@ -542,6 +544,8 @@ class Protocol:
                 raise AnalysisDenied("result")
             if len(text.encode("utf-8")) > self.output_limit:
                 raise AnalysisDenied("output-limit")
+            if not completed and phase in (None, "final_answer") and self.live_item is None:
+                self.live_item = ident
             if completed and phase in (None, "final_answer"):
                 if self.answer is not None or not text.strip():
                     raise AnalysisDenied("result")
@@ -661,6 +665,11 @@ class Protocol:
             self.delta_bytes += len(params["delta"].encode("utf-8"))
             if self.delta_bytes > self.output_limit:
                 raise AnalysisDenied("output-limit")
+            if self.on_delta is not None and params["delta"] and params["itemId"] == self.live_item:
+                try:
+                    self.on_delta(params["delta"])
+                except Exception:
+                    self.on_delta = None          # a failing display never ends the request
             return []
         if method in ("item/reasoning/summaryTextDelta", "item/reasoning/textDelta",
                       "item/reasoning/summaryPartAdded"):
@@ -892,8 +901,10 @@ def _exchange(argv, protocol, *, env, timeout, cancelled=None, stop_after_reply=
 
 
 def run(binary, application_bytes, *, env, model="default", effort="default", timeout=110,
-        cancelled=None, limits=None):
-    """Convenience wrapper for a trusted official binary inside its sandbox."""
+        cancelled=None, limits=None, on_delta=None):
+    """Convenience wrapper for a trusted official binary inside its sandbox. `on_delta(text)` receives the answer
+    message's live text for display."""
     protocol = Protocol(application_bytes, model=model, effort=effort, limits=limits)
+    protocol.on_delta = on_delta
     return exchange(fixed_command(binary, model=model, effort=effort), protocol,
                     env=env, timeout=timeout, cancelled=cancelled)

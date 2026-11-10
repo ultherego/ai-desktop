@@ -180,7 +180,7 @@ def _auth_failure(error):
     return AnalysisDenied(reason, stage="auth-status")
 
 
-def run_client(action, report=b"", *, cancelled=None, mode="analysis"):
+def run_client(action, report=b"", *, cancelled=None, mode="analysis", partial=None):
     """Exactly one validated request, no native OAuth/profile or provider fallback."""
     if action != "analyze" or mode == "web":
         raise AnalysisDenied("input")
@@ -207,7 +207,9 @@ def run_client(action, report=b"", *, cancelled=None, mode="analysis"):
         env = {"PATH": "/usr/bin", "LANG": "C.UTF-8"}
         # The complete compatibility probe has no proxy socket or profile.
         with failure_stage("version"):
-            compatibility(directory, binding, cancelled=cancelled)
+            from . import check_memory
+            check_memory.compatible(getattr(binding, "fingerprint", None),
+                                    lambda: compatibility(directory, binding, cancelled=cancelled))
         if cancelled is not None and cancelled():
             raise AnalysisDenied("cancelled")
         try:
@@ -222,10 +224,16 @@ def run_client(action, report=b"", *, cancelled=None, mode="analysis"):
             thread.start()
             try:
                 with failure_stage("analysis"):
+                    from .analysis_sandbox import LIVE_MODES, STREAM_RAW_LIMIT
+                    from .answer_stream import CodexStream
+                    kept = MAX_RESPONSE_BYTES if mode == "workspace" else 131072
+                    live = partial if mode in LIVE_MODES else None
                     code, output, errors = bounded_process(namespace_command("analyze", directory, binding=binding), env=env,
                         pass_fds=binding.pass_fds,
                         input_bytes=packet, input_limit=PRIVATE_PACKET_BYTES, private_input=True,
-                        timeout=request_seconds(request_effort(report)) + 5, limit=MAX_RESPONSE_BYTES if mode == "workspace" else 131072, cancelled=cancelled)
+                        timeout=request_seconds(request_effort(report)) + 5, limit=kept, cancelled=cancelled,
+                        stdout_filter=CodexStream(live, json_answer=LIVE_MODES.get(mode, True), max_line=kept),
+                        raw_limit=max(STREAM_RAW_LIMIT, kept))
                     binding.recheck()
                     if code != 0:
                         raise child_failure(errors, "client", provider="codex")

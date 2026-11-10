@@ -143,7 +143,9 @@ class ConversationLoopTests(unittest.TestCase):
                 self.assertEqual(r.prompts, [Q, Q, Q])
 
     def test_a_service_failure_keeps_the_conversation_and_is_not_retried(self):
-        for reason in ("timeout", "network", "rate-limit", "provider-unavailable"):
+        # endpoint: the service went away mid-answer (e.g. `ai-desktop stop` in another terminal); the next question
+        # opens a new session and connection.
+        for reason in ("timeout", "network", "rate-limit", "provider-unavailable", "endpoint"):
             with self.subTest(reason=reason), \
                     patch.object(assistant_flow, "run", side_effect=[ask.AnalysisDenied(reason), "Dalej działam"]):
                 r = self.run_ui([], ["Jeden", "Dwa", ""])
@@ -152,8 +154,23 @@ class ConversationLoopTests(unittest.TestCase):
                 self.assertIn("Dalej działam", r.out)
                 self.assertEqual(r.prompts, [Q, Q, Q])
 
+    def test_a_question_that_cannot_be_prepared_ends_only_that_question(self):
+        # Review of 2026-11-09: a weather source that did not answer, an expired consent or a policy that became invalid
+        # ended the whole conversation while the message said to try again.
+        from ai_desktop import assistant_flow as flow
+        for failure in (ValueError("context unavailable"), OSError("weather"), ask.AnalysisDenied("consent"),
+                        ask.AnalysisDenied("busy"), flow.AccessDenied("policy-invalid")):
+            with self.subTest(failure=type(failure).__name__ + str(getattr(failure, "reason", ""))), \
+                    patch.object(assistant_flow, "run", side_effect=[failure, "Dalej działam"]):
+                r = self.run_ui([], ["Jeden", "Dwa", ""])
+                self.assertEqual(r.code, 0, r.out)
+                self.assertIn("The conversation continues", r.out)
+                self.assertIn("Dalej działam", r.out)
+                self.assertEqual(r.prompts, [Q, Q, Q])
+
     def test_an_untrusted_failure_still_ends_the_conversation(self):
-        for reason in ("cleanup", "sandbox", "identity", "consent"):
+        # An expired or changed consent ends only that question now (the next one asks anew); these still end it all.
+        for reason in ("cleanup", "sandbox", "identity"):
             with self.subTest(reason=reason), patch.object(assistant_flow, "run", side_effect=ask.AnalysisDenied(reason)):
                 r = self.run_ui([], ["Jeden"])
                 self.assertEqual(r.code, 2)

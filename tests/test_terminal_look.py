@@ -26,7 +26,7 @@ class BannerTests(unittest.TestCase):
             lines = run_controls.banner(config=CONFIG, stream=Terminal())
         text = "\n".join(lines)
         self.assertIn(">_ AI Desktop", lines[0])
-        for part in ("service:  Claude", "profile:  diagnostic (read-only)", "model:    default", "reasoning: high",
+        for part in ("service:  Claude", "profile:  diagnostic (read-only)", "model:    Auto", "reasoning: high",
                      "/settings to change"):
             self.assertIn(part, text)
         self.assertTrue(lines[-1].startswith("\x1b["))
@@ -396,8 +396,8 @@ class LiveInputTests(unittest.TestCase):
         self.type(owner, "\r")
         self.assertEqual(seen, ["/exit"])                                     # Enter takes the highlighted command
         self.type(owner, "/he\t")
-        self.assertEqual(owner.line.text, "/help")                            # Tab completes it
-        self.type(owner, " x")
+        self.assertEqual(owner.line.text, "/help ")                           # Tab completes it, with a space as when idle
+        self.type(owner, "x")
         self.assertEqual(owner._matches(), ())                                 # a space ends the list, as when idle
 
 

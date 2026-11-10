@@ -18,7 +18,7 @@ COMMANDS = (
     ("/skills", "turn Skills on or off in this conversation"),
     ("/agent", "change the role (or select a provider by name)"),
     ("/provider", "switch the recipient of this conversation"),
-    ("/settings", "show the current settings"),
+    ("/settings", "show and change the settings"),
     ("/permissions", "show what the program can access"),
     ("/test", "run an offline suite in the current authorized project"),
     ("/exit", "end the conversation"),
@@ -31,12 +31,26 @@ EXIT = "exit"
 PAGE = 8
 _NEXT, _PREVIOUS, _APPLY = "Next page", "Previous page", "Apply"
 _AGAIN = "The next question will ask for consent again because the settings changed. The conversation continues."
+CUSTOM = "custom"                            # "Other ID" in the model menu: the owner types the ID
+# What /settings offers, in its order; `material` and `project` offer the ones that work there.
+SETTINGS = ("/model", "/effort", "/agent", "/provider", "/skills")
+
+
+def _fit(label, limit=200):
+    """A menu row never blocks its menu: a label longer than a row allows is cut with an ellipsis."""
+    label = str(label)
+    if len(label.encode("utf-8")) <= limit:
+        return label
+    while len((label + "\u2026").encode("utf-8")) > limit:
+        label = label[:-1]
+    return label.rstrip() + "\u2026"
 
 
 def _pick(title, options, default=0):
     """An index into `options`, or None when cancelled or when there is no terminal for a menu. Long lists are paged,
     because one menu frame holds a limited number of rows."""
-    options = tuple(options)
+    options = tuple(_fit(option) for option in options)
+    title = _fit(title)
     page = default // PAGE
     while True:
         start = page * PAGE
@@ -50,7 +64,10 @@ def _pick(title, options, default=0):
             shown.append(_PREVIOUS)
         try:
             answer = choose(title, shown, default=default - start if start <= default < start + count else 0)
-        except MenuInputError:
+        except MenuInputError as failed:
+            # Never silently: say why the menu did not open (a fixed code), then the caller shows the typed form.
+            print("The menu could not open (%s)." % (failed.args[0] if failed.args and type(failed.args[0]) is str
+                                                      and failed.args[0].startswith("menu-") else "menu"))
             return None
         if answer is None:
             return None
@@ -73,8 +90,10 @@ _READ_ONLY = ("/help", "/settings", "/permissions")
 
 
 class Controls:
-    def __init__(self):
+    def __init__(self, *, session=None, settings=SETTINGS):
         self.skills = None                   # this conversation's choice; None means what the agent has assigned
+        self.session = session               # the PromptSession whose next prompt can start with a typed command
+        self.settings = tuple(settings)
 
     def _assigned(self):
         name, profile = self._profile()
@@ -145,7 +164,9 @@ class Controls:
         elif name == "/exit":
             return EXIT
         elif name == "/settings":
-            self._settings()
+            chosen = self._settings_menu()
+            if chosen is not None:
+                return self.handle(chosen, conversation, talk=talk, consent=consent, reader=reader, run_test=run_test)
         elif name == "/test":
             if run_test is not None:
                 run_test(value)
@@ -154,9 +175,9 @@ class Controls:
         elif name == "/permissions":
             self._permissions()
         elif name == "/model":
-            self._choice("/model", "model", value, execution.MODELS if self._provider() == "claude" else (), conversation)
+            self._choice("/model", "model", value, conversation)
         elif name == "/effort":
-            self._choice("/effort", "effort", value, execution.efforts_for(self._provider()), conversation)
+            self._choice("/effort", "effort", value, conversation)
         elif name == "/provider" or (name == "/agent" and self._provider_alias(value)):
             self._switch_provider(value, conversation, talk, consent, reader)
         elif name == "/agent":
@@ -167,9 +188,11 @@ class Controls:
             print("Unknown command %s. List: /help. To send this as a question, start with a space." % word)
         return True
 
-    def during_turn(self, line):
+    def during_turn(self, line, conversation=None):
         """A `/` command typed while the model works. Read-only ones are shown at once; a menu opens at once and only
-        its choice waits; anything else waits whole. Returns what to queue: message lines and Deferred choices."""
+        its choice waits; anything else waits whole. Returns what to queue: message lines and Deferred choices, or a
+        `terminal_input.Prefill` that goes back into the input for the owner to finish (a model ID to type).
+        `conversation` is the saved conversation of this turn, if any: what it cannot accept is refused at once."""
         if line[:1].isspace():
             return [line]
         text = line.strip()
@@ -183,16 +206,26 @@ class Controls:
             if chosen is None:
                 return []
             name = COMMANDS[chosen][0]
+        if name == "/settings":
+            run_controls.conversation_command("/settings")
+            chosen = self._settings_menu(show=False)
+            if chosen is None:
+                return []
+            name = chosen
         if name in _READ_ONLY:
             self.handle(name)
+            return []
+        if name == "/agent" and conversation is not None and not self._provider_alias(value):
+            print(run_controls.AGENT_TIED)        # refused now, not after the answer
             return []
         if value:
             return [name + " " + value]
         if name in ("/model", "/effort"):
-            field = name[1:]
-            options = (execution.MODELS if self._provider() == "claude" else ()) if name == "/model" \
-                else execution.efforts_for(self._provider())
-            picked = self._pick_value(name, field, tuple(options))
+            picked = self._menu_value(name, name[1:], " \u00b7 applies after the answer")
+            if picked == CUSTOM:
+                from .terminal_input import Prefill
+                print(self._custom_hint())
+                return [Prefill("/model ")]
             return [] if picked is None else [name + " " + picked]
         if name == "/agent":
             picked = self._pick_agent()
@@ -211,16 +244,64 @@ class Controls:
                              lambda conversation: self._set_skills(profile_name, profile, result, conversation))]
         return [name]
 
-    def _pick_value(self, command, field, options):
-        if not options:
+    def _menu_value(self, command, field, suffix=""):
+        """The value chosen in the /model or /effort menu: the same choices and labels as `ai-desktop settings`
+        (the model list comes from the client itself). None when cancelled; CUSTOM for "Other ID"."""
+        provider = self._provider()
+        if field == "model":
+            from .management_cli import model_choices
+            values, labels, note = model_choices(provider)
+            if note:
+                print(note)
+        else:
+            values = execution.efforts_for(provider)
+            labels = tuple(execution.effort_label(key) for key in values)
+        values, labels = tuple(values), tuple(labels)
+        if not values:
             return None
         try:
             present = self._active()[field]
         except (OSError, ValueError, KeyError):
             present = None
-        chosen = _pick("%s \u00b7 now: %s \u00b7 applies after the answer" % (command, present), options,
-                       default=options.index(present) if present in options else 0)
-        return None if chosen is None else options[chosen]
+        shown = execution.model_label(present) if field == "model" else execution.effort_label(present)
+        chosen = _pick("%s \u00b7 now: %s%s" % (command, shown, suffix), labels,
+                       default=values.index(present) if present in values else 0)
+        return None if chosen is None else values[chosen]
+
+    def _custom_hint(self):
+        return "Type the %s model ID after /model and press Enter." % execution.provider_name(self._provider())
+
+    def _settings_menu(self, show=True):
+        """/settings: the current settings, then a menu of the ones that can change here. Returns the command of the
+        chosen entry (its own menu opens next), or None when closed or when there is no terminal for a menu."""
+        if show:
+            self._settings()
+        try:
+            selected = self._active()
+        except (OSError, ValueError, KeyError):
+            selected = None
+        rows = []
+        for command in self.settings:
+            if command == "/model":
+                rows.append("Model: " + execution.model_label(selected["model"] if selected else "default"))
+            elif command == "/effort":
+                rows.append("Reasoning: " + execution.effort_label(selected["effort"] if selected else "default"))
+            elif command == "/agent":
+                rows.append("Agent: " + (selected["profile"] if selected else "default"))
+            elif command == "/provider":
+                rows.append("Service: " + execution.provider_name(selected["provider"] if selected else "claude"))
+            elif command == "/skills":
+                try:
+                    _, profile = self._profile()
+                    chosen = profile.skills if self.skills is None else self.skills
+                    shown = ", ".join(chosen[:3]) + (" +%d more" % (len(chosen) - 3) if len(chosen) > 3 else "")
+                    rows.append("Skills: %d on%s" % (len(chosen), " (" + shown + ")" if chosen else ""))
+                except (OSError, ValueError, KeyError):
+                    rows.append("Skills")
+        if not rows:
+            return None
+        chosen = _pick("Settings \u00b7 choose one to change", tuple(rows))
+        return None if chosen is None else self.settings[chosen]
 
     def _pick_agent(self):
         try:
@@ -297,6 +378,8 @@ class Controls:
 
     def _settings(self):
         run_controls.conversation_command("/settings")
+        if "/skills" not in self.settings:
+            return
         try:
             _, profile = self._profile()
         except (OSError, ValueError, KeyError):
@@ -331,19 +414,23 @@ class Controls:
         """What the next question would use: a role is resolved even while the plain default leaves no snapshot."""
         return execution.current() or profiles.resolve()
 
-    def _choice(self, command, field, value, options, conversation):
+    def _choice(self, command, field, value, conversation):
         try:
             present = self._active()[field]
         except (OSError, ValueError, KeyError):
             present = None
-        if not value and options:
-            options = tuple(options)
-            chosen = _pick("%s · now: %s" % (command, present), options,
-                           default=options.index(present) if present in options else 0)
-            if chosen is None:
+        if not value:
+            value = self._menu_value(command, field)
+            if value is None:
                 run_controls.conversation_command(command)
                 return
-            value = options[chosen]
+            if value == CUSTOM:
+                # As in the settings: the owner types the ID. It is typed at the prompt, which starts with
+                # "/model ", so it is checked by the same rules as any /model ID typed there.
+                if self.session is not None:
+                    self.session.prefill = "/model "
+                print(self._custom_hint())
+                return
         if value == present:
             print("No change: %s is already %s." % (command, value))
             return
@@ -354,7 +441,7 @@ class Controls:
 
     def _agent(self, value, conversation):
         if conversation is not None:
-            run_controls.conversation_command("/agent x", saved=True)
+            print(run_controls.AGENT_TIED)
             return
         if not value:
             try:
