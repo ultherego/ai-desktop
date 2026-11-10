@@ -101,7 +101,7 @@ class ProjectTaskConsent:
 
         Any refusal closes the scope for good, so a later question always asks again."""
         if not self._approved or self._closed:
-            self.ended = self.ended or "GRANT_INVALID"
+            self.ended = self.ended or "GRANT_INVALID"     # the session may have set CANCELLED (Ctrl+C) when closing it
             return False
         try:
             self._validate(project)

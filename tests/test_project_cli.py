@@ -201,6 +201,7 @@ class QuestionTests(Base):
         # S9: a cancellation ends the approved task; the next question shows its scope and asks again.
         self.assertEqual(self.prompts.count(PROMPTS["project-task"]), 2)
         self.assertNotIn("Within the task you approved", self.output)
+        self.assertIn("The approved task scope ended: you stopped the previous question with Ctrl+C", self.output)
 
     def test_a_follow_up_question_stays_within_the_approved_task_without_a_new_prompt(self):
         self.model = script({"action": "answer", "text": "Jeden.", "sources": []},
@@ -787,7 +788,7 @@ class ResumeTests(Base):
         self.enterContext(patch.object(cs, "Store", side_effect=lambda home=None: real(home=str(self.home))))
 
     def test_a_conversation_continues_with_c_after_the_files_changed(self):
-        self.model = script({"action": "answer", "text": "Pierwsza odpowiedź.", "sources": []})
+        self.model = script({"action": "answer", "text": "**Pierwsza** `odpowiedź`.", "sources": []})
         self.run_cli(["Pierwsze pytanie?", "/exit"], ["yes"], argv=[str(self.proj), "--session", "new"])
         self.assertIn("Conversation:", self.output)
         (self.proj / "src/util.py").write_text("def helper():\n    return 2\n")       # e.g. a change saved here
@@ -795,7 +796,8 @@ class ResumeTests(Base):
         self.run_cli(["Drugie pytanie?", "/exit"], ["yes"], argv=[str(self.proj), "-c"])
         self.assertIn("Earlier in this conversation:", self.output)
         self.assertIn("Pierwsze pytanie?", self.output)
-        self.assertEqual(self.payloads()[-1]["project"]["history"][-1]["answer"], "Pierwsza odpowiedź.")
+        self.assertIn("    Pierwsza odpowiedź.", self.output)
+        self.assertEqual(self.payloads()[-1]["project"]["history"][-1]["answer"], "**Pierwsza** `odpowiedź`.")
 
     def test_c_without_a_saved_conversation_starts_a_new_one_and_c_with_session_is_refused(self):
         self.model = script({"action": "answer", "text": "x", "sources": []})

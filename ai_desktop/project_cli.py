@@ -74,6 +74,7 @@ SCOPE_ENDED = {
     "SOURCE_CHANGED": "the project changed since your approval (also a change saved here)",
     "GRANT_EXPIRED": "its time ran out",
     "BUDGET_EXHAUSTED": "its stages were used up",
+    "CANCELLED": "you stopped the previous question with Ctrl+C",
 }
 
 
@@ -258,7 +259,8 @@ class ProjectSession(Session):
             return
         print("Earlier in this conversation:")
         for turn in self.history[-limit:]:
-            answer = " ".join(str(turn.get("answer", "")).split())
+            # A plain line: the saved answer's Markdown marks (`code`, **bold**, # headings) would show as raw characters.
+            answer = " ".join(str(turn.get("answer", "")).replace("**", "").replace("`", "").replace("#", "").split())
             print("  › %s" % _safe(str(turn.get("question", "")), 100))
             print("    %s" % _safe(answer, 160))
 
@@ -859,6 +861,7 @@ class ProjectSession(Session):
         # Ctrl+C is a cancellation: the next question asks for the task scope again.
         if self._task_consent is not None:
             self._task_consent.close()
+            self._task_consent.ended = "CANCELLED"
         return super()._interrupted()
 
     def _remember_edit(self, text, outcome):
