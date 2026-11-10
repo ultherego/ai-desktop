@@ -973,3 +973,43 @@ class WholeTests(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ConversationLinkTests(unittest.TestCase):
+    """`material` runs on the conversation link in production; tests that pass their own window keep it."""
+
+    def test_linked_sessions_get_the_kept_session_and_no_pacing(self):
+        from contextlib import contextmanager
+        from types import SimpleNamespace
+        opened = []
+
+        @contextmanager
+        def fake(**kwargs):
+            opened.append(kwargs)
+            yield object()
+        session = SimpleNamespace(args=SimpleNamespace(details=False), window="given", pacer="given")
+        with unittest.mock.patch.object(mcli, "managed_session", side_effect=fake):
+            with mcli.conversation(session, linked=True):
+                self.assertIsInstance(session.window, mcli.LinkWindow)
+                self.assertIsInstance(session.pacer, mcli.Unpaced)
+                session.window.ensure()
+                session.window.ensure()
+        self.assertEqual(opened, [{"quiet": True}])
+        unlinked = SimpleNamespace(args=SimpleNamespace(details=False), window="given", pacer="given")
+        with mcli.conversation(unlinked, linked=False):
+            self.assertEqual((unlinked.window, unlinked.pacer), ("given", "given"))
+
+    def test_an_unconfirmed_cleanup_is_reported_not_raised(self):
+        from contextlib import contextmanager
+        from types import SimpleNamespace
+
+        @contextmanager
+        def failing(**kwargs):
+            yield object()
+            raise mcli.AnalysisDenied("cleanup")
+        session = SimpleNamespace(args=SimpleNamespace(details=True), window=None, pacer=None)
+        out = io.StringIO()
+        with unittest.mock.patch.object(mcli, "managed_session", side_effect=failing), contextlib.redirect_stdout(out):
+            with mcli.conversation(session, linked=True):
+                session.window.ensure()
+        self.assertIn("Run ai-desktop stop", out.getvalue())

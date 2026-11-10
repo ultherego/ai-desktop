@@ -23,6 +23,7 @@ TASK_BYTES = TASK_STAGES * TOTAL_BYTES
 
 
 class ProjectTaskConsent:
+    ended = None              # why reusable() said no: a GrantDenied code, for the user's message
     def __init__(self, project, question, *, clock):
         self._project = project
         self._policy = project.policy
@@ -100,13 +101,16 @@ class ProjectTaskConsent:
 
         Any refusal closes the scope for good, so a later question always asks again."""
         if not self._approved or self._closed:
+            self.ended = self.ended or "GRANT_INVALID"
             return False
         try:
             self._validate(project)
-        except GrantDenied:
+        except GrantDenied as exc:
+            self.ended = exc.code
             return False
         if self._stages >= TASK_STAGES:
             self.close()
+            self.ended = "BUDGET_EXHAUSTED"
             return False
         return True
 

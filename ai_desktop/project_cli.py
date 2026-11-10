@@ -70,6 +70,26 @@ def _source(path, first, last):
     return "%s:%d–%d" % (_safe(path, 80), first, last) if first != last else "%s:%d" % (_safe(path, 80), first)
 
 
+SCOPE_ENDED = {
+    "SOURCE_CHANGED": "the project changed since your approval (also a change saved here)",
+    "GRANT_EXPIRED": "its time ran out",
+    "BUDGET_EXHAUSTED": "its stages were used up",
+}
+
+
+def test_files(project, limit=3):
+    """Indexed files that look like the project's own tests (names only, from the local index; nothing is read)."""
+    found = []
+    for entry in project.files:
+        name = entry.path.rpartition("/")[2]
+        if ((name.endswith(".py") and (name.startswith("test_") or name.endswith("_test.py")))
+                or name.endswith("_test.go") or name.endswith((".test.js", ".test.ts", ".spec.js", ".spec.ts"))):
+            found.append(entry.path)
+            if len(found) >= limit:
+                break
+    return found
+
+
 class EditRefused(ValueError):
     """The proposed change cannot be mapped onto the owner's write policy; the message is for the user."""
 
@@ -161,10 +181,29 @@ def build_parser():
                                      description="Work with one project directory: read-only analysis, with changes and deletions only after you approve them")
     parser.add_argument("path", help="Directory within files.read in permissions.toml")
     add_arguments(parser, session=True)
+    parser.add_argument("-c", "--continue", dest="resume", action="store_true",
+                        help="Continue the latest saved conversation about this directory")
+    parser.add_argument("--no-save", dest="no_save", action="store_true",
+                        help="Do not save this conversation (it is saved locally by default)")
     parser.add_argument("--format", choices=("auto", "plain", "markdown"), default="auto")
     parser.add_argument("--v", "--verbose", "-v", "--details", dest="details", action="store_true",
                         help="Show the exact payload and diagnostics")
     return parser
+
+
+def conversation_binding(root):
+    """A saved project conversation belongs to its directory, not to one version of its files: every question rescans
+    the project anyway, and a binding to the contents would make a conversation unusable after its first saved change."""
+    import hashlib
+    return hashlib.sha256(("ai-desktop-project\0" + root).encode("utf-8")).hexdigest()
+
+
+def latest_conversation(root, *, store=None):
+    """The id of the most recently updated saved conversation about this directory, or None."""
+    from .conversation_sessions import Store
+    found = [item for item in (Store() if store is None else store).list()
+             if item["kind"] == "project" and item["path"] == root and item["binding"] == conversation_binding(root)]
+    return max(found, key=lambda item: item["updated"])["id"] if found else None
 
 
 class ProjectSession(Session):
@@ -187,6 +226,41 @@ class ProjectSession(Session):
         from .run_controls import provider_allowed
         self.can_send = provider_allowed(policy)
         self.binding = Binding(project.project_id, project.manifest_sha256())
+
+    _auto_save = False                      # set by main: save on the first finished question (like `ai-desktop`)
+
+    def remember(self, question, answer):
+        if self.conversation is None and self._auto_save:
+            self._auto_save = False             # one attempt: a failed save never stops the conversation
+            self.conversation = self._start_saving()
+        super().remember(question, answer)
+
+    def _start_saving(self):
+        from .conversation_sessions import MAX_SESSIONS, SessionError, Store
+        from .execution import current
+        try:
+            saved = Store().create("project", self.project.root, conversation_binding(self.project.root), current())
+        except SessionError as exc:
+            print("Not saved: you already have %d saved conversations, the most allowed (ai-desktop sessions)." % MAX_SESSIONS
+                  if str(exc) == "session-limit" else
+                  "Could not start local saving; the conversation continues in memory until you exit.")
+            return None
+        except (OSError, ValueError):
+            print("Could not start local saving; the conversation continues in memory until you exit.")
+            return None
+        print("Conversation: %s · saved locally (continue later: ai-desktop project -c %s; --no-save turns it off)" % (
+            saved.session_id, shlex.quote(self.project.root)))
+        return saved
+
+    def show_earlier(self, limit=4):
+        """On resume: the last questions with the controller-recorded outcomes, so the user sees where the task stands."""
+        if not self.history:
+            return
+        print("Earlier in this conversation:")
+        for turn in self.history[-limit:]:
+            answer = " ".join(str(turn.get("answer", "")).split())
+            print("  › %s" % _safe(str(turn.get("question", "")), 100))
+            print("    %s" % _safe(answer, 160))
 
     def _gate_kwargs(self, packet):
         return dict(question=packet.question, context=None, project=packet.material)
@@ -264,8 +338,8 @@ class ProjectSession(Session):
         scope = self._task_consent
         if scope is not None and not scope.reusable(self.project):
             # A changed file, policy, model or recipient, the deadline or the budget ends the approved task.
-            print("The approved task scope ended (the project, permissions or model changed, or its time or budget "
-                  "ran out). Approve the new preview.")
+            print("The approved task scope ended: %s. Approve the new preview." % SCOPE_ENDED.get(
+                scope.ended, "the permissions, the model or the recipient changed"))
             scope.close()
             scope = self._task_consent = None
         if scope is not None:
@@ -530,6 +604,11 @@ class ProjectSession(Session):
             "to change: " + ", ".join(_safe(p, 80) for p in decision["files"]) if existing else "",
             "check: " + decision["check"]) if part)
         suite = decision["check"] in task_contract.TEST_SUITES
+        code = any(path.endswith((".py", ".go", ".js", ".mjs", ".cjs", ".ts")) for path in decision["files"] + decision["create"])
+        tests = test_files(self.project) if code and not suite else []
+        untested = ("the project has tests (%s), but this change is checked with %s only: they are NOT run. "
+                    "Ask for the change \"and check it with the tests\" to run them." % (
+                        ", ".join(_safe(p, 60) for p in tests), decision["check"])) if tests else None
         test_line = ("%s once, offline, on a copy of the complete permitted project with the proposed changes "
                      "(network, user HOME and host writes blocked; output stays local)" % decision["check"])
         test_consent = None
@@ -539,6 +618,8 @@ class ProjectSession(Session):
             if created:
                 print(field("New", *[_safe(p, 80) for p in decision["create"]]))
             print(field("Check", test_line if suite else decision["check"]))
+            if untested:
+                print(field("Warning", untested))
             if unsent:
                 print(field("Next", recipient("the content of files Claude has not seen yet (%s) goes to Claude in a separate task;") %
                             ", ".join(_safe(p, 60) for p in unsent), "saving happens only after you see the diff and give separate consent."))
@@ -570,6 +651,8 @@ class ProjectSession(Session):
                 return self._remember_edit(text, "the user rejected the proposed change")
         else:
             print("File change — %s. Preparing the diff…" % summary)
+            if untested:
+                print("Warning: " + untested)
         try:
             code, fact = self._run_edit(request_text, snapshot, plan, versions, packet, test_consent=test_consent)
         finally:
@@ -578,6 +661,8 @@ class ProjectSession(Session):
         print()
         if fact:
             # The controller's own outcome with the next step, kept in the saved conversation (S9).
+            if untested and code == 0:
+                fact += "; the project's tests were NOT run (next: run them with /test or ask for a check with the tests)"
             return self._remember_edit(text, fact)
         return self._remember_edit(text, "change saved after the user's consent" if code == 0
                                    else "change NOT saved (rejected, failed test or error)")
@@ -701,7 +786,7 @@ class ProjectSession(Session):
         args.format = self.args.format
         permit = prepared = None
         try:
-            self.window.close()                       # the edit pipeline opens its own managed session
+            self.window.close()                       # a short-lived window ends here; the conversation's kept session stays
             self.pacer.wait_turn(_countdown, _countdown_end)
             self._task_consent.check(self.project)
             # Only data from the exact packet that elicited this edit may cross the hand-off.
@@ -936,10 +1021,24 @@ def main(argv=None, *, reader=input, clock=time.monotonic, sleep=time.sleep, win
     session = ProjectSession(project, os.path.basename(project.root), policy, args, reader, clock=clock, sleep=sleep,
                              window=window, sender=sender)
     try:
-        session.attach_conversation("project", project.root, project.manifest_sha256())
-        return session.run()
+        if args.resume:
+            if args.session is not None:
+                print("Use either -c or --session ID, not both.")
+                return 2
+            args.session = latest_conversation(project.root)
+            if args.session is None:
+                print("No saved conversation about this directory yet; starting a new one.")
+        # Like `ai-desktop`: only a real interactive conversation saves itself (a test double or a pipe never does).
+        session._auto_save = args.session is None and not args.no_save and reader is input
+        session.attach_conversation("project", project.root, conversation_binding(project.root))
+        if args.session not in (None, "new"):
+            session.show_earlier()
+        from .material_cli import conversation
+        with conversation(session, linked=window is None):
+            return session.run()
     except (OSError, ValueError):
-        print("Cannot use the saved conversation. The project or settings may have changed; check ai-desktop sessions list.")
+        print("Cannot use the saved conversation (it may belong to another agent, or was saved by an older version for "
+              "one version of the files); check ai-desktop sessions list.")
         return 2
     finally:
         session.close_conversation()
