@@ -32,7 +32,7 @@ from .material_loop import lines_label
 from .project_loop import Loop, history_turn
 from .project_scope import Project, ProjectError
 from .project_step import MAX_HISTORY, MAX_STAGES, MAX_STEPS, TOTAL_BYTES, parse_decision, plain_answer
-from .project_task_consent import ProjectTaskConsent, TASK_BYTES, TASK_REQUESTS, TASK_SECONDS
+from .project_task_consent import ProjectTaskConsent, TASK_BYTES, TASK_REQUESTS, TASK_SECONDS, TASK_STAGES
 from .question_input import PromptSession, paste_token
 from . import task_workspace, workspace_trash
 from .terminal_consent import confirm
@@ -169,6 +169,7 @@ def build_parser():
 
 class ProjectSession(Session):
     accepts_pastes = True
+    _task_consent = None                    # the approved project task, kept for follow-up questions (S9)
     def __init__(self, project, name, policy, args, reader, *, clock=time.monotonic, sleep=time.sleep,
                  window=None, sender=send_once):
         self.project, self.name, self.policy, self.args, self.reader = project, name, policy, args, reader
@@ -260,24 +261,49 @@ class ProjectSession(Session):
             return
         self._current = text
         loop = Loop(self.project, history=self.history, progress=self.progress, pasted=pastes)
-        scope = ProjectTaskConsent(self.project, text, clock=self._clock)
-        self._scope(text, loop)
-        try:
-            approved = confirm("project-task", reader=self.reader)
-        except EOFError:
-            approved = False
-        except KeyboardInterrupt:
-            self._interrupted()
-            approved = False
-        if not approved:
+        scope = self._task_consent
+        if scope is not None and not scope.reusable(self.project):
+            # A changed file, policy, model or recipient, the deadline or the budget ends the approved task.
+            print("The approved task scope ended (the project, permissions or model changed, or its time or budget "
+                  "ran out). Approve the new preview.")
             scope.close()
-            print("Cancelled. No data was sent.")
-            return
+            scope = self._task_consent = None
+        if scope is not None:
+            try:
+                scope.follow_up(self.project, text)
+            except GrantDenied:
+                scope = self._task_consent = None
+            else:
+                if self.args.details:
+                    self._scope(text, loop)                 # --v still shows exactly what goes out
+                print(recipient("Within the task you approved: the question, file names and parts of %s go to Claude "
+                                "(%d stage(s) and about %d min left; Ctrl+C stops).") % (
+                    self.name, scope.stages_left, (scope.seconds_left + 59) // 60))
+                pasted = [o for o in loop.observations if o["kind"] == "pasted"]
+                if pasted:
+                    print("With your pastes: " + ", ".join("#%d (%d lines, %d B)" % (
+                        o["id"], o["lines"], len(o["text"].encode("utf-8"))) for o in pasted))
+        if scope is None:
+            scope = ProjectTaskConsent(self.project, text, clock=self._clock)
+            self._scope(text, loop)
+            try:
+                approved = confirm("project-task", reader=self.reader)
+            except EOFError:
+                approved = False
+            except KeyboardInterrupt:
+                self._interrupted()
+                approved = False
+            if not approved:
+                scope.close()
+                print("Cancelled. No data was sent.")
+                return
+        keep = False
         try:
-            # Approval re-scans: even the first stage must use the exact
-            # project previewed before the owner answered.
-            scope.approve(self.project)
-            self._task_consent = scope
+            if self._task_consent is not scope:
+                # Approval re-scans: even the first stage must use the exact
+                # project previewed before the owner answered.
+                scope.approve(self.project)
+                self._task_consent = scope
             for stage in range(1, MAX_STAGES + 1):
                 if stage > 1:
                     print(self._coverage_line(loop, stage - 1))
@@ -293,17 +319,22 @@ class ProjectSession(Session):
                 finally:
                     self._close_section()
                 if partial is None:
+                    keep = True
                     return
             print("Reached the limit of %d stages; partial conclusions are above. Type \"continue\" to start another round." % MAX_STAGES)
             print()
+            keep = True
         except GrantDenied as exc:
             print(GRANT_HINTS[exc.code])
         except KeyboardInterrupt:
             print("\nInterrupted.")
             self._interrupted()
         finally:
-            scope.close()
-            self._task_consent = None
+            # Only a question that ended normally keeps the task for a follow-up; a refusal or Ctrl+C asks again.
+            if not keep or self._task_consent is not scope:
+                scope.close()
+                if self._task_consent is scope:
+                    self._task_consent = None
 
     def _coverage_line(self, loop, stage):
         """Controller-counted coverage of the whole deep task (never the model's claim)."""
@@ -347,9 +378,10 @@ class ProjectSession(Session):
                 extras.append("context: %d earlier question(s) and answer(s)" % len(loop.history))
             if extras:
                 print(" · ".join(extras))
-            print("Analysis scope: up to %d stages, %d requests and %d MiB of project data in %d minutes; Ctrl+C stops." %
-                  (MAX_STAGES, TASK_REQUESTS, TASK_BYTES // 1048576, TASK_SECONDS // 60))
-            print("Tests, additional edit-data transfers and saving still require their applicable separate approvals.")
+            print("Task scope: up to %d stages (%d per question), %d requests and %d MiB of project data in %d minutes, "
+                  "also for follow-up questions in this window; Ctrl+C stops." %
+                  (TASK_STAGES, MAX_STAGES, TASK_REQUESTS, TASK_BYTES // 1048576, TASK_SECONDS // 60))
+            print("A changed file, permission or model asks again. Tests, edit-data transfers and saving have their own approval.")
             return
         print(rule("To send"))
         print(field("Question", _safe(text, 200)))
@@ -366,10 +398,11 @@ class ProjectSession(Session):
         print(field("Without", "Internet, file writes or running code · task time limit %d s" % TASK_SECONDS))
         print(field("Content", recipient("Claude will ask for a list of file names, a search or lines of files from this project."),
                     "File names, matches and parts are sent as data; the rest of the project is not sent.",
-                    "Up to %d stages, %d requests and %d MiB of project data in total; Ctrl+C stops." %
-                    (MAX_STAGES, TASK_REQUESTS, TASK_BYTES // 1048576),
+                    "Up to %d stages (%d per question), %d requests and %d MiB of project data in total, also for follow-up "
+                    "questions in this window until a file, permission or model changes; Ctrl+C stops." %
+                    (TASK_STAGES, MAX_STAGES, TASK_REQUESTS, TASK_BYTES // 1048576),
                     "Each stage: up to %d requests, %d KiB of data and %d s." % (MAX_STEPS, TOTAL_BYTES // 1024, GRANT_SECONDS),
-                    "Tests, additional edit-data transfers and saving still require their applicable separate approvals."))
+                    "Tests, additional edit-data transfers and saving have their own approval."))
         print(SEPARATOR)
 
     def _run(self, text, loop, session):
@@ -496,32 +529,78 @@ class ProjectSession(Session):
             "new: " + ", ".join(_safe(p, 80) for p in decision["create"]) if created else "",
             "to change: " + ", ".join(_safe(p, 80) for p in decision["files"]) if existing else "",
             "check: " + decision["check"]) if part)
-        if unsent:
+        suite = decision["check"] in task_contract.TEST_SUITES
+        test_line = ("%s once, offline, on a copy of the complete permitted project with the proposed changes "
+                     "(network, user HOME and host writes blocked; output stays local)" % decision["check"])
+        test_consent = None
+        if unsent or suite:
             print(rule("File change"))
             print(field("To change", *[_safe(p, 80) for p in decision["files"]]))
             if created:
                 print(field("New", *[_safe(p, 80) for p in decision["create"]]))
-            print(field("Check", decision["check"]))
-            print(field("Next", recipient("the content of files Claude has not seen yet (%s) goes to Claude in a separate task;") %
-                        ", ".join(_safe(p, 60) for p in unsent), "saving happens only after you see the diff and give separate consent."))
+            print(field("Check", test_line if suite else decision["check"]))
+            if unsent:
+                print(field("Next", recipient("the content of files Claude has not seen yet (%s) goes to Claude in a separate task;") %
+                            ", ".join(_safe(p, 60) for p in unsent), "saving happens only after you see the diff and give separate consent."))
+            else:
+                print(field("Next", "saving happens only after you see the test result and the diff and give separate consent."))
             print(SEPARATOR)
+            if suite:
+                # S9: the declared test is part of this one decision; the copy is still re-checked before it runs.
+                test_consent = self._edit_test_consent(decision["check"])
             try:
-                approved = confirm("project-edit", reader=self.reader)
+                approved = confirm(("project-edit-test" if unsent else "project-test") if suite else "project-edit",
+                                   reader=self.reader)
             except EOFError:
                 approved = False
             except KeyboardInterrupt:
                 self._interrupted()
                 approved = False
+            if approved and test_consent is not None:
+                try:
+                    test_consent.approve()
+                except AnalysisDenied:
+                    approved = False
             if not approved:
-                print("Cancelled. File contents were not sent. Nothing was saved.")
+                if test_consent is not None:
+                    test_consent.close()
+                print("Cancelled. File contents were not sent. Nothing was saved." if unsent
+                      else "Cancelled. Nothing was tested or saved.")
                 print()
                 return self._remember_edit(text, "the user rejected the proposed change")
         else:
             print("File change — %s. Preparing the diff…" % summary)
-        code = self._run_edit(request_text, snapshot, plan, versions, packet)
+        try:
+            code, fact = self._run_edit(request_text, snapshot, plan, versions, packet, test_consent=test_consent)
+        finally:
+            if test_consent is not None:
+                test_consent.close()
         print()
+        if fact:
+            # The controller's own outcome with the next step, kept in the saved conversation (S9).
+            return self._remember_edit(text, fact)
         return self._remember_edit(text, "change saved after the user's consent" if code == 0
                                    else "change NOT saved (rejected, failed test or error)")
+
+    def _edit_test_consent(self, check):
+        """One declared test on the full project copy, valid only while the approved project task still holds."""
+        from .analysis_contract import CONSENT_CEILING, consent_seconds
+        from .execution import current
+        from .task_test_consent import CopyTestConsent
+        selected = current()
+        seconds = min(CONSENT_CEILING, 2 * consent_seconds(selected.get("effort") if selected is not None else None))
+        task = self._task_consent
+
+        def guard():
+            if task is None or self._task_consent is not task:
+                return False
+            task.check(self.project)
+            return True
+        return CopyTestConsent(self._test_scope(check), check, guard=guard, seconds=seconds)
+
+    def _test_scope(self, check):
+        return {"root": self.project.root, "project": self.project.project_id, "copy": "permitted-project",
+                "manifest": self.project.manifest_sha256(), "check": check, "test_runs": 1}
 
     def test_project(self, recipe):
         from . import project_checks
@@ -617,10 +696,10 @@ class ProjectSession(Session):
         print("Restore: " + shlex.join(["ai-desktop", "task", "restore", "--workspace", workspace, "--plan", plan]))
         print()
 
-    def _run_edit(self, text, snapshot, plan, versions, packet):
+    def _run_edit(self, text, snapshot, plan, versions, packet, *, test_consent=None):
         args = ask_cli.build_parser().parse_args(["--v"] if self.args.details else [])
         args.format = self.args.format
-        permit = None
+        permit = prepared = None
         try:
             self.window.close()                       # the edit pipeline opens its own managed session
             self.pacer.wait_turn(_countdown, _countdown_end)
@@ -650,13 +729,31 @@ class ProjectSession(Session):
             transfer["state"] = "answer received"
             check_edit_scope()
             permit.close()
-            return ask_edit.finish(prepared, response, args, self.reader).code
+            approved_test = None
+            if test_consent is not None:
+                scope = self._test_scope(prepared.check)
+                approved_test = lambda: test_consent.consume(scope, prepared.check)
+            done = ask_edit.finish(prepared, response, args, self.reader, approved_test=approved_test)
+            return done.code, done.fact
         except GrantDenied as exc:
             print(GRANT_HINTS[exc.code])
         except InputBudgetExceeded:
             print("The agreed context and selected files exceed the edit request limit. Narrow the task; nothing was saved.")
         except ask_edit.CreateCollision:
             print("The file to create already exists. Nothing was saved.")
+        except ask_edit.EditInterrupted as stopped:
+            # Not "nothing was saved": the save began, so some files may already be written.
+            command = shlex.join(["ai-desktop", "task", "status", "--workspace", prepared.workspace])
+            print("Saving was interrupted: %d of %d file(s) confirmed saved, the rest may differ." % (stopped.saved, stopped.total))
+            print("Check: " + command + ", then ai-desktop task rollback for this directory.")
+            return 2, ("change INTERRUPTED while saving (%d of %d file(s) saved); next: ai-desktop task status, "
+                       "then task rollback" % (stopped.saved, stopped.total))
+        except ask_edit.EditConflict:
+            print("The file changed after it was read (another editor or terminal). Nothing was overwritten.")
+            return 2, "change NOT saved: a file changed after it was read; next: ask again to work on the current version"
+        except ask_edit.EditBusy:
+            print("Another terminal is saving in this directory right now. Nothing was written.")
+            return 2, "change NOT saved: another terminal was saving in this directory; next: ask again when it is done"
         except (ask_edit.EditDenied, ExecutionDenied) as exc:
             print("The change was not prepared (the consent, policy or file state changed). Nothing was saved.")
         except AnalysisDenied as exc:
@@ -671,7 +768,13 @@ class ProjectSession(Session):
         finally:
             if permit is not None:
                 permit.close()
-        return 2
+        return 2, ""
+
+    def _interrupted(self):
+        # Ctrl+C is a cancellation: the next question asks for the task scope again.
+        if self._task_consent is not None:
+            self._task_consent.close()
+        return super()._interrupted()
 
     def _remember_edit(self, text, outcome):
         self.remember(text, "[%s]" % outcome)

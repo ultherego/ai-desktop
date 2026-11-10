@@ -108,7 +108,7 @@ Release boundary: S8 client delivery, S9 task usability and the remaining S2–S
 | Order / ID | Epic and priority | Deliverable | Status | Depends on |
 |---|---|---|---|---|
 | 1 / S8 | E2, E7 / P0 | Independent system/native/HOME/npm clients with approved registration and shared compatibility | IN PROGRESS | Runtime and candidate-83 widget/quota flow accepted and merged in PR #20; broader native lifecycle/release acceptance remains open |
-| 2 / S9 | E3–E6 / P0 | One bounded task flow with fewer repeated approvals | IN PROGRESS | Candidate 84 is merged for project analysis stages and standalone declared tests; combined ask/project-edit scope and persistent task continuation remain open |
+| 2 / S9 | E3–E6 / P0 | One bounded task flow with fewer repeated approvals | READY FOR TEST | Candidate 84 (project analysis stages, standalone declared tests) is merged; candidate 158 adds the task scope across follow-up project questions, one edit-data+suite decision and recorded outcomes with the next step; awaiting CachyOS acceptance |
 | Remaining / S3 | E3–E6 / P0 | Large-file analysis, many files, anchored edits and independent test-copy budgets | IN PROGRESS | Existing read/plan/executor; bounded context work from S2 |
 | Remaining / S4 | E3, E6 / P0 | Shared on-demand Skills and documentation loader in every mode | IN PROGRESS | Existing role, source and recipient authorization |
 | Remaining / S5 | E3 / P0 | General Arch/CachyOS procedures and version-aware references | IN PROGRESS | S4 and official documentation |
@@ -236,7 +236,7 @@ Preserve read-only defaults and the conversation-scoped consent already implemen
 
 Keep the exact final diff/plan approval before each live write, separate deletion/undo decisions and existing source/state rechecks. A failed test blocks writing. An automatic retry must not silently send test output, enlarge limits, change provider or repeat an applied action. Persist completed outcomes and the next step through the S1/S2 work. Long waits, cancellation and errors must leave a usable conversation with an honest outcome.
 
-Acceptance measures the complete user's task: one scope approval, no duplicate read/stage/test approvals inside that scope, a reviewable final write decision, and preserved outcomes after failure/resume. Cover refusal, revoked access, changed project contents, exhausted budgets, test failure, cancellation, provider/account changes and a separate rollback. Candidate 84 implements the first bounded slice: project analysis stages share one approval, and standalone tasks approve preparation plus one declared selected-copy test together. Ordinary `ask` and project-edit copy-test decisions remain separate. Combined edit-data/test scope and persistent continuation are still open; S9 is not DONE.
+Acceptance measures the complete user's task: one scope approval, no duplicate read/stage/test approvals inside that scope, a reviewable final write decision, and preserved outcomes after failure/resume. Cover refusal, revoked access, changed project contents, exhausted budgets, test failure, cancellation, provider/account changes and a separate rollback. Candidate 84 implements the first bounded slice: project analysis stages share one approval, and standalone tasks approve preparation plus one declared selected-copy test together. Candidate 158 completes the remaining slices for `ai-desktop project`: the approved task scope carries across follow-up questions (shared 10-stage budget and 50-minute deadline, ended by any change of index, policy, execution or recipient, refusal or Ctrl+C); edit-data transfer and the declared project suite are one decision bound by `CopyTestConsent` to the project root, manifest and recipe, spent on the attempt and re-asked if invalid; the controller records each outcome with the next step in the saved conversation. Ordinary `ask` keeps one test decision per proposal by design (conversation consent never covers code execution). S9 is DONE after CachyOS acceptance of candidate 158.
 
 ### Source and verification policy for this scope
 
@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** merge PR #50 (candidates 138–157), then a real Codex request with its answer while written (after the maintainer's Codex limit resets around 2026-11-12), then the S9 task flow. S0 and S7 remain deferred.
+**Next step:** CachyOS acceptance of candidate 158 (S9 project task flow), then a real Codex request with its answer while written (after the maintainer's Codex limit resets around 2026-11-12). S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -260,6 +260,15 @@ Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaini
 ## Progress log
 
 Earlier dated entries preserve the evidence and status at that point. The latest entry supersedes historical pending/next-step statements.
+
+### 2026-11-10 — Candidate 158: S9 project task flow
+
+PR #50 (candidates 138–157) is merged as `b362bb3`. Branch `feature/s9-task-flow` implements the open S9 slices in one PR, at the maintainer's request.
+- **Task scope across questions.** `ProjectTaskConsent` gains `reusable`, `follow_up`, `stages_left` and `seconds_left`; `TASK_STAGES = 2 × MAX_STAGES` is the whole task's budget (one question still stops at five stages), `TASK_SECONDS` is unchanged. `ProjectSession.question` reuses a live scope and prints "Within the task you approved…"; any validation failure (rescanned index, policy fingerprint, execution), an exhausted budget, the deadline, a `GrantDenied` or Ctrl+C (`_interrupted`) closes it, and the next question previews and asks again. The previews state the follow-up coverage.
+- **Edit data and its suite as one decision.** For a proposal declaring a project suite, `_edit` shows the test with the change and asks `project-edit-test` (or `project-test` when no new content is sent) before preparing; a `CopyTestConsent` bound to root, project id, manifest and recipe with the live task as guard is approved after the yes, passed as `approved_test` through `ask_edit.finish` and `task_cli.finish_task` to `PreparedProjectTest.run`, spent on the attempt, and replaced by the ordinary question if no longer valid. The copy is re-checked before and after the test as before; the write decision is unchanged.
+- **Outcomes with the next step.** `finish_task` reports its own reason (`saved`, `unchanged`, `test-cancelled`, `test-failed`, `write-declined`); `ask_edit.CompletedTask.fact` carries the controller's sentence with the next step into `note_action` (ask) and the project conversation record. `ProjectSession._run_edit` now reports an interrupted save with the saved count and recovery commands instead of "Nothing was saved", and names conflicts and a busy directory.
+- **Client copy.** `ai-desktop clients refresh` returns "Already up to date" without sudo or a question when source path and digest match the registration and the runtime copy is present; `/model` prints `management_cli.stale_copy_hint` when the user's client differs from its registered copy (metadata/hash only, never run; skipped in tests).
+- Tests: `test_project_task_consent` (follow-up budget, deadline, close, empty follow-up), `test_project_cli` (follow-up without a prompt, changed project/model and Ctrl+C ask again, one edit+suite decision, pre-preparation test question, approval ends with the task), `test_project_edit_test.ApprovedProjectTestTests`, `test_project_chain` (follow-up edit with one task approval), `test_clients_cli` (up to date, still asks when runtime or path differ), `test_conversation_menus.StaleCopyHintTests`. **READY FOR TEST**, candidate **0.1.0-158**.
 
 ### 2026-11-10 — Candidate 157: arrows in the `/` list during an answer
 

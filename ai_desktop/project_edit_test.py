@@ -83,8 +83,11 @@ class PreparedProjectTest:
                 or any(len(content.encode("utf-8")) > limits.test_copy_file_size for content in files.values())):
             raise project_scope.TestScopeRefused("The proposed changes exceed the configured local test-copy budget.")
 
-    def run(self, source, proposed_files, check, reader, write_guard):
-        """Test the full pinned copy plus proposal; only a successful result is proof."""
+    def run(self, source, proposed_files, check, reader, write_guard, approved=None):
+        """Test the full pinned copy plus proposal; only a successful result is proof.
+
+        approved: the controller's one-use earlier yes for this declared test (S9). It is spent on this attempt;
+        if it is no longer valid, the owner is asked here as before, never silently skipped."""
         self._proof = None
         if check not in task_contract.TEST_SUITES:
             raise ValueError("project test suite")
@@ -99,8 +102,18 @@ class PreparedProjectTest:
               (check, len(self._entries), excluded, revision))
         print("Project: " + terminal_text(self._root))
         print("Network, user HOME and host writes are blocked. Additional project files and test output stay local.")
-        if not confirm("project-test", reader=reader):
-            return {"passed": False, "exit_code": 2, "output": "Test cancelled. Nothing was saved.", "check": check}
+        agreed = False
+        if approved is not None:
+            from .analysis_contract import AnalysisDenied
+            try:
+                approved()
+                agreed = True
+                print("Running the test you approved with the change.")
+            except AnalysisDenied:
+                print("The earlier test approval is no longer valid (it expired or the task changed).")
+        if not agreed and not confirm("project-test", reader=reader):
+            return {"passed": False, "exit_code": 2, "output": "Test cancelled. Nothing was saved.", "check": check,
+                    "cancelled": True}
         if write_guard is not None:
             write_guard()
         self.check()

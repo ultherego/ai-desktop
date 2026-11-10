@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.0-158: project tasks with fewer questions
+
+- **`ai-desktop project`: one approval per task.** A follow-up question about the same project no longer asks again: it says "Within the task you approved" and how many stages and minutes are left. The task ends, and the next question asks again, when a project file, `permissions.toml`, the model or the recipient changes, when its time or budget runs out, after a refusal or after Ctrl+C.
+- **A change with its test is one decision.** When Claude proposes a change and a project suite (`pytest`, `python-unittest`, `go-test`, `npm-test`), sending the files and running that test on a copy are one question. Saving still needs your yes after the test result and the full diff.
+- **The outcome is remembered with the next step.** A saved conversation records what really happened to a change (saved and how to undo it, test failed, save declined, file changed by someone else, save interrupted with the recovery command), so after `-c` the model does not propose it blindly again.
+- A save interrupted part-way in `ai-desktop project` no longer says "Nothing was saved": it gives the number of files saved and the recovery commands.
+- `ai-desktop clients refresh` says "Already up to date" without sudo or a question when your client has not changed since it was registered.
+- `/model` says when your installed Claude or Codex changed after AI Desktop registered its copy (new models may be missing) and names `ai-desktop clients refresh`.
+
 ## 0.1.0-157: arrows in the `/` list during an answer
 
 - While an answer is being written, Up and Down move the highlight in the `/` list again (in terminals that send arrows in the keyboard protocol's long form, such as a terminal inside a multiplexer).

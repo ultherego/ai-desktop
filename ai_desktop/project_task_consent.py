@@ -1,8 +1,11 @@
 """One process-local approval for bounded read-only stages of one project.
 
 Each stage still uses its ordinary TransferSession limits. This owner-approved
-scope can issue at most MAX_STAGES such grants, all for the same captured index,
-policy and recipient, and none can outlive the overall deadline. It cannot
+scope can issue at most TASK_STAGES such grants, all for the same captured index,
+policy and recipient, and none can outlive the overall deadline. Follow-up
+questions in the same live project session reuse it (S9) while all of that
+holds; a changed file, policy, model or recipient, an exhausted budget, the
+deadline or a cancellation ends it, and the next question asks again. It cannot
 authorize test execution, edits, writes, deletion or resumed-session access.
 """
 import os
@@ -13,9 +16,10 @@ from .material_grant import GrantDenied, MaterialGrant, MAX_DEADLINE_SECONDS
 from .project_step import MAX_STAGES, MAX_STEPS, TOTAL_BYTES
 
 
+TASK_STAGES = 2 * MAX_STAGES          # all questions of one approved task together; one question still stops at MAX_STAGES
 TASK_SECONDS = MAX_STAGES * MAX_DEADLINE_SECONDS
-TASK_REQUESTS = MAX_STAGES * MAX_STEPS
-TASK_BYTES = MAX_STAGES * TOTAL_BYTES
+TASK_REQUESTS = TASK_STAGES * MAX_STEPS
+TASK_BYTES = TASK_STAGES * TOTAL_BYTES
 
 
 class ProjectTaskConsent:
@@ -91,9 +95,42 @@ class ProjectTaskConsent:
             raise GrantDenied("GRANT_INVALID")
         self._validate(project)
 
+    def reusable(self, project):
+        """True while a follow-up question may use this approval without a new prompt; never raises.
+
+        Any refusal closes the scope for good, so a later question always asks again."""
+        if not self._approved or self._closed:
+            return False
+        try:
+            self._validate(project)
+        except GrantDenied:
+            return False
+        if self._stages >= TASK_STAGES:
+            self.close()
+            return False
+        return True
+
+    def follow_up(self, project, question):
+        """Bind the next stages to a new question of the same task (the shown scope already covered follow-ups)."""
+        self.check(project)
+        if type(question) is not str or not question:
+            self.close()
+            raise GrantDenied("GRANT_INVALID")
+        self._question = question
+
+    @property
+    def stages_left(self):
+        return max(0, TASK_STAGES - self._stages)
+
+    @property
+    def seconds_left(self):
+        if not self._approved:
+            return 0
+        return max(0, int(self._deadline - self._clock()))
+
     def next_stage(self, project):
         self.check(project)
-        if self._stages >= MAX_STAGES:
+        if self._stages >= TASK_STAGES:
             self.close()
             raise GrantDenied("BUDGET_EXHAUSTED")
         self._stages += 1

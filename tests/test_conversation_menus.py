@@ -384,3 +384,35 @@ class LiveInputParityTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StaleCopyHintTests(unittest.TestCase):
+    """/model says when the user's own client changed after AI Desktop registered its copy (the list comes from the copy)."""
+
+    def hint(self, registered, source):
+        with patch.dict(_os.environ, {"AI_DESKTOP_MODEL_CATALOG": "on"}), \
+                patch("ai_desktop.client_registration.registration_status", return_value=registered), \
+                patch("ai_desktop.client_sources.discover", return_value=source) as discover:
+            return management_cli.stale_copy_hint("claude"), discover
+
+    def test_a_changed_source_names_the_refresh_command(self):
+        from types import SimpleNamespace
+        text, discover = self.hint({"status": "registered", "digest": "a" * 64, "path": "/home/user/.local/bin/claude"},
+                                   SimpleNamespace(status="present", digest="b" * 64))
+        self.assertIn("ai-desktop clients refresh claude", text)
+        discover.assert_called_once_with("claude", "/home/user/.local/bin/claude")
+
+    def test_an_unchanged_missing_or_foreign_copy_gives_no_hint(self):
+        from types import SimpleNamespace
+        same = SimpleNamespace(status="present", digest="a" * 64)
+        self.assertIsNone(self.hint({"status": "registered", "digest": "a" * 64, "path": "/x/claude"}, same)[0])
+        self.assertIsNone(self.hint({"status": "missing", "digest": None, "path": None}, same)[0])
+        self.assertIsNone(self.hint({"status": "registered", "digest": "a" * 64, "path": None}, same)[0])
+        self.assertIsNone(self.hint({"status": "registered", "digest": "a" * 64, "path": "/x/claude"},
+                                    SimpleNamespace(status="missing", digest=None))[0])
+        self.assertIsNone(management_cli.stale_copy_hint("local"))
+
+    def test_tests_and_a_switched_off_catalog_never_look_at_this_computer(self):
+        with patch("ai_desktop.client_registration.registration_status") as status:
+            self.assertIsNone(management_cli.stale_copy_hint("claude"))
+        status.assert_not_called()

@@ -35,7 +35,35 @@ def model_choices(provider, *, clock=None):
     return result
 
 
+def stale_copy_hint(provider):
+    """A line when the user's own client changed after its AI Desktop copy was registered, else None.
+
+    The models come from the registered copy, so a newer installed client can know models this copy does not. Reads the
+    installed client's files as data like `ai-desktop clients list`: it never runs the client or reads login data."""
+    import os
+    import sys
+    if provider not in ("claude", "codex") or (os.environ.get("AI_DESKTOP_MODEL_CATALOG") == "off" or "unittest" in sys.modules
+                                               and os.environ.get("AI_DESKTOP_MODEL_CATALOG") != "on"):
+        return None                    # like the catalog itself: tests never look at this computer's clients
+    try:
+        from .client_registration import registration_status
+        from .client_sources import discover
+        registered = registration_status(provider)
+        if registered["status"] != "registered" or registered.get("path") is None:
+            return None
+        source = discover(provider, registered["path"])
+        if source.status != "present" or source.digest == registered["digest"]:
+            return None
+    except Exception:          # a hint only: the menu works the same without it
+        return None
+    return ("Your installed %s changed after AI Desktop registered its copy, so new models may be missing here. "
+            "Update the copy: ai-desktop clients refresh %s" % (provider.capitalize(), provider))
+
+
 def _fetch_choices(provider):
+    hint = stale_copy_hint(provider)
+    if hint is not None:
+        print(hint, flush=True)
     if provider == "claude":
         # Only the client's own list, as its /model menu shows it ("Opus 5.5 — Best for everyday, complex tasks"), and
         # "Other ID": nothing is baked in here, so a model the provider adds appears without an update of this program.

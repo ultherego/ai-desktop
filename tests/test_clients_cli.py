@@ -128,6 +128,28 @@ class ClientRegistrationCliTests(unittest.TestCase):
         self.assertEqual(cli.main(["refresh", "claude", "--path", "/custom/new-client"]), 0)
         self.discover.assert_called_once_with("claude", "/custom/new-client")
 
+    def test_refresh_of_an_unchanged_source_needs_no_question_and_no_sudo(self):
+        self.metadata.return_value = {"status": "registered", "digest": NEW, "path": self.source.path, "source_uid": 1000}
+        with patch("ai_desktop.system_clients.inspect", return_value=SimpleNamespace(status="present")):
+            self.assertEqual(cli.main(["refresh", "claude"]), 0)
+        self.assertIn("Already up to date", self.output.getvalue())
+        self.answer.assert_not_called()
+        self.run.assert_not_called()
+
+    def test_refresh_still_asks_when_the_runtime_copy_or_the_source_path_differs(self):
+        self.metadata.return_value = {"status": "registered", "digest": NEW, "path": self.source.path, "source_uid": 1000}
+        with patch("ai_desktop.system_clients.inspect", return_value=SimpleNamespace(status="missing")):
+            self.assertEqual(cli.main(["refresh", "claude"]), 0)
+        self.answer.assert_called_once()
+        self.run.assert_called_once()
+        self.answer.reset_mock()
+        self.run.reset_mock()
+        self.discover.return_value = SimpleNamespace(**dict(vars(self.source), path="/custom/other-claude"))
+        with patch("ai_desktop.system_clients.inspect", return_value=SimpleNamespace(status="present")):
+            self.assertEqual(cli.main(["refresh", "claude", "--path", "/custom/other-claude"]), 0)
+        self.answer.assert_called_once()
+        self.run.assert_called_once()
+
     def test_remove_binds_existing_digest_and_never_reads_or_executes_source(self):
         self.registered()
         self.assertEqual(cli.main(["remove", "codex"]), 0)

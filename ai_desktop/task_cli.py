@@ -144,12 +144,16 @@ def run_task(args, reader, *, display_state=None):
 
 
 def finish_task(before, source, response, args, reader, *, write_guard=None, config=UNSET, project_test=None,
-                test_consent=None):
+                test_consent=None, approved_test=None, outcome=None):
     """Shared proposal review; sending data never authorizes a filesystem write.
 
     ask supplies a policy-bound guard, repeated after confirmation and inside
     the executor lock. The standalone task flow retains its explicit selection.
+    outcome (a dict, optional) receives the controller's own reason for the result,
+    so a conversation can record what really happened and the next step (S9).
     """
+    if outcome is None:
+        outcome = {}
     source_guard = write_guard
     if project_test is not None:
         def write_guard():
@@ -164,6 +168,7 @@ def finish_task(before, source, response, args, reader, *, write_guard=None, con
         print("No change was proposed: the file already has this content. Nothing was saved.")
         if args.details:
             print("TASK: REFUSED reason=unchanged; project unchanged")
+        outcome["reason"] = "unchanged"
         return 2
     workspace.unchanged(before)
     print("\n" + ("=== PROPOSAL FROM %s ===" % recipient(config=config).upper() if args.details else "Proposal:"))
@@ -171,6 +176,8 @@ def finish_task(before, source, response, args, reader, *, write_guard=None, con
     if args.details:
         print("=== TEST ON AN ISOLATED COPY ===", flush=True)
         print("Checking the changes on an isolated copy…", flush=True)
+    if approved_test is not None and (project_test is None or test_consent is not None):
+        raise AnalysisDenied("consent")
     if test_consent is not None:
         if type(test_consent) is not CopyTestConsent or project_test is not None:
             raise AnalysisDenied("consent")
@@ -179,11 +186,13 @@ def finish_task(before, source, response, args, reader, *, write_guard=None, con
         print("Run %s on the selected files with a transient user cgroup, without network or host writes." % args.test)
         if not confirm("project-test", reader=reader):
             print("Test cancelled. Nothing was saved.")
+            outcome["reason"] = "test-cancelled"
             return 2
     originals = {path: info["file"] for path, info in before["files"].items() if info["file"] is not None
                  and info["file"]["content"] != contract.plain_text(info["file"]["content"])}
     if project_test is not None:
-        result = project_test.run(source, proposed["files"], args.test, reader, source_guard)
+        result = project_test.run(source, proposed["files"], args.test, reader, source_guard,
+                                  **({"approved": approved_test} if approved_test is not None else {}))
     else:
         result = task_sandbox.run(source, proposed["files"], args.test, **({"originals": originals} if originals else {}))
     if args.details or not result["passed"]:
@@ -210,6 +219,7 @@ def finish_task(before, source, response, args, reader, *, write_guard=None, con
     if not result["passed"]:
         print("TASK: REFUSED reason=test; project unchanged" if args.details
               else "The changes were not saved. Fix the task or the test and try again.")
+        outcome["reason"] = "test-cancelled" if result.get("cancelled") is True else "test-failed"
         return 2
     if write_guard is not None:
         write_guard()
@@ -225,6 +235,7 @@ def finish_task(before, source, response, args, reader, *, write_guard=None, con
         print("Plan SHA256:", plan.sha256)
     if not confirm("write", reader=reader):
         print("TASK: CANCELLED; project unchanged" if args.details else "Save cancelled. The project is unchanged.")
+        outcome["reason"] = "write-declined"
         return 2
     # The UI approves this exact immutable plan; the internal token never comes
     # from model text. The executor still consumes its nonce and expiry once.
@@ -238,6 +249,7 @@ def finish_task(before, source, response, args, reader, *, write_guard=None, con
         raise
     print("TASK: PASS test=" + args.test if args.details else "Changes saved.")
     print("Undo: " + shlex.join(["ai-desktop", "task", "rollback", "--workspace", args.workspace]))
+    outcome["reason"] = "saved"
     return 0
 
 

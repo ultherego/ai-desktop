@@ -142,6 +142,13 @@ def main(argv=None):
         expected = _digest(source.digest)
         if type(source.path) is not str or not source.path.startswith("/"):
             raise ValueError("absolute source")
+        if args.action == "refresh" and expected == previous and source.path == registered.get("path"):
+            from . import system_clients
+            if system_clients.inspect(args.provider).status == "present":
+                # Nothing changed since the reviewed copy: no administrator step, no question.
+                print("Already up to date: the registered " + args.provider + " copy matches " + _text(source.path) + ".")
+                print("  Payload digest: " + expected)
+                return 0
         print(args.action.capitalize() + " " + args.provider + " for the system-wide isolated runtime (all users).")
         print("  Source: " + _text(source.path))
         print("  Layout: " + _text(source.layout) + "; files=" + str(source.files_count)
