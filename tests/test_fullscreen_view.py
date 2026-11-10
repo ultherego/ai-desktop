@@ -578,3 +578,31 @@ class ListDuringTurnTests(unittest.TestCase):
         self.assertEqual(rows[-2:], ["answer line 39", "⠋ Reading (5)"])
         self.assertEqual(sum(1 for row in rows if row.startswith("⠋")), 1)
         self.assertNotIn("", rows[-12:])
+
+
+class TurnArrowTests(unittest.TestCase):
+    """CachyOS check of candidate 156 (a terminal inside a multiplexer): during an answer, Up/Down did not move the highlight in
+    the `/` list, because the keyboard protocol sent them in the long form (ESC[1;1B), which only the idle editor
+    turned into the plain key."""
+
+    def owner(self):
+        owner = terminal_input.TypeAhead.__new__(terminal_input.TypeAhead)
+        owner.frame = object()
+        owner.line = question_input._Line(1000)
+        owner._question = owner._answer = None
+        owner._sequence = None
+        owner._epoch = owner._sequence_epoch = 0
+        owner._paste_open = False
+        owner.commands, owner.pick, owner.queue = (("/help", ""), ("/model", ""), ("/effort", "")), 0, []
+        owner.session = None
+        owner.walk = question_input.HistoryWalk(None)
+        return owner
+
+    def test_arrows_move_the_highlight_in_every_form(self):
+        for down in (b"\x1b[B", b"\x1bOB", b"\x1b[1;1B", b"\x1b[1;129B"):
+            owner = self.owner()
+            for byte in b"/" + down + down:
+                owner._feed(bytes([byte]))
+            with self.subTest(down=down):
+                self.assertEqual(owner.pick, 2)
+                self.assertEqual(owner.line.text, "/")

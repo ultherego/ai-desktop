@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-157: arrows in the `/` list during an answer
+
+- While an answer is being written, Up and Down move the highlight in the `/` list again (in terminals that send arrows in the keyboard protocol's long form, such as a terminal inside a multiplexer).
+
 ## 0.1.0-156: text printed before a menu stays readable
 
 - After a `/` command printed something and then opened its menu (for example `/settings` or `/model`), the next text no longer overwrites it on the same line.

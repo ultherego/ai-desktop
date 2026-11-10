@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** a short CachyOS check of candidate 156 (text before a menu), merge PR #50 (candidates 138–156), then a real Codex request with its answer while written (after the maintainer's Codex limit resets around 2026-11-12), then the S9 task flow. S0 and S7 remain deferred.
+**Next step:** a short CachyOS check of candidate 157 (arrows in the `/` list during an answer, text before a menu), merge PR #50 (candidates 138–157), then a real Codex request with its answer while written (after the maintainer's Codex limit resets around 2026-11-12), then the S9 task flow. S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -260,6 +260,11 @@ Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaini
 ## Progress log
 
 Earlier dated entries preserve the evidence and status at that point. The latest entry supersedes historical pending/next-step statements.
+
+### 2026-11-10 — Candidate 157: arrows in the `/` list during an answer
+
+CachyOS check of candidate 156 (a terminal inside a multiplexer): typing `/` during a web search showed the list, but Up/Down did not move its highlight. Since candidate 153 the turn reader switches on the same keyboard protocol as the idle prompt, and in it the arrows can arrive in the long form (`ESC[1;1B`, or with lock bits); the idle editor normalises that form, the turn reader did not and dropped the key. `terminal_input.TypeAhead` now normalises a complete CSI key with `_without_locks` before looking it up. Test: `TurnArrowTests` (plain, application-mode, long and lock-bit forms). **READY FOR TEST**, candidate **0.1.0-157**.
+- The maintainer saw Fable 5.1 in `/model` while Claude Code itself listed Fable 5.2: `ai-desktop clients list` showed the registered Claude copy older than its updated source (`Source differs from the registered copy`). After `ai-desktop clients refresh claude` (and `codex`) the list matched the client, confirming that it comes from the approved client and that a source update is never trusted silently.
 
 ### 2026-11-10 — Candidate 156: text printed before a menu
 

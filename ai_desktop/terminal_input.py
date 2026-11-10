@@ -31,7 +31,7 @@ import time
 
 from .analysis_contract import MAX_MESSAGE_BYTES
 from . import question_input
-from .question_input import (_KEYS, _PASTE_END, _PASTE_START, CONTROL_EDITS, UP_DOWN, HistoryWalk, QuestionInputError,
+from .question_input import (_without_locks, _KEYS, _PASTE_END, _PASTE_START, CONTROL_EDITS, UP_DOWN, HistoryWalk, QuestionInputError,
                              _Line, _safe_text, edit_key, modified_key, opens_list, scroll_key)
 
 _ANSI = re.compile(r"\x1b\[[0-9;?<>]*[A-Za-z]")
@@ -413,6 +413,12 @@ class TypeAhead:
                 return
             if kind == "escape":
                 key = bytes(buffer)
+                if key[:1] == b"[" and len(key) > 1 and 0x40 <= key[-1] <= 0x7E:
+                    plain = _without_locks(key)
+                    if plain in _KEYS:
+                        # An arrow or Home/End in the keyboard protocol's long form (ESC[1;1B, lock bits) is the
+                        # plain key, as at the idle prompt (CachyOS check of candidate 156, a terminal inside a multiplexer).
+                        key = plain
                 if key == _PASTE_START:
                     self._sequence, self._paste_open = ("paste", bytearray()), True
                 elif key == _PASTE_END[1:]:
