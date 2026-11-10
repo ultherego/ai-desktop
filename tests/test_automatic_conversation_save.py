@@ -118,7 +118,7 @@ class FakeStore:
 
 
 class AutomaticAskSaveTests(unittest.TestCase):
-    def run_ask(self, argv, messages, answers, *, store=None):
+    def run_ask(self, argv, messages, answers, *, store=None, saving=True):
         output = io.StringIO()
         output.isatty = lambda: True
         store = store or FakeStore()
@@ -126,6 +126,7 @@ class AutomaticAskSaveTests(unittest.TestCase):
         presence = Mock()
         with ExitStack() as stack:
             stack.enter_context(patch("ai_desktop.agent_profiles.resolve", return_value=PROFILE))
+            stack.enter_context(patch("ai_desktop.local_settings.saving", return_value=saving))
             stack.enter_context(patch.object(ask.os, "geteuid", return_value=1000))
             stack.enter_context(patch.object(ask.os, "getuid", return_value=1000))
             stack.enter_context(patch.object(ask.sys.stdin, "isatty", return_value=True))
@@ -157,6 +158,13 @@ class AutomaticAskSaveTests(unittest.TestCase):
         self.assertIn("saved locally", output)
         presence.start.assert_called_once_with()
         presence.close.assert_called_once_with()
+
+    def test_saving_turned_off_in_the_settings_keeps_the_conversation_in_memory(self):
+        code, output, store, _, _, flow, _ = self.run_ask([], ["Question", ""], ["Answer"], saving=False)
+        self.assertEqual(code, 0, output)
+        self.assertEqual(flow.call_count, 1)
+        self.assertEqual(store.calls, [])
+        self.assertNotIn("saved locally", output)
 
     def test_no_save_never_lists_or_writes_threads(self):
         code, output, store, chooser, store_type, flow, _ = self.run_ask(

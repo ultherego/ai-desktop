@@ -378,10 +378,11 @@ class Store:
                 raise SessionError("session-binding")
             lease = self._lease(root, ident)
             try:
-                if value["execution"] != selected:
-                    value["execution"] = selected
-                    value["revision"] += 1
-                    self._publish(root, value, info)
+                # Opening is use (S1): `-c` continues the conversation opened last, also one resumed without a question.
+                value["execution"] = selected
+                value["revision"] += 1
+                value["updated"] = max(value["updated"], int(time.time()))
+                self._publish(root, value, info)
             except BaseException:
                 os.close(lease)
                 raise
@@ -455,6 +456,22 @@ class Store:
     def damaged(self):
         """Ids of records that cannot be read, so the user can see and remove them."""
         return self._scan(summaries=True)[1]
+
+    def damaged_newest(self):
+        """(id, modification time) of the most recently written unreadable record, or None. Its own time is unknown, so
+        `-c` compares the file's mtime: a newer damaged record must never be skipped in favour of an older one."""
+        newest = None
+        with self._root(optional=True) as root:
+            if root is None:
+                return None
+            for ident in self._scan(summaries=True)[1]:
+                try:
+                    stamp = os.stat(ident + ".json", dir_fd=root, follow_symlinks=False).st_mtime
+                except OSError:
+                    continue
+                if newest is None or stamp > newest[1]:
+                    newest = (ident, stamp)
+        return newest
 
     def _scan(self, *, summaries=False):
         good, bad = [], []

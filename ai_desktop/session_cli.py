@@ -201,12 +201,30 @@ def continue_latest(kind=None, *, store=None, dispatch=None):
     except (SessionError, OSError):
         print("Could not read the saved conversations. Check the session directory permissions.")
         return 2
+    try:
+        damaged = store.damaged_newest() if kind is None else None
+    except (SessionError, OSError):
+        damaged = None
+    if damaged is not None and (not values or damaged[1] >= values[0]["updated"]):
+        # Never continue an older thread silently in place of the newest one.
+        print("The most recently saved conversation (%s) cannot be read, so -c does not open an older one instead. "
+              "Choose one or remove the damaged record: ai-desktop sessions." % damaged[0])
+        return 2
     if not values:
         print("No saved conversation yet. Starting a new one.")
         if dispatch is None:
             from .cli import main as dispatch
         return dispatch(["ask"])
-    return main(["resume", values[0]["id"]], store=store, dispatch=dispatch)
+    latest = values[0]["id"]
+    try:
+        busy = store.active(latest)
+    except (SessionError, OSError):
+        busy = False
+    if busy:
+        print("The latest conversation (%s) is open in another terminal. Continue it there, or choose another one: "
+              "ai-desktop sessions." % latest)
+        return 2
+    return main(["resume", latest], store=store, dispatch=dispatch)
 
 
 def _resume(store, ident, dispatch):

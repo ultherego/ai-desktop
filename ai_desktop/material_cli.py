@@ -175,6 +175,14 @@ class Unpaced:
         return None
 
 
+def latest_saved(kind, path, binding, *, store=None):
+    """The id of the most recently used saved conversation of this kind about this file or directory, or None."""
+    from .conversation_sessions import Store
+    found = [item for item in (Store() if store is None else store).list()
+             if item["kind"] == kind and item["path"] == path and item["binding"] == binding]
+    return max(found, key=lambda item: (item["updated"], item["id"]))["id"] if found else None
+
+
 @contextmanager
 def conversation(session, *, linked):
     """Run a material/project session on the conversation link (production), or as given (tests pass their window)."""
@@ -310,6 +318,10 @@ def build_parser():
     parser.add_argument("--format", choices=("auto", "plain", "markdown"), default="auto")
     parser.add_argument("--v", "--verbose", "-v", "--details", dest="details", action="store_true",
                         help="Show the exact payload and diagnostics")
+    parser.add_argument("-c", "--continue", dest="resume", action="store_true",
+                        help="Continue the latest saved conversation about this file (while its contents are unchanged)")
+    parser.add_argument("--no-save", dest="no_save", action="store_true",
+                        help="Do not save this conversation (it is saved locally by default)")
     parser.add_argument("--max-requests", dest="max_requests", type=_positive, default=None, metavar="N",
                         help="Hard limit on requests handed to the selected assistant in this session (also counts hand-offs with an unknown result)")
     parser.add_argument("--only-whole", dest="only_whole", action="store_true",
@@ -395,13 +407,37 @@ class Session:
         self.can_send = provider_allowed(policy)
 
     conversation = None
+    _auto_save = False                      # set by main: save on the first finished question (like `ai-desktop`)
+    _save_target = None                     # (kind, path, binding) of a conversation saved automatically
 
     def remember(self, question, answer):
-        """Persist only the explicitly selected conversation, after a result."""
+        """Persist the selected conversation, or start saving one automatically, after a result."""
+        if self.conversation is None and self._auto_save and self._save_target is not None:
+            self._auto_save = False             # one attempt: a failed save never stops the conversation
+            self.conversation = self._start_saving()
         self.history.append(history_turn(question, answer))
         self.history = self.history[-MAX_HISTORY:]
         if self.conversation is not None:
             self.conversation.append(question, answer)
+
+    def _start_saving(self):
+        import shlex
+        from .conversation_sessions import MAX_SESSIONS, SessionError, Store
+        from .execution import current
+        kind, path, binding = self._save_target
+        try:
+            saved = Store().create(kind, path, binding, current())
+        except SessionError as exc:
+            print("Not saved: you already have %d saved conversations, the most allowed (ai-desktop sessions)." % MAX_SESSIONS
+                  if str(exc) == "session-limit" else
+                  "Could not start local saving; the conversation continues in memory until you exit.")
+            return None
+        except (OSError, ValueError):
+            print("Could not start local saving; the conversation continues in memory until you exit.")
+            return None
+        print("Conversation: %s · saved locally (continue later: ai-desktop %s -c %s; --no-save turns it off)" % (
+            saved.session_id, kind, shlex.quote(path)))
+        return saved
 
     def attach_conversation(self, kind, path, binding):
         from .conversation_sessions import load_session
@@ -1270,6 +1306,16 @@ def main(argv=None, *, reader=input, clock=time.monotonic, sleep=time.sleep, win
     session = Session(material, os.path.basename(selected), policy, args, reader, clock=clock, sleep=sleep,
                       window=window, sender=sender)
     try:
+        if args.resume:
+            if args.session is not None:
+                print("Use either -c or --session ID, not both.")
+                return 2
+            args.session = latest_saved("material", selected, material.sha256)
+            if args.session is None:
+                print("No saved conversation about this version of the file yet; starting a new one.")
+        from .local_settings import saving
+        session._auto_save = args.session is None and not args.no_save and reader is input and saving()
+        session._save_target = ("material", selected, material.sha256)
         session.attach_conversation("material", selected, material.sha256)
         with conversation(session, linked=window is None):
             return session.run()

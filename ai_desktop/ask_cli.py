@@ -438,7 +438,8 @@ def _main(argv, *, reader, link):
             if interactive:
                 from .session_cli import print_thread
                 print_thread(talk.transcript, output_format=args.format)
-        auto_save = interactive and reader is input and not args.no_save and args.session is None
+        from .local_settings import saving
+        auto_save = interactive and reader is input and not args.no_save and args.session is None and saving()
         auto_save_attempted = False
 
         def ensure_conversation(current_talk):

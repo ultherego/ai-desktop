@@ -14,7 +14,7 @@ Existing stage tables use **done**, **in progress** and **to do**. Follow-up ent
 
 ## Current state
 
-`main` is at [`57249dc`](https://github.com/ultherego/ai-desktopv2/commit/57249dc30872f8d49d9c33ebe50a46d224c8bb09) (PR #31, package `0.1.0-109`, accepted by the maintainer on CachyOS; main/push CI 5/5). Since PR #20 (independent clients) and #21 (first S9 slice) the merged work adds autosave and `ai-desktop -c` with the whole read-back thread (#23, #25), hidden daemon sockets and a read-only D-Bus filter for `allow` commands (#27, #28), command groups, `...` and `commands.deny` (#29), larger command budgets (#30) and the Codex-like terminal with typing during a turn and web searches that know the conversation (#31). Open: [PR #32](https://github.com/ultherego/ai-desktopv2/pull/32) (`/` menus during a turn) and the review fixes stacked on it (latest progress-log entry). The detailed evidence of each candidate is in the progress log below.
+`main` is at [`6d9c518`](https://github.com/ultherego/ai-desktopv2/commit/6d9c5187b866c8ca0923c31982b0e77cc93aa930) (PR #51, package `0.1.0-158`, accepted by the maintainer on CachyOS; CI 5/5). Since PR #31 the merged work adds `/` menus during an answer, streaming Claude and Codex answers with web search progress, any number of terminals at once with a kept session per conversation (PRs #32–#50, candidates 110–157: full-screen view with mouse selection, model lists read from the clients, web-then-local questions, the full-project review fixes) and the S9 project task flow with one session per conversation also in `project` and `material` (PR #51). The progress log below holds the evidence of each candidate; this summary is updated with each merge.
 
 Working and merged at `dd2daec3045c41662a722f4c6a3485dea14dd196` (PR #18, package `0.1.0-79`; maintainer acceptance recorded below):
 
@@ -113,7 +113,7 @@ Release boundary: S8 client delivery, S9 task usability and the remaining S2–S
 | Remaining / S4 | E3, E6 / P0 | Shared on-demand Skills and documentation loader in every mode | IN PROGRESS | Existing role, source and recipient authorization |
 | Remaining / S5 | E3 / P0 | General Arch/CachyOS procedures and version-aware references | IN PROGRESS | S4 and official documentation |
 | Core / S2 | E3, E6 / P0 | Durable transcript, compaction and streaming beyond the bounded context improvements | IN PROGRESS | Candidate 87 keeps the whole read-back thread (up to 2000 turns) apart from the bounded request window; candidates 122–127 stream Claude answers and show web search progress; candidate 137 keeps a conversation's session and service connection between questions; candidate 140 streams Codex answers (synthetic tests only); candidates 145/149 remember only offline compatibility; one native client process per conversation is closed by the maintainer's decision of 2026-11-09 (a fresh sandbox per question). Remaining: a real Codex check, compaction and a durable record of decisions |
-| Core / S1 | E7, E3 / P1 | Ordinary-chat autosaving and `ai-desktop -c` | IN PROGRESS | Candidate 85: automatic checkpoints and `--no-save` (maintainer acceptance passed on candidate 86); candidate 87: `-c` for the newest conversation, at the maintainer's request. Merge, a persistent saving setting and `-c` across kinds with workspace binding remain |
+| Core / S1 | E7, E3 / P1 | Ordinary-chat autosaving and `ai-desktop -c` | READY FOR TEST | Candidates 85–87 (merged): automatic checkpoints, `--no-save`, `-c` for the newest conversation. Candidate 158: project conversations bound to their directory, autosaved, `project -c`. Candidate 159: `ai-desktop settings save on|off`, autosave and `-c` in `material`, opening counts as use, `-c` refuses to fall back past a damaged or busy newest thread |
 | Later / S0 | E7 / P1 | One universal package with managed environment-specific Skills | DEFERRED | Stable core and shared loader |
 | Later / S6 | E4–E7 / P1 | Six CachyOS Hello integrations with explicit state and controls | TODO | S5, typed host operations and host acceptance |
 | Later / S7 | E7, R4 / P2 | Project launch actions, crash entry point, OCR/dictation and terminal layouts | DEFERRED | Stable core and environment adapters |
@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** merge PR #51 (candidate 158, S9), then a real Codex request with its answer while written (after the maintainer's Codex limit resets around 2026-11-12). S0 and S7 remain deferred.
+**Next step:** CachyOS acceptance of candidate 159 (S1), then S3 in the same PR, and a real Codex request with its answer while written (after the maintainer's Codex limit resets around 2026-11-12). S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -260,6 +260,16 @@ Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaini
 ## Progress log
 
 Earlier dated entries preserve the evidence and status at that point. The latest entry supersedes historical pending/next-step statements.
+
+### 2026-11-10 — Candidate 159: S1 saving and continuation
+
+Branch `feature/s1-s3` (one PR with S3, at the maintainer's request). PR #51 merged as `6d9c518`.
+- **Persistent saving setting.** `local_settings` keeps `~/.config/ai-desktop/save` (`on` by default, `off`), read without following links and written atomically with mode 0600; `ai-desktop settings save [on|off]` shows or changes it. `ask`, `project` and `material` save themselves only while it is on; `--session new` still saves explicitly.
+- **`material` like `project`.** The automatic save moved into the shared `material_cli.Session` (`_auto_save`, `_save_target`, `_start_saving`); `material` gains `-c FILE` and `--no-save`. A material conversation stays bound to the file's contents (line numbers), so `-c` after a change starts anew and says so; a project conversation is bound to its directory since 158.
+- **Last-used ordering.** `Store.open` publishes a new revision with the current time, so a conversation resumed without a new question is the one `ai-desktop -c` opens next.
+- **No silent fallback.** `ai-desktop -c` refuses (exit 2, with `ai-desktop sessions`) when an unreadable record is newer than the newest readable one (`Store.damaged_newest`, by file time) or when the newest one is open in another terminal, instead of opening an older thread.
+- ROADMAP "Current state" now describes `main` after PR #51 instead of PR #31.
+- Tests: `test_local_settings`, `test_automatic_conversation_save` (setting off), `test_conversation_thread` (resume counts as use, damaged/busy newest), `test_material_cli.MaterialResumeTests`, updated `test_conversation_sessions`/`test_session_menu` for the revision written on open. **READY FOR TEST**, candidate **0.1.0-159**.
 
 ### 2026-11-10 — Candidate 158: S9 project task flow
 

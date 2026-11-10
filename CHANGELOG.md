@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-159: saving and continuing
+
+- `ai-desktop settings save off` turns automatic saving of conversations off for good (`on` turns it back on). `--no-save` is still there for one temporary conversation.
+- `ai-desktop material` saves its conversations too and `ai-desktop material -c FILE` continues the latest one while the file is unchanged.
+- `ai-desktop -c` opens the conversation you used last, also one you only reopened without asking anything. If the newest one is damaged or open in another terminal, it says so instead of quietly opening an older one.
+
 ## 0.1.0-158: project tasks with fewer questions
 
 - **`ai-desktop project`: one approval per task.** A follow-up question about the same project no longer asks again: it says "Within the task you approved" and how many stages and minutes are left. The task ends, and the next question asks again, when a project file, `permissions.toml`, the model or the recipient changes, when its time or budget runs out, after a refusal or after Ctrl+C.

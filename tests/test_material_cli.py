@@ -975,6 +975,30 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class MaterialResumeTests(Base):
+    """S1: `material -c FILE` continues the latest conversation about this version of the file."""
+
+    def setUp(self):
+        super().setUp()
+        from ai_desktop import conversation_sessions as cs
+        real = cs.Store
+        self.enterContext(patch.object(cs, "Store", side_effect=lambda home=None: real(home=str(self.home))))
+
+    def test_c_continues_the_saved_conversation_and_a_changed_file_starts_anew(self):
+        self.answer = '{"action":"answer","text":"Pierwsza.","sources":[]}'
+        self.run_cli(["Pierwsze pytanie?", "/exit"], ["yes"], argv=[str(self.file), "--session", "new"])
+        self.assertIn("Conversation:", self.output)
+        self.answer = '{"action":"answer","text":"Druga.","sources":[]}'
+        self.run_cli(["Drugie pytanie?", "/exit"], ["yes"], argv=[str(self.file), "-c"])
+        self.assertIn("Conversation:", self.output)
+        self.assertNotIn("No saved conversation", self.output)
+        self.assertEqual(json.loads(self.sent[-1].payload)["material"]["history"][-1]["answer"], "Pierwsza.")
+        self.file.write_text(TEXT + "nowa linia\n")
+        self.run_cli(["Trzecie?", "/exit"], ["yes"], argv=[str(self.file), "-c"])
+        self.assertIn("No saved conversation about this version of the file yet", self.output)
+        self.assertEqual(self.run_cli([], [], argv=[str(self.file), "-c", "--session", "new"]), 2)
+
+
 class ConversationLinkTests(unittest.TestCase):
     """`material` runs on the conversation link in production; tests that pass their own window keep it."""
 
