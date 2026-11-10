@@ -142,7 +142,15 @@ class SessionMenuTests(unittest.TestCase):
                 return 0
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(session_cli.main(["resume", ident], store=self.store, dispatch=dispatch), 0)
-        self.assertEqual(self.path(ident).read_bytes(), original)
+        # Opening counts as use (S1): only its revision and time change; the saved recipient stays the same.
+        import json
+        before, after = json.loads(original), json.loads(self.path(ident).read_bytes())
+        self.assertEqual(after["revision"], before["revision"] + 1)
+        self.assertGreaterEqual(after["updated"], before["updated"])
+        for key in ("revision", "updated"):
+            before.pop(key)
+            after.pop(key)
+        self.assertEqual(after, before)
 
     def test_active_record_refuses_menu_resume_before_dispatch(self):
         value = self.store.create("ask")

@@ -690,6 +690,16 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                                   "The directory listing was not sent to Claude.")
                     plan = next_plan()
                     continue
+                if plan["action"] == "edit" and plan.get("files") and snapshot.policy is not None:
+                    # S3: a file too large to send whole can be edited only through excerpts read in this question.
+                    # Without them the model gets one correction (files-size) to search or read the part first.
+                    oversized = _without_excerpts(snapshot.policy, plan["files"], ledger.excerpts())
+                    if oversized and ledger.correction(ask_discovery.Recoverable(
+                            "files-size", ledger.selectors(oversized), snapshot.policy.limits().read_file_size)):
+                        print(paint("  %s The file is too large to send whole; Claude finds the part to change first."
+                                    % symbol("skip"), "muted"))
+                        plan = next_plan()
+                        continue
                 if plan["action"] != "read" or not plan["files"]:
                     break
                 try:
@@ -735,7 +745,8 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                     return ask_edit.delete_files(plan, snapshot, reader)
             if plan["action"] == "edit":
                 progress("edit-prepare")
-                prepared = ask_edit.prepare(plan, snapshot, args, reader, question_consent=permit)
+                prepared = ask_edit.prepare(plan, snapshot, args, reader, question_consent=permit,
+                                            excerpts=ledger.excerpts() if ledger is not None else None)
                 progress("edit-request")
                 response = request(question, args, reader, task=prepared.source, write_grant=prepared.write_grant,
                                    check=permit.check, question_consent=permit, **_observed(carried, task=prepared.source))
@@ -755,6 +766,26 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
         return answer
     finally:
         permit.close()
+
+
+def _without_excerpts(policy, selections, excerpts):
+    """The edit selectors naming a file above read_file_size with no excerpt read in this question (metadata only)."""
+    limit = policy.limits().read_file_size
+    found = []
+    for selection in selections:
+        try:
+            paths = file_context.resolve_paths(policy, [selection])
+        except (OSError, ValueError):
+            continue                      # the edit preparation reports an unusable selection itself
+        for path in paths:
+            try:
+                size = os.lstat(path).st_size
+            except OSError:
+                continue
+            if size > limit and not (excerpts.get(path) or {}).get("fragments"):
+                found.append(selection)
+                break
+    return found
 
 
 def _show_web(text, args):

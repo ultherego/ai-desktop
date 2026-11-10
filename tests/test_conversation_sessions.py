@@ -107,7 +107,7 @@ class ConversationTests(unittest.TestCase):
         resumed = self.store.open(value.session_id, "material", str(self.home / "material.txt"), "a" * 64, CONFIG)
         self.addCleanup(resumed.close)
         self.assertEqual(resumed.history, value.history)
-        self.assertEqual(resumed.record["revision"], 1)
+        self.assertEqual(resumed.record["revision"], 2)                # opening counts as use (S1: -c picks it next)
 
     def test_history_retains_sixteen_material_turns_and_shortens_answers_visibly(self):
         value = self.conversation()

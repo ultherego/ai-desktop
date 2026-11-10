@@ -139,6 +139,38 @@ class ContinueTests(StoreCase):
         self.assertEqual(argv[:3], ["ask", "--session", older])
         self.assertNotIn(newer, argv)
 
+    def test_continue_counts_a_resume_without_a_question_as_use(self):
+        older = self.make("Older")
+        self.make("Newer")
+        record = self.store.read(older)
+        with patch.object(sessions.time, "time", return_value=record["updated"] + 100):
+            self.store.open(older, "ask", execution_config=PROFILE).close()
+        dispatch = Mock(return_value=0)
+        self.assertEqual(session_cli.continue_latest(store=self.store, dispatch=dispatch), 0)
+        self.assertEqual(dispatch.call_args.args[0][:3], ["ask", "--session", older])
+
+    def test_continue_never_falls_back_to_an_older_thread_when_the_newest_is_damaged_or_busy(self):
+        older = self.make("Older")
+        newer = self.make("Newer")
+        damaged = self.store.path / (newer + ".json")
+        damaged.write_bytes(b"{not json")
+        stamp = self.store.read(older)["updated"] + 50
+        os.utime(damaged, (stamp, stamp))
+        dispatch = Mock(return_value=0)
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(session_cli.continue_latest(store=self.store, dispatch=dispatch), 2)
+        dispatch.assert_not_called()
+        self.assertIn("cannot be read, so -c does not open an older one", output.getvalue())
+        damaged.unlink()
+        busy = self.store.open(older, "ask", execution_config=PROFILE)
+        self.addCleanup(busy.close)
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(session_cli.continue_latest(store=self.store, dispatch=dispatch), 2)
+        dispatch.assert_not_called()
+        self.assertIn("is open in another terminal", output.getvalue())
+
     def test_continue_without_saved_conversations_starts_a_new_one(self):
         dispatch = Mock(return_value=0)
         output = io.StringIO()

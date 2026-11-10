@@ -200,11 +200,9 @@ def conversation_binding(root):
 
 
 def latest_conversation(root, *, store=None):
-    """The id of the most recently updated saved conversation about this directory, or None."""
-    from .conversation_sessions import Store
-    found = [item for item in (Store() if store is None else store).list()
-             if item["kind"] == "project" and item["path"] == root and item["binding"] == conversation_binding(root)]
-    return max(found, key=lambda item: item["updated"])["id"] if found else None
+    """The id of the most recently used saved conversation about this directory, or None."""
+    from .material_cli import latest_saved
+    return latest_saved("project", root, conversation_binding(root), store=store)
 
 
 class ProjectSession(Session):
@@ -227,42 +225,6 @@ class ProjectSession(Session):
         from .run_controls import provider_allowed
         self.can_send = provider_allowed(policy)
         self.binding = Binding(project.project_id, project.manifest_sha256())
-
-    _auto_save = False                      # set by main: save on the first finished question (like `ai-desktop`)
-
-    def remember(self, question, answer):
-        if self.conversation is None and self._auto_save:
-            self._auto_save = False             # one attempt: a failed save never stops the conversation
-            self.conversation = self._start_saving()
-        super().remember(question, answer)
-
-    def _start_saving(self):
-        from .conversation_sessions import MAX_SESSIONS, SessionError, Store
-        from .execution import current
-        try:
-            saved = Store().create("project", self.project.root, conversation_binding(self.project.root), current())
-        except SessionError as exc:
-            print("Not saved: you already have %d saved conversations, the most allowed (ai-desktop sessions)." % MAX_SESSIONS
-                  if str(exc) == "session-limit" else
-                  "Could not start local saving; the conversation continues in memory until you exit.")
-            return None
-        except (OSError, ValueError):
-            print("Could not start local saving; the conversation continues in memory until you exit.")
-            return None
-        print("Conversation: %s · saved locally (continue later: ai-desktop project -c %s; --no-save turns it off)" % (
-            saved.session_id, shlex.quote(self.project.root)))
-        return saved
-
-    def show_earlier(self, limit=4):
-        """On resume: the last questions with the controller-recorded outcomes, so the user sees where the task stands."""
-        if not self.history:
-            return
-        print("Earlier in this conversation:")
-        for turn in self.history[-limit:]:
-            # A plain line: the saved answer's Markdown marks (`code`, **bold**, # headings) would show as raw characters.
-            answer = " ".join(str(turn.get("answer", "")).replace("**", "").replace("`", "").replace("#", "").split())
-            print("  › %s" % _safe(str(turn.get("question", "")), 100))
-            print("    %s" % _safe(answer, 160))
 
     def _gate_kwargs(self, packet):
         return dict(question=packet.question, context=None, project=packet.material)
@@ -1032,7 +994,9 @@ def main(argv=None, *, reader=input, clock=time.monotonic, sleep=time.sleep, win
             if args.session is None:
                 print("No saved conversation about this directory yet; starting a new one.")
         # Like `ai-desktop`: only a real interactive conversation saves itself (a test double or a pipe never does).
-        session._auto_save = args.session is None and not args.no_save and reader is input
+        from .local_settings import saving
+        session._auto_save = args.session is None and not args.no_save and reader is input and saving()
+        session._save_target = ("project", project.root, conversation_binding(project.root))
         session.attach_conversation("project", project.root, conversation_binding(project.root))
         if args.session not in (None, "new"):
             session.show_earlier()

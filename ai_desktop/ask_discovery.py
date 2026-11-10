@@ -199,7 +199,9 @@ class DiscoveryLedger:
         else:
             # One broad search may use at most a quarter of the question's scan budget, so a wide scope cannot
             # starve the narrower follow-up the model is told to make when a result is incomplete.
-            cap = min(self.scan.left, max(1000, self.limits.search_scan // 4))
+            # A text find is the content search the question is about: it may use what is left, since the reads that
+            # follow it use content operations, not the scan budget.
+            cap = self.scan.left if plan["kind"] == "text" else min(self.scan.left, max(1000, self.limits.search_scan // 4))
             local = directory_context.Scan(cap)
             step, guards = directory_context.find_step(self.policy, plan["files"][0], plan["queries"], plan["kind"],
                                                        limits, local, self._budget(), permit)
@@ -230,6 +232,20 @@ class DiscoveryLedger:
         self.contents += (guard,)
         self.content_bytes += amount
         return step
+
+    def excerpts(self):
+        """{absolute path: {"version", "size", "fragments"}} of the file excerpts this question already delivered, for
+        an edit of a file too large to send whole (S3). Only excerpts of the newest version read are kept."""
+        found = {}
+        steps = [step for step in self.steps if step["op"] == "content"]
+        for step, guard in zip(steps, self.contents):
+            entry = found.get(guard.path)
+            if entry is None or entry["version"] != step["version"]:
+                entry = found[guard.path] = {"version": step["version"], "size": step["size"], "fragments": []}
+            for fragment in step["fragments"]:
+                if all((fragment["start"], fragment["end"]) != (item["start"], item["end"]) for item in entry["fragments"]):
+                    entry["fragments"].append(fragment)
+        return found
 
     # -- grounding ---------------------------------------------------------------------------------------------------
     def _typed(self, ident, base):

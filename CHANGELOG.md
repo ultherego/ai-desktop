@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.0-160: large files and many files in an ordinary conversation
+
+- Claude can now find which files of a directory contain a phrase (for example a setting among 20,000 files), not only match file names. It gets the names of the matching files and then reads the relevant lines as before; the contents of the other files never leave the computer.
+- A file larger than `read_file_size` can be edited: Claude first finds the place to change, the edit request carries only those lines, and the change is applied to the whole file locally, tested and shown as a full diff before you save.
+- When a file is too large for a change, the message says which setting limits it and what to do, instead of "Check files.read and files.write".
+
+## 0.1.0-159: saving and continuing
+
+- `ai-desktop settings save off` turns automatic saving of conversations off for good (`on` turns it back on). `--no-save` is still there for one temporary conversation.
+- `ai-desktop material` saves its conversations too and `ai-desktop material -c FILE` continues the latest one while the file is unchanged.
+- `ai-desktop -c` opens the conversation you used last, also one you only reopened without asking anything. If the newest one is damaged or open in another terminal, it says so instead of quietly opening an older one.
+
 ## 0.1.0-158: project tasks with fewer questions
 
 - **`ai-desktop project`: one approval per task.** A follow-up question about the same project no longer asks again: it says "Within the task you approved" and how many stages and minutes are left. The task ends, and the next question asks again, when a project file, `permissions.toml`, the model or the recipient changes, when its time or budget runs out, after a refusal or after Ctrl+C.

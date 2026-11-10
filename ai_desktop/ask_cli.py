@@ -223,7 +223,10 @@ def _explain_refusal(refusal):
     elif isinstance(refusal, ask_edit.EditBusy):
         print("Not saved: another window is saving in this directory right now. Ask again in a moment.")
     elif isinstance(refusal, ask_edit.EditDenied):
-        print("Nothing was saved. Check files.read and files.write in permissions.toml, and that the directory and files exist.")
+        if getattr(refusal, "hint", None):
+            print("Nothing was saved. " + refusal.hint)
+        else:
+            print("Nothing was saved. Check files.read and files.write in permissions.toml, and that the directory and files exist.")
     # FileReadDenied: the local collector has already explained it; session diagnostics would obscure the cause.
 
 
@@ -438,7 +441,8 @@ def _main(argv, *, reader, link):
             if interactive:
                 from .session_cli import print_thread
                 print_thread(talk.transcript, output_format=args.format)
-        auto_save = interactive and reader is input and not args.no_save and args.session is None
+        from .local_settings import saving
+        auto_save = interactive and reader is input and not args.no_save and args.session is None and saving()
         auto_save_attempted = False
 
         def ensure_conversation(current_talk):

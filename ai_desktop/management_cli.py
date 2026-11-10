@@ -113,6 +113,9 @@ def build_parser(*, prog="ai-desktop claude", provider_neutral=False):
     commands.add_parser("models", help="Available model settings")
     commands.add_parser("menu", help="Choose the agent, model and level in the terminal")
     commands.add_parser("skills", help="Skills of the active profile in the terminal")
+    if provider_neutral:
+        save = commands.add_parser("save", help="Whether conversations save themselves (on by default)")
+        save.add_argument("state", nargs="?", choices=("on", "off"), help="on or off; without it, show the setting")
     settings = commands.add_parser("set", help="Change the settings of the active profile")
     if provider_neutral:
         settings.add_argument("--provider", choices=execution.PROVIDERS,
@@ -559,6 +562,15 @@ def main(argv=None, *, reader=input, store=None, chooser=None,
             name = before.config.active
             ui.update(before, name, ui.edit_skills(before.config.profiles[name]))
             _summary(store.load().config)
+            return 0
+        if args.command == "save":
+            from . import local_settings
+            if args.state is not None:
+                local_settings.set_saving(args.state == "on")
+            print("Saving conversations: %s." % ("on: ai-desktop, project and material save themselves after the first "
+                                                 "finished question (--no-save for one temporary conversation)"
+                                                 if local_settings.saving() else
+                                                 "off: only --session new saves a conversation"))
             return 0
         if args.command == "models":
             if provider_neutral:

@@ -26,7 +26,7 @@ MAX_PROFILES = 24
 MAX_INSTRUCTIONS = 4096
 # The whole system prompt is one argv string for the Claude client, and Linux caps one string at 128 KiB (MAX_ARG_STRLEN).
 # This is what remains after the application's own prompt, with a margin. tests/test_user_skills.py guards the sum.
-MAX_EXECUTION_INSTRUCTIONS = 104 * 1024
+MAX_EXECUTION_INSTRUCTIONS = 103 * 1024   # a Skill (96 KiB) + role text (4 KiB) + label always fit; the rest is prompt room
 ACCESSES = ("read-only", "changes")
 SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 _PROFILE_KEYS = frozenset(("provider", "model", "effort", "instructions", "access", "skills"))
