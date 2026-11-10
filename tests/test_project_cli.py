@@ -198,6 +198,48 @@ class QuestionTests(Base):
         self.assertEqual(self.prompts.count("> "), 2)
         self.assertEqual(len(self.sent), 2)
         self.assertIn("Interrupted.", self.output)
+        # S9: a cancellation ends the approved task; the next question shows its scope and asks again.
+        self.assertEqual(self.prompts.count(PROMPTS["project-task"]), 2)
+        self.assertNotIn("Within the task you approved", self.output)
+        self.assertIn("The approved task scope ended: you stopped the previous question with Ctrl+C", self.output)
+
+    def test_a_follow_up_question_stays_within_the_approved_task_without_a_new_prompt(self):
+        self.model = script({"action": "answer", "text": "Jeden.", "sources": []},
+                            {"action": "answer", "text": "Dwa.", "sources": []})
+        self.run_cli(["Pierwsze pytanie?", "Drugie pytanie?", "/exit"], ["yes"])
+        first, second = self.payloads()
+        self.assertEqual(self.prompts.count(PROMPTS["project-task"]), 1)
+        self.assertIn("Within the task you approved", self.output)
+        self.assertIn("Dwa.", self.output)
+        self.assertEqual(second["question"], "Drugie pytanie?")
+        self.assertEqual(second["project"]["history"][-1]["answer"], "Jeden.")
+
+    def test_details_mode_still_shows_what_a_follow_up_sends(self):
+        self.model = script({"action": "answer", "text": "Jeden.", "sources": []},
+                            {"action": "answer", "text": "Dwa.", "sources": []})
+        self.run_cli(["Pierwsze pytanie?", "Drugie pytanie?", "/exit"], ["yes"], argv=[str(self.proj), "--v"])
+        self.assertEqual(self.prompts.count(PROMPTS["project-task"]), 1)
+        self.assertEqual(self.output.count("── To send"), 2)
+        self.assertIn("Drugie pytanie?", self.output)
+
+    def test_a_changed_model_or_a_refusal_ends_the_approved_task(self):
+        self.model = script({"action": "answer", "text": "Jeden.", "sources": []},
+                            {"action": "answer", "text": "Dwa.", "sources": []})
+        calls = {"n": 0}
+
+        def changing():
+            return {"provider": "claude", "model": "other-model" if calls["n"] else "first-model"}
+
+        def reader_hook(payload):
+            answer = self.model_inner(payload)
+            calls["n"] += 1
+            return answer
+        self.model_inner, self.model = self.model, reader_hook
+        with patch("ai_desktop.project_task_consent.current_execution", side_effect=changing):
+            self.run_cli(["Pierwsze pytanie?", "Drugie pytanie?", "/exit"], ["yes", "no"])
+        self.assertEqual(self.prompts.count(PROMPTS["project-task"]), 2)
+        self.assertIn("The approved task scope ended", self.output)
+        self.assertEqual(len(self.sent), 1)
 
     def test_declining_consent_sends_nothing_and_the_short_preview_has_no_long_explanation(self):
         self.model = script()
@@ -295,7 +337,7 @@ class QuestionTests(Base):
         self.assertEqual(third["project"]["project"]["progress"], "Zrobione: util.py. Dalej: docs.")
         self.assertNotIn(PROMPTS["project-continue"], self.prompts)
         self.assertEqual(self.prompts.count(PROMPTS["project-task"]), 1)
-        self.assertIn("up to 5 stages, 40 requests and 10 MiB of project data in 50 minutes", self.output)
+        self.assertIn("up to 10 stages (5 per question), 80 requests and 20 MiB of project data in 50 minutes", self.output)
         self.assertIn("Partial analysis, stage 1 of 5: Claude read 1 of 3 files", self.output)
         self.assertIn("── Stage 2 of 5", self.output)
         self.assertIn("Komplet.", self.output)
@@ -457,6 +499,9 @@ class QuestionTests(Base):
         self.assertEqual(second["project"]["project"]["files"], first["project"]["project"]["files"] + 1)
         self.assertIn("Index refreshed: 4 file(s) (was 3)", self.output)
         self.assertIn("Index refreshed: 4 file(s).", self.output)
+        # S9: a changed project ends the approved task, so the second question asked again.
+        self.assertEqual(self.prompts.count(PROMPTS["project-task"]), 2)
+        self.assertIn("The approved task scope ended", self.output)
 
     def test_a_stopped_task_is_remembered_so_the_next_question_can_continue(self):
         self.model = script({"action": "read", "path": "src/util.py", "ranges": [{"first": 1, "last": 2}]},
@@ -675,6 +720,112 @@ class QuestionTests(Base):
         self.assertEqual(trees[0]["next"], 100)
         self.assertIsNone(trees[1]["next"])
         self.assertEqual(observed[-1], {"kind": "refused", "action": "search", "code": "LIMIT"})
+
+
+class LinkedSessionTests(Base):
+    """In production `project` keeps one session for the conversation, like `ai-desktop`: one sudo, no activation pacing."""
+
+    def run_linked(self, commands, answers):
+        from contextlib import contextmanager
+        self.opened, self.closed = [], []
+
+        @contextmanager
+        def fake_session(**kwargs):
+            self.opened.append(kwargs)
+            try:
+                yield object()
+            finally:
+                self.closed.append(True)
+        commands, answers, self.prompts = iter(commands), iter(answers), []
+
+        def reader(prompt):
+            self.prompts.append(prompt)
+            return next(commands if prompt == "> " else answers)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), patch.object(pcli.sys.stdin, "isatty", return_value=True), \
+                patch.object(pcli.sys.stdout, "isatty", return_value=True), \
+                patch.object(mcli, "installation_ready"), patch.object(mcli, "managed_session", side_effect=fake_session):
+            code = pcli.main([str(self.proj)], reader=reader, clock=self.clock, sleep=self.clock.sleep, sender=self.sender)
+        self.output = out.getvalue()
+        return code
+
+    def test_one_session_serves_every_request_of_the_conversation_without_pacing(self):
+        self.model = script(*[{"action": "find", "fragment": "row %04d" % i, "cursor": 0} for i in range(1, 5)],
+                            {"action": "answer", "text": "Jeden.", "sources": []},
+                            {"action": "answer", "text": "Dwa.", "sources": []})
+        self.run_linked(["Pierwsze?", "Drugie?", "/exit"], ["yes"])
+        self.assertEqual(len(self.sent), 6)
+        self.assertEqual(len(self.opened), 1)                          # one session (one sudo) for the whole conversation
+        self.assertEqual(self.closed, [True])                          # closed once, when the conversation ended
+        self.assertNotIn("Service limit", self.output)
+        self.assertIn("Dwa.", self.output)
+
+    def test_the_link_reports_how_long_its_session_can_be_reused(self):
+        from ai_desktop import conversation_link
+        clock = Clock()
+        link = conversation_link.Link(lambda **kwargs: contextlib.nullcontext(), clock=clock)
+        self.assertEqual(link.seconds_left(), 0.0)
+        with link.session():
+            pass
+        left = link.seconds_left()
+        self.assertGreater(left, 0)
+        clock.now += 60
+        self.assertEqual(link.seconds_left(), left - 60)
+        window = mcli.LinkWindow(link, quiet=True)
+        window.close()                                                 # a request never ends the conversation's session
+        self.assertTrue(window.is_open)
+        window.release()
+        self.assertFalse(window.is_open)
+
+
+class ResumeTests(Base):
+    """S9: a saved project conversation belongs to its directory, so it can be continued after a saved change."""
+
+    def setUp(self):
+        super().setUp()
+        from ai_desktop import conversation_sessions as cs
+        real = cs.Store
+        self.enterContext(patch.object(cs, "Store", side_effect=lambda home=None: real(home=str(self.home))))
+
+    def test_a_conversation_continues_with_c_after_the_files_changed(self):
+        self.model = script({"action": "answer", "text": "**Pierwsza** `odpowiedź`.", "sources": []})
+        self.run_cli(["Pierwsze pytanie?", "/exit"], ["yes"], argv=[str(self.proj), "--session", "new"])
+        self.assertIn("Conversation:", self.output)
+        (self.proj / "src/util.py").write_text("def helper():\n    return 2\n")       # e.g. a change saved here
+        self.model = script({"action": "answer", "text": "Druga.", "sources": []})
+        self.run_cli(["Drugie pytanie?", "/exit"], ["yes"], argv=[str(self.proj), "-c"])
+        self.assertIn("Earlier in this conversation:", self.output)
+        self.assertIn("Pierwsze pytanie?", self.output)
+        self.assertIn("    Pierwsza odpowiedź.", self.output)
+        self.assertEqual(self.payloads()[-1]["project"]["history"][-1]["answer"], "**Pierwsza** `odpowiedź`.")
+
+    def test_c_without_a_saved_conversation_starts_a_new_one_and_c_with_session_is_refused(self):
+        self.model = script({"action": "answer", "text": "x", "sources": []})
+        self.run_cli(["Pytanie?", "/exit"], ["yes"], argv=[str(self.proj), "-c"])
+        self.assertIn("No saved conversation about this directory yet", self.output)
+        self.assertEqual(self.run_cli([], [], argv=[str(self.proj), "-c", "--session", "new"]), 2)
+        self.assertIn("either -c or --session", self.output)
+
+    def test_latest_picks_the_newest_conversation_of_this_directory_only(self):
+        from ai_desktop import conversation_sessions as cs
+        store = cs.Store(home=str(self.home))
+        root = str(self.proj.resolve())
+        binding = pcli.conversation_binding(root)
+        older = store.create("project", root, binding)
+        other = store.create("project", root + "-other", pcli.conversation_binding(root + "-other"))
+        legacy = store.create("project", root, "0" * 64)                 # an old record bound to one file version
+        self.assertEqual(pcli.latest_conversation(root, store=store), older.session_id)
+        for item in (older, other, legacy):
+            item.close()
+        self.assertEqual(pcli.conversation_binding(root), binding)
+        self.assertNotEqual(pcli.conversation_binding(root + "-other"), binding)
+
+    def test_a_test_reader_never_saves_on_its_own(self):
+        self.model = script({"action": "answer", "text": "x", "sources": []})
+        self.run_cli(["Pytanie?", "/exit"], ["yes"])
+        from ai_desktop import conversation_sessions as cs
+        self.assertEqual(cs.Store().list(), [])
+        self.assertNotIn("Conversation:", self.output)
 
 
 class EditTests(Base):
@@ -925,6 +1076,62 @@ class EditTests(Base):
         self.run_edit(["yes"], {"action": "edit", "files": [], "create": ["docs/new.txt"], "check": "text"})
         self.assertEqual([c[0] for c in self.calls], ["prepare", "request", "finish"])
         self.assertNotIn(PROMPTS["project-edit"], self.prompts)
+
+    def test_an_edit_with_a_project_suite_is_one_decision_for_sending_and_the_test(self):
+        seen = {}
+
+        def finish(*a, **k):
+            seen.update(k)
+            self.calls.append(("finish", None))
+            k["approved_test"]()                                       # spent once on the attempt
+            with self.assertRaises(AnalysisDenied):
+                k["approved_test"]()
+            return pcli.ask_edit.CompletedTask(0)
+        self.model = script({"action": "read", "path": "src/util.py", "ranges": [{"first": 1, "last": 2}]},
+                            {"action": "edit", "files": ["docs/readme.txt"], "create": [], "check": "pytest"})
+        prepared = pcli.ask_edit.PreparedEdit({}, {"files": []}, "pytest", str(self.proj), object(), object())
+        with patch.object(pcli.ask_edit, "prepare", side_effect=lambda *a, **k: self.calls.append(("prepare", a[0])) or prepared), \
+                patch.object(pcli.ask_cli, "request", return_value="{}"), patch.object(pcli.ask_edit, "finish", side_effect=finish):
+            self.run_cli(["Popraw readme i przetestuj", "/exit"], ["yes", "yes"])
+        self.assertIn(PROMPTS["project-edit-test"], self.prompts)
+        self.assertNotIn(PROMPTS["project-edit"], self.prompts)
+        self.assertNotIn(PROMPTS["project-test"], self.prompts)
+        self.assertRegex(self.output, r"Check\s+pytest once, offline, on a copy of the complete permitted project")
+        self.assertIn("approved_test", seen)
+        self.assertEqual([c[0] for c in self.calls], ["prepare", "finish"])
+
+    def test_a_suite_edit_of_files_already_read_asks_for_the_test_before_preparing(self):
+        self.run_edit(["yes", "no"], {"action": "edit", "files": ["src/util.py"], "create": [], "check": "pytest"})
+        self.assertEqual(self.calls, [])
+        self.assertIn(PROMPTS["project-test"], self.prompts)
+        self.assertIn("Cancelled. Nothing was tested or saved.", self.output)
+
+    def test_the_test_approval_ends_with_the_project_task(self):
+        seen = {}
+
+        def finish(*a, **k):
+            seen.update(k)
+            # The file changes after the yes (another editor): the approved test is no longer valid.
+            (self.proj / "src/new.py").write_text("x = 1\n")
+            with self.assertRaises(AnalysisDenied):
+                k["approved_test"]()
+            return pcli.ask_edit.CompletedTask(2)
+        self.model = script({"action": "read", "path": "src/util.py", "ranges": [{"first": 1, "last": 2}]},
+                            {"action": "edit", "files": ["src/util.py"], "create": [], "check": "pytest"})
+        prepared = pcli.ask_edit.PreparedEdit({}, {"files": []}, "pytest", str(self.proj), object(), object())
+        with patch.object(pcli.ask_edit, "prepare", return_value=prepared), \
+                patch.object(pcli.ask_cli, "request", return_value="{}"), patch.object(pcli.ask_edit, "finish", side_effect=finish):
+            self.run_cli(["Popraw util i przetestuj", "/exit"], ["yes", "yes"])
+        self.assertIn("approved_test", seen)
+
+    def test_a_syntax_check_on_code_of_a_project_with_tests_warns_that_they_are_not_run(self):
+        (self.proj / "src/test_util.py").write_text("from util import helper\ndef test_helper(): assert helper() == 1\n")
+        self.run_edit(["yes"])                                   # util.py read whole; check python-syntax
+        self.assertIn("Warning: the project has tests (src/test_util.py), but this change is checked with python-syntax only",
+                      self.output)
+        self.calls.clear()
+        self.run_edit(["yes"], {"action": "edit", "files": [], "create": ["docs/new.txt"], "check": "text"})
+        self.assertNotIn("Warning: the project has tests", self.output)   # not code: no warning
 
     def test_accepting_hands_the_mapped_plan_to_the_existing_edit_pipeline_with_the_users_own_words(self):
         self.run_edit(["yes", "yes"])

@@ -14,7 +14,7 @@ from unittest.mock import Mock, patch
 from ai_desktop import permissions, project_edit_test, project_scope, task_cli, task_sandbox
 
 
-class ProjectEditTestTests(unittest.TestCase):
+class Fixture(unittest.TestCase):
     def setUp(self):
         self.home = Path(self.enterContext(tempfile.TemporaryDirectory(dir=pwd.getpwuid(os.getuid()).pw_dir)))
         self.enterContext(patch.object(permissions, "_identity", return_value=(os.getuid(), str(self.home))))
@@ -48,6 +48,8 @@ class ProjectEditTestTests(unittest.TestCase):
         return (prepared or self.prepared()).run(source or self.source, proposed or self.proposed,
                                                 "pytest", lambda _: "yes", Mock())
 
+
+class ProjectEditTestTests(Fixture):
     def test_unselected_dependencies_and_tests_are_copied_but_model_source_stays_selected(self):
         source, proposed = copy.deepcopy(self.source), copy.deepcopy(self.proposed)
         prepared = self.prepared()
@@ -191,6 +193,97 @@ class ProjectEditTestTests(unittest.TestCase):
                 task_cli.finish_task(self.before, self.source, response, args, lambda _: "yes",
                                      project_test=self.prepared())
             apply.assert_not_called()
+
+
+class ApprovedProjectTestTests(Fixture):
+    """S9: the owner's earlier yes for exactly this declared test replaces the second question, once."""
+
+    def run_approved(self, approved, prepared=None):
+        return (prepared or self.prepared()).run(self.source, self.proposed, "pytest", lambda _: "yes", Mock(),
+                                                 approved=approved)
+
+    def test_a_valid_earlier_approval_runs_the_test_without_asking_again(self):
+        spent = []
+        result = self.run_approved(lambda: spent.append(True))
+        self.assertTrue(result["passed"])
+        self.assertEqual(spent, [True])
+        self.consent.assert_not_called()
+        self.assertIn("Running the test you approved with the change.", self.output.getvalue())
+
+    def test_an_expired_or_changed_approval_asks_here_and_a_no_runs_nothing(self):
+        from ai_desktop.analysis_contract import AnalysisDenied
+
+        def expired():
+            raise AnalysisDenied("consent")
+        self.consent.return_value = False
+        result = self.run_approved(expired)
+        self.assertFalse(result["passed"])
+        self.consent.assert_called_once_with("project-test", reader=unittest.mock.ANY)
+        self.runner.assert_not_called()
+        self.assertIn("no longer valid", self.output.getvalue())
+
+    def test_a_changed_dependency_still_refuses_after_an_earlier_approval(self):
+        prepared = self.prepared()
+        (self.root / "dependency.py").write_text("VALUE = 41\n")
+        with self.assertRaises(project_scope.ProjectError):
+            self.run_approved(lambda: None, prepared)
+        self.runner.assert_not_called()
+
+    def test_finish_refuses_an_approval_without_a_project_copy_or_beside_a_task_consent(self):
+        from ai_desktop.analysis_contract import AnalysisDenied
+        args = SimpleNamespace(test="pytest", details=False, format="plain", workspace=str(self.root))
+        response = json.dumps({"summary": "Synthetic change", "files": self.proposed})
+        with patch.object(task_cli.workspace, "unchanged"), patch.object(task_cli.workspace, "apply") as apply, \
+                patch.object(task_cli, "confirm", return_value=True):
+            with self.assertRaises(AnalysisDenied):
+                task_cli.finish_task(self.before, self.source, response, args, lambda _: "yes",
+                                     approved_test=lambda: None)
+            with self.assertRaises(AnalysisDenied):
+                task_cli.finish_task(self.before, self.source, response, args, lambda _: "yes",
+                                     project_test=self.prepared(), approved_test=lambda: None, test_consent=object())
+            apply.assert_not_called()
+            self.assertEqual(task_cli.finish_task(self.before, self.source, response, args, lambda _: "yes",
+                                                 project_test=self.prepared(), approved_test=lambda: None), 0)
+            apply.assert_called_once()
+        self.consent.assert_not_called()
+
+
+class OutcomeReasonTests(Fixture):
+    """S9: the controller's own reason for a result, recorded with the next step (never the model's words)."""
+
+    def finish(self, outcome, **patches):
+        args = SimpleNamespace(test="pytest", details=False, format="plain", workspace=str(self.root))
+        response = json.dumps({"summary": "Synthetic change", "files": self.proposed})
+        with patch.object(task_cli.workspace, "unchanged"), patch.object(task_cli.workspace, "apply"), \
+                patch.object(task_cli, "confirm", return_value=patches.get("write", True)):
+            return task_cli.finish_task(self.before, self.source, response, args, lambda _: "yes",
+                                        project_test=self.prepared(), outcome=outcome)
+
+    def test_each_result_names_its_reason(self):
+        outcome = {}
+        self.assertEqual(self.finish(outcome), 0)
+        self.assertEqual(outcome["reason"], "saved")
+        outcome = {}
+        self.assertEqual(self.finish(outcome, write=False), 2)
+        self.assertEqual(outcome["reason"], "write-declined")
+        self.runner.return_value = {"passed": False, "exit_code": 1, "output": "failed", "check": "pytest"}
+        outcome = {}
+        self.assertEqual(self.finish(outcome), 2)
+        self.assertEqual(outcome["reason"], "test-failed")
+        self.consent.return_value = False
+        outcome = {}
+        self.assertEqual(self.finish(outcome), 2)
+        self.assertEqual(outcome["reason"], "test-cancelled")
+
+    def test_the_recorded_fact_has_the_next_step(self):
+        from ai_desktop import ask_edit
+        response = json.dumps({"summary": "Fix", "files": self.proposed})
+        self.assertIn("Next: fix the change or the test", ask_edit._change_fact(response, 2, "pytest", "test-failed"))
+        self.assertIn("test pytest failed", ask_edit._change_fact(response, 2, "pytest", "test-failed"))
+        self.assertIn("declined the save", ask_edit._change_fact(response, 2, "pytest", "write-declined"))
+        self.assertIn("undo: ai-desktop task rollback", ask_edit._change_fact(response, 0, "pytest", "saved"))
+        self.assertIn("code 2", ask_edit._change_fact(response, 2, "pytest", None))
+        self.assertNotIn(str(self.root), ask_edit._change_fact(response, 0, "pytest", "saved"))
 
 
 if __name__ == "__main__":

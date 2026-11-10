@@ -8,14 +8,13 @@ hands it to the official client over the existing A+ transport. The answer is
 printed with controller-written sources (what was really handed over), never
 with references the model claims.
 
-The A+ session is reused by quick consecutive questions: the root-owned helper
-holds a session for 240 s at most and one request may take 150 s, so a session
-is reused only while it is younger than SESSION_REUSE_SECONDS and is closed
-when that window ends. Longer persistence would need a privileged change.
+In a terminal the conversation keeps its session and service connection
+(`conversation_link`, as in `ai-desktop`): one sudo prompt per conversation and
+no activation pacing. SessionWindow and Pacer remain for injected test windows.
 """
 import argparse
 import collections
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 import json
 import os
 import re
@@ -137,6 +136,61 @@ class SessionWindow:
         stack, self._stack = self._stack, None
         if stack is not None:
             stack.close()
+
+
+class LinkWindow:
+    """The conversation's kept session (`conversation_link`), as in `ai-desktop`: one sudo prompt per conversation and one
+    service connection for all its requests, so no session window and no activation pacing. Every request is still
+    approved, checked and run in a fresh sandbox on its own; only the transport is kept."""
+
+    def __init__(self, link, *, quiet):
+        self._link, self._quiet = link, quiet
+
+    @property
+    def is_open(self):
+        return self._link.is_open
+
+    def seconds_left(self):
+        return self._link.seconds_left()
+
+    def ensure(self):
+        with self._link.session(quiet=self._quiet):
+            pass
+
+    def close(self):
+        """A request or an edit hand-off never ends the conversation's session; the conversation's end does."""
+
+    def release(self):
+        """Idle at the prompt past the reuse limit: end the session now, with its cleanup confirmed."""
+        self._link.close()
+
+
+class Unpaced:
+    """A kept connection does not activate the service per request, so there is nothing to pace."""
+
+    def wait_turn(self, announce, finish=None):
+        return None
+
+    def record(self):
+        return None
+
+
+@contextmanager
+def conversation(session, *, linked):
+    """Run a material/project session on the conversation link (production), or as given (tests pass their window)."""
+    if not linked:
+        yield
+        return
+    from . import conversation_link
+    try:
+        with conversation_link.held(lambda **kwargs: managed_session(**kwargs)) as link:
+            session.window = LinkWindow(link, quiet=not session.args.details)
+            session.pacer = Unpaced()
+            yield
+    except AnalysisDenied as exc:
+        if exc.reason != "cleanup":
+            raise
+        print("Could not confirm that the session stopped. Run ai-desktop stop.")
 
 
 def _countdown(seconds):
@@ -1131,7 +1185,8 @@ class Session:
             try:
                 return read_question(max_bytes=MAX_QUESTION_BYTES, prompt=FOLLOWUP_PROMPT, session=self.prompt_session,
                                      attach=self.accepts_pastes,
-                                     idle=(lambda: self.window.seconds_left() if self.window.is_open else None, self.window.close))
+                                     idle=(lambda: self.window.seconds_left() if self.window.is_open else None,
+                                           getattr(self.window, "release", self.window.close)))
             except QuestionInputError:
                 print("That input was not accepted: the paste is too large (up to 32 KiB, 32 KiB in total, question up to %d B) or contains "
                       "characters that are not allowed." % MAX_QUESTION_BYTES)
@@ -1216,7 +1271,8 @@ def main(argv=None, *, reader=input, clock=time.monotonic, sleep=time.sleep, win
                       window=window, sender=sender)
     try:
         session.attach_conversation("material", selected, material.sha256)
-        return session.run()
+        with conversation(session, linked=window is None):
+            return session.run()
     except (OSError, ValueError):
         print("Cannot use the saved conversation. The file or settings may have changed; check ai-desktop sessions list.")
         return 2

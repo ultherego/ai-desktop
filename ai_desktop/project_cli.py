@@ -32,7 +32,7 @@ from .material_loop import lines_label
 from .project_loop import Loop, history_turn
 from .project_scope import Project, ProjectError
 from .project_step import MAX_HISTORY, MAX_STAGES, MAX_STEPS, TOTAL_BYTES, parse_decision, plain_answer
-from .project_task_consent import ProjectTaskConsent, TASK_BYTES, TASK_REQUESTS, TASK_SECONDS
+from .project_task_consent import ProjectTaskConsent, TASK_BYTES, TASK_REQUESTS, TASK_SECONDS, TASK_STAGES
 from .question_input import PromptSession, paste_token
 from . import task_workspace, workspace_trash
 from .terminal_consent import confirm
@@ -68,6 +68,27 @@ def _entries(count):
 
 def _source(path, first, last):
     return "%s:%d–%d" % (_safe(path, 80), first, last) if first != last else "%s:%d" % (_safe(path, 80), first)
+
+
+SCOPE_ENDED = {
+    "SOURCE_CHANGED": "the project changed since your approval (also a change saved here)",
+    "GRANT_EXPIRED": "its time ran out",
+    "BUDGET_EXHAUSTED": "its stages were used up",
+    "CANCELLED": "you stopped the previous question with Ctrl+C",
+}
+
+
+def test_files(project, limit=3):
+    """Indexed files that look like the project's own tests (names only, from the local index; nothing is read)."""
+    found = []
+    for entry in project.files:
+        name = entry.path.rpartition("/")[2]
+        if ((name.endswith(".py") and (name.startswith("test_") or name.endswith("_test.py")))
+                or name.endswith("_test.go") or name.endswith((".test.js", ".test.ts", ".spec.js", ".spec.ts"))):
+            found.append(entry.path)
+            if len(found) >= limit:
+                break
+    return found
 
 
 class EditRefused(ValueError):
@@ -161,14 +182,34 @@ def build_parser():
                                      description="Work with one project directory: read-only analysis, with changes and deletions only after you approve them")
     parser.add_argument("path", help="Directory within files.read in permissions.toml")
     add_arguments(parser, session=True)
+    parser.add_argument("-c", "--continue", dest="resume", action="store_true",
+                        help="Continue the latest saved conversation about this directory")
+    parser.add_argument("--no-save", dest="no_save", action="store_true",
+                        help="Do not save this conversation (it is saved locally by default)")
     parser.add_argument("--format", choices=("auto", "plain", "markdown"), default="auto")
     parser.add_argument("--v", "--verbose", "-v", "--details", dest="details", action="store_true",
                         help="Show the exact payload and diagnostics")
     return parser
 
 
+def conversation_binding(root):
+    """A saved project conversation belongs to its directory, not to one version of its files: every question rescans
+    the project anyway, and a binding to the contents would make a conversation unusable after its first saved change."""
+    import hashlib
+    return hashlib.sha256(("ai-desktop-project\0" + root).encode("utf-8")).hexdigest()
+
+
+def latest_conversation(root, *, store=None):
+    """The id of the most recently updated saved conversation about this directory, or None."""
+    from .conversation_sessions import Store
+    found = [item for item in (Store() if store is None else store).list()
+             if item["kind"] == "project" and item["path"] == root and item["binding"] == conversation_binding(root)]
+    return max(found, key=lambda item: item["updated"])["id"] if found else None
+
+
 class ProjectSession(Session):
     accepts_pastes = True
+    _task_consent = None                    # the approved project task, kept for follow-up questions (S9)
     def __init__(self, project, name, policy, args, reader, *, clock=time.monotonic, sleep=time.sleep,
                  window=None, sender=send_once):
         self.project, self.name, self.policy, self.args, self.reader = project, name, policy, args, reader
@@ -186,6 +227,42 @@ class ProjectSession(Session):
         from .run_controls import provider_allowed
         self.can_send = provider_allowed(policy)
         self.binding = Binding(project.project_id, project.manifest_sha256())
+
+    _auto_save = False                      # set by main: save on the first finished question (like `ai-desktop`)
+
+    def remember(self, question, answer):
+        if self.conversation is None and self._auto_save:
+            self._auto_save = False             # one attempt: a failed save never stops the conversation
+            self.conversation = self._start_saving()
+        super().remember(question, answer)
+
+    def _start_saving(self):
+        from .conversation_sessions import MAX_SESSIONS, SessionError, Store
+        from .execution import current
+        try:
+            saved = Store().create("project", self.project.root, conversation_binding(self.project.root), current())
+        except SessionError as exc:
+            print("Not saved: you already have %d saved conversations, the most allowed (ai-desktop sessions)." % MAX_SESSIONS
+                  if str(exc) == "session-limit" else
+                  "Could not start local saving; the conversation continues in memory until you exit.")
+            return None
+        except (OSError, ValueError):
+            print("Could not start local saving; the conversation continues in memory until you exit.")
+            return None
+        print("Conversation: %s · saved locally (continue later: ai-desktop project -c %s; --no-save turns it off)" % (
+            saved.session_id, shlex.quote(self.project.root)))
+        return saved
+
+    def show_earlier(self, limit=4):
+        """On resume: the last questions with the controller-recorded outcomes, so the user sees where the task stands."""
+        if not self.history:
+            return
+        print("Earlier in this conversation:")
+        for turn in self.history[-limit:]:
+            # A plain line: the saved answer's Markdown marks (`code`, **bold**, # headings) would show as raw characters.
+            answer = " ".join(str(turn.get("answer", "")).replace("**", "").replace("`", "").replace("#", "").split())
+            print("  › %s" % _safe(str(turn.get("question", "")), 100))
+            print("    %s" % _safe(answer, 160))
 
     def _gate_kwargs(self, packet):
         return dict(question=packet.question, context=None, project=packet.material)
@@ -260,24 +337,49 @@ class ProjectSession(Session):
             return
         self._current = text
         loop = Loop(self.project, history=self.history, progress=self.progress, pasted=pastes)
-        scope = ProjectTaskConsent(self.project, text, clock=self._clock)
-        self._scope(text, loop)
-        try:
-            approved = confirm("project-task", reader=self.reader)
-        except EOFError:
-            approved = False
-        except KeyboardInterrupt:
-            self._interrupted()
-            approved = False
-        if not approved:
+        scope = self._task_consent
+        if scope is not None and not scope.reusable(self.project):
+            # A changed file, policy, model or recipient, the deadline or the budget ends the approved task.
+            print("The approved task scope ended: %s. Approve the new preview." % SCOPE_ENDED.get(
+                scope.ended, "the permissions, the model or the recipient changed"))
             scope.close()
-            print("Cancelled. No data was sent.")
-            return
+            scope = self._task_consent = None
+        if scope is not None:
+            try:
+                scope.follow_up(self.project, text)
+            except GrantDenied:
+                scope = self._task_consent = None
+            else:
+                if self.args.details:
+                    self._scope(text, loop)                 # --v still shows exactly what goes out
+                print(recipient("Within the task you approved: the question, file names and parts of %s go to Claude "
+                                "(%d stage(s) and about %d min left; Ctrl+C stops).") % (
+                    self.name, scope.stages_left, (scope.seconds_left + 59) // 60))
+                pasted = [o for o in loop.observations if o["kind"] == "pasted"]
+                if pasted:
+                    print("With your pastes: " + ", ".join("#%d (%d lines, %d B)" % (
+                        o["id"], o["lines"], len(o["text"].encode("utf-8"))) for o in pasted))
+        if scope is None:
+            scope = ProjectTaskConsent(self.project, text, clock=self._clock)
+            self._scope(text, loop)
+            try:
+                approved = confirm("project-task", reader=self.reader)
+            except EOFError:
+                approved = False
+            except KeyboardInterrupt:
+                self._interrupted()
+                approved = False
+            if not approved:
+                scope.close()
+                print("Cancelled. No data was sent.")
+                return
+        keep = False
         try:
-            # Approval re-scans: even the first stage must use the exact
-            # project previewed before the owner answered.
-            scope.approve(self.project)
-            self._task_consent = scope
+            if self._task_consent is not scope:
+                # Approval re-scans: even the first stage must use the exact
+                # project previewed before the owner answered.
+                scope.approve(self.project)
+                self._task_consent = scope
             for stage in range(1, MAX_STAGES + 1):
                 if stage > 1:
                     print(self._coverage_line(loop, stage - 1))
@@ -293,17 +395,22 @@ class ProjectSession(Session):
                 finally:
                     self._close_section()
                 if partial is None:
+                    keep = True
                     return
             print("Reached the limit of %d stages; partial conclusions are above. Type \"continue\" to start another round." % MAX_STAGES)
             print()
+            keep = True
         except GrantDenied as exc:
             print(GRANT_HINTS[exc.code])
         except KeyboardInterrupt:
             print("\nInterrupted.")
             self._interrupted()
         finally:
-            scope.close()
-            self._task_consent = None
+            # Only a question that ended normally keeps the task for a follow-up; a refusal or Ctrl+C asks again.
+            if not keep or self._task_consent is not scope:
+                scope.close()
+                if self._task_consent is scope:
+                    self._task_consent = None
 
     def _coverage_line(self, loop, stage):
         """Controller-counted coverage of the whole deep task (never the model's claim)."""
@@ -347,9 +454,10 @@ class ProjectSession(Session):
                 extras.append("context: %d earlier question(s) and answer(s)" % len(loop.history))
             if extras:
                 print(" · ".join(extras))
-            print("Analysis scope: up to %d stages, %d requests and %d MiB of project data in %d minutes; Ctrl+C stops." %
-                  (MAX_STAGES, TASK_REQUESTS, TASK_BYTES // 1048576, TASK_SECONDS // 60))
-            print("Tests, additional edit-data transfers and saving still require their applicable separate approvals.")
+            print("Task scope: up to %d stages (%d per question), %d requests and %d MiB of project data in %d minutes, "
+                  "also for follow-up questions in this window; Ctrl+C stops." %
+                  (TASK_STAGES, MAX_STAGES, TASK_REQUESTS, TASK_BYTES // 1048576, TASK_SECONDS // 60))
+            print("A changed file, permission or model asks again. Tests, edit-data transfers and saving have their own approval.")
             return
         print(rule("To send"))
         print(field("Question", _safe(text, 200)))
@@ -366,10 +474,11 @@ class ProjectSession(Session):
         print(field("Without", "Internet, file writes or running code · task time limit %d s" % TASK_SECONDS))
         print(field("Content", recipient("Claude will ask for a list of file names, a search or lines of files from this project."),
                     "File names, matches and parts are sent as data; the rest of the project is not sent.",
-                    "Up to %d stages, %d requests and %d MiB of project data in total; Ctrl+C stops." %
-                    (MAX_STAGES, TASK_REQUESTS, TASK_BYTES // 1048576),
+                    "Up to %d stages (%d per question), %d requests and %d MiB of project data in total, also for follow-up "
+                    "questions in this window until a file, permission or model changes; Ctrl+C stops." %
+                    (TASK_STAGES, MAX_STAGES, TASK_REQUESTS, TASK_BYTES // 1048576),
                     "Each stage: up to %d requests, %d KiB of data and %d s." % (MAX_STEPS, TOTAL_BYTES // 1024, GRANT_SECONDS),
-                    "Tests, additional edit-data transfers and saving still require their applicable separate approvals."))
+                    "Tests, additional edit-data transfers and saving have their own approval."))
         print(SEPARATOR)
 
     def _run(self, text, loop, session):
@@ -496,32 +605,89 @@ class ProjectSession(Session):
             "new: " + ", ".join(_safe(p, 80) for p in decision["create"]) if created else "",
             "to change: " + ", ".join(_safe(p, 80) for p in decision["files"]) if existing else "",
             "check: " + decision["check"]) if part)
-        if unsent:
+        suite = decision["check"] in task_contract.TEST_SUITES
+        code = any(path.endswith((".py", ".go", ".js", ".mjs", ".cjs", ".ts")) for path in decision["files"] + decision["create"])
+        tests = test_files(self.project) if code and not suite else []
+        untested = ("the project has tests (%s), but this change is checked with %s only: they are NOT run. "
+                    "Ask for the change \"and check it with the tests\" to run them." % (
+                        ", ".join(_safe(p, 60) for p in tests), decision["check"])) if tests else None
+        test_line = ("%s once, offline, on a copy of the complete permitted project with the proposed changes "
+                     "(network, user HOME and host writes blocked; output stays local)" % decision["check"])
+        test_consent = None
+        if unsent or suite:
             print(rule("File change"))
             print(field("To change", *[_safe(p, 80) for p in decision["files"]]))
             if created:
                 print(field("New", *[_safe(p, 80) for p in decision["create"]]))
-            print(field("Check", decision["check"]))
-            print(field("Next", recipient("the content of files Claude has not seen yet (%s) goes to Claude in a separate task;") %
-                        ", ".join(_safe(p, 60) for p in unsent), "saving happens only after you see the diff and give separate consent."))
+            print(field("Check", test_line if suite else decision["check"]))
+            if untested:
+                print(field("Warning", untested))
+            if unsent:
+                print(field("Next", recipient("the content of files Claude has not seen yet (%s) goes to Claude in a separate task;") %
+                            ", ".join(_safe(p, 60) for p in unsent), "saving happens only after you see the diff and give separate consent."))
+            else:
+                print(field("Next", "saving happens only after you see the test result and the diff and give separate consent."))
             print(SEPARATOR)
+            if suite:
+                # S9: the declared test is part of this one decision; the copy is still re-checked before it runs.
+                test_consent = self._edit_test_consent(decision["check"])
             try:
-                approved = confirm("project-edit", reader=self.reader)
+                approved = confirm(("project-edit-test" if unsent else "project-test") if suite else "project-edit",
+                                   reader=self.reader)
             except EOFError:
                 approved = False
             except KeyboardInterrupt:
                 self._interrupted()
                 approved = False
+            if approved and test_consent is not None:
+                try:
+                    test_consent.approve()
+                except AnalysisDenied:
+                    approved = False
             if not approved:
-                print("Cancelled. File contents were not sent. Nothing was saved.")
+                if test_consent is not None:
+                    test_consent.close()
+                print("Cancelled. File contents were not sent. Nothing was saved." if unsent
+                      else "Cancelled. Nothing was tested or saved.")
                 print()
                 return self._remember_edit(text, "the user rejected the proposed change")
         else:
             print("File change — %s. Preparing the diff…" % summary)
-        code = self._run_edit(request_text, snapshot, plan, versions, packet)
+            if untested:
+                print("Warning: " + untested)
+        try:
+            code, fact = self._run_edit(request_text, snapshot, plan, versions, packet, test_consent=test_consent)
+        finally:
+            if test_consent is not None:
+                test_consent.close()
         print()
+        if fact:
+            # The controller's own outcome with the next step, kept in the saved conversation (S9).
+            if untested and code == 0:
+                fact += "; the project's tests were NOT run (next: run them with /test or ask for a check with the tests)"
+            return self._remember_edit(text, fact)
         return self._remember_edit(text, "change saved after the user's consent" if code == 0
                                    else "change NOT saved (rejected, failed test or error)")
+
+    def _edit_test_consent(self, check):
+        """One declared test on the full project copy, valid only while the approved project task still holds."""
+        from .analysis_contract import CONSENT_CEILING, consent_seconds
+        from .execution import current
+        from .task_test_consent import CopyTestConsent
+        selected = current()
+        seconds = min(CONSENT_CEILING, 2 * consent_seconds(selected.get("effort") if selected is not None else None))
+        task = self._task_consent
+
+        def guard():
+            if task is None or self._task_consent is not task:
+                return False
+            task.check(self.project)
+            return True
+        return CopyTestConsent(self._test_scope(check), check, guard=guard, seconds=seconds)
+
+    def _test_scope(self, check):
+        return {"root": self.project.root, "project": self.project.project_id, "copy": "permitted-project",
+                "manifest": self.project.manifest_sha256(), "check": check, "test_runs": 1}
 
     def test_project(self, recipe):
         from . import project_checks
@@ -617,12 +783,12 @@ class ProjectSession(Session):
         print("Restore: " + shlex.join(["ai-desktop", "task", "restore", "--workspace", workspace, "--plan", plan]))
         print()
 
-    def _run_edit(self, text, snapshot, plan, versions, packet):
+    def _run_edit(self, text, snapshot, plan, versions, packet, *, test_consent=None):
         args = ask_cli.build_parser().parse_args(["--v"] if self.args.details else [])
         args.format = self.args.format
-        permit = None
+        permit = prepared = None
         try:
-            self.window.close()                       # the edit pipeline opens its own managed session
+            self.window.close()                       # a short-lived window ends here; the conversation's kept session stays
             self.pacer.wait_turn(_countdown, _countdown_end)
             self._task_consent.check(self.project)
             # Only data from the exact packet that elicited this edit may cross the hand-off.
@@ -650,13 +816,31 @@ class ProjectSession(Session):
             transfer["state"] = "answer received"
             check_edit_scope()
             permit.close()
-            return ask_edit.finish(prepared, response, args, self.reader).code
+            approved_test = None
+            if test_consent is not None:
+                scope = self._test_scope(prepared.check)
+                approved_test = lambda: test_consent.consume(scope, prepared.check)
+            done = ask_edit.finish(prepared, response, args, self.reader, approved_test=approved_test)
+            return done.code, done.fact
         except GrantDenied as exc:
             print(GRANT_HINTS[exc.code])
         except InputBudgetExceeded:
             print("The agreed context and selected files exceed the edit request limit. Narrow the task; nothing was saved.")
         except ask_edit.CreateCollision:
             print("The file to create already exists. Nothing was saved.")
+        except ask_edit.EditInterrupted as stopped:
+            # Not "nothing was saved": the save began, so some files may already be written.
+            command = shlex.join(["ai-desktop", "task", "status", "--workspace", prepared.workspace])
+            print("Saving was interrupted: %d of %d file(s) confirmed saved, the rest may differ." % (stopped.saved, stopped.total))
+            print("Check: " + command + ", then ai-desktop task rollback for this directory.")
+            return 2, ("change INTERRUPTED while saving (%d of %d file(s) saved); next: ai-desktop task status, "
+                       "then task rollback" % (stopped.saved, stopped.total))
+        except ask_edit.EditConflict:
+            print("The file changed after it was read (another editor or terminal). Nothing was overwritten.")
+            return 2, "change NOT saved: a file changed after it was read; next: ask again to work on the current version"
+        except ask_edit.EditBusy:
+            print("Another terminal is saving in this directory right now. Nothing was written.")
+            return 2, "change NOT saved: another terminal was saving in this directory; next: ask again when it is done"
         except (ask_edit.EditDenied, ExecutionDenied) as exc:
             print("The change was not prepared (the consent, policy or file state changed). Nothing was saved.")
         except AnalysisDenied as exc:
@@ -671,7 +855,14 @@ class ProjectSession(Session):
         finally:
             if permit is not None:
                 permit.close()
-        return 2
+        return 2, ""
+
+    def _interrupted(self):
+        # Ctrl+C is a cancellation: the next question asks for the task scope again.
+        if self._task_consent is not None:
+            self._task_consent.close()
+            self._task_consent.ended = "CANCELLED"
+        return super()._interrupted()
 
     def _remember_edit(self, text, outcome):
         self.remember(text, "[%s]" % outcome)
@@ -833,10 +1024,24 @@ def main(argv=None, *, reader=input, clock=time.monotonic, sleep=time.sleep, win
     session = ProjectSession(project, os.path.basename(project.root), policy, args, reader, clock=clock, sleep=sleep,
                              window=window, sender=sender)
     try:
-        session.attach_conversation("project", project.root, project.manifest_sha256())
-        return session.run()
+        if args.resume:
+            if args.session is not None:
+                print("Use either -c or --session ID, not both.")
+                return 2
+            args.session = latest_conversation(project.root)
+            if args.session is None:
+                print("No saved conversation about this directory yet; starting a new one.")
+        # Like `ai-desktop`: only a real interactive conversation saves itself (a test double or a pipe never does).
+        session._auto_save = args.session is None and not args.no_save and reader is input
+        session.attach_conversation("project", project.root, conversation_binding(project.root))
+        if args.session not in (None, "new"):
+            session.show_earlier()
+        from .material_cli import conversation
+        with conversation(session, linked=window is None):
+            return session.run()
     except (OSError, ValueError):
-        print("Cannot use the saved conversation. The project or settings may have changed; check ai-desktop sessions list.")
+        print("Cannot use the saved conversation (it may belong to another agent, or was saved by an older version for "
+              "one version of the files); check ai-desktop sessions list.")
         return 2
     finally:
         session.close_conversation()

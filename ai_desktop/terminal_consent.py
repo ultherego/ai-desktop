@@ -33,6 +33,7 @@ PROMPTS = {
     "restore": "Restore the deleted files? [y/n]: ",
     "project-continue": "Continue the analysis with Claude (next stage)? [y/n]: ",
     "project-edit": "Send these files to Claude and prepare a diff? [y/n]: ",
+    "project-edit-test": "Send these files to Claude, prepare a diff and run the declared test on a copy? [y/n]: ",
     "write": "Save the changes shown? [y/n]: ",
     "rollback": "Undo the changes shown? [y/n]: ",
     "prune": "Remove these history entries for good? [y/n]: ",

@@ -209,8 +209,11 @@ class ProjectScopeChainTests(ChainTests, ChainBase):
         self.model = script({"action": "answer", "text": marker, "sources": []},
                             {"action": "read", "path": "src/util.py", "ranges": [{"first": 1, "last": 2}]},
                             {"action": "edit", "files": ["src/util.py"], "create": [], "check": "text"})
-        self.session(["Which delimiter?", "Apply it."], ["yes", "yes", "no"],
+        # S9: the follow-up question stays within the task approved for the first one; only the save asks again.
+        self.session(["Which delimiter?", "Apply it."], ["yes", "no"],
                      self.transport(lambda path, old: old + "# selected delimiter\n"))
+        self.assertEqual(self.prompts.count(PROMPTS["project-task"]), 1)
+        self.assertIn("Within the task you approved", self.output)
         edited, = self.transported
         context = edited["task"]["project_context"]
         self.assertEqual(edited["task"]["instruction"], "Apply it.")

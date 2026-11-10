@@ -54,7 +54,7 @@ class RecipientPromptTests(unittest.TestCase):
 
     def test_all_egress_prompts_name_the_frozen_recipient_and_local_decisions_stay_local(self):
         ai_actions = {"ask-question", "ask-transfer", "transfer", "task-scope", "material-transfer", "material-whole",
-                      "material-task", "project-task", "project-continue", "project-edit"}
+                      "material-task", "project-task", "project-continue", "project-edit", "project-edit-test"}
         for provider, expected, other in (("claude", "Claude", "Codex"), ("codex", "Codex", "Claude")):
             for action in terminal_consent.PROMPTS:
                 prompts = []

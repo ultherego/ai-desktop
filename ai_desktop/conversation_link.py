@@ -60,6 +60,14 @@ class Link:
             return False
         return not self._expired(self._opened, self._used, self._clock())
 
+    def seconds_left(self):
+        """How long the kept session can still be reused (0 when there is none)."""
+        if self._stack is None:
+            return 0.0
+        now = self._clock()
+        return max(0.0, min(CONVERSATION_IDLE_SECONDS - MARGIN - (now - self._used),
+                            CONVERSATION_SECONDS - MARGIN - (now - self._opened)))
+
     @contextmanager
     def session(self, *, waiting=None, **kwargs):
         """The kept session for one request: opened (with `waiting` around the sudo prompt) when there is none or it

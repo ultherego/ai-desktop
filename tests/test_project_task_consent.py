@@ -37,7 +37,7 @@ class ProjectTaskConsentTests(unittest.TestCase):
 
     def test_one_approval_issues_only_the_declared_number_of_individually_bounded_stages(self):
         self.scope.approve(self.project)
-        grants = [self.scope.next_stage(self.project) for _ in range(consent.MAX_STAGES)]
+        grants = [self.scope.next_stage(self.project) for _ in range(consent.TASK_STAGES)]
         self.assertEqual(sum(g.max_requests for g in grants), consent.TASK_REQUESTS)
         self.assertEqual(sum(g.max_bytes for g in grants), consent.TASK_BYTES)
         for grant in grants:
@@ -47,6 +47,38 @@ class ProjectTaskConsentTests(unittest.TestCase):
             self.assertFalse(grant.write)
         self.denied(self.scope.next_stage, "BUDGET_EXHAUSTED")
         self.denied(self.scope.next_stage, "GRANT_INVALID")
+
+    def test_follow_up_questions_share_the_one_task_budget_and_deadline(self):
+        self.assertFalse(self.scope.reusable(self.project))            # never before the owner's yes
+        self.scope.approve(self.project)
+        self.scope.next_stage(self.project)
+        self.assertTrue(self.scope.reusable(self.project))
+        self.scope.follow_up(self.project, "And the docs?")
+        grant = self.scope.next_stage(self.project)
+        self.assertEqual(grant.purpose, "And the docs?")
+        self.assertEqual(self.scope.stages_left, consent.TASK_STAGES - 2)
+        for _ in range(consent.TASK_STAGES - 2):
+            self.scope.next_stage(self.project)
+        self.assertFalse(self.scope.reusable(self.project))             # spent: the next question asks again
+        self.denied(self.scope.next_stage, "GRANT_INVALID")
+
+    def test_the_deadline_or_a_close_ends_reuse_for_good(self):
+        self.scope.approve(self.project)
+        self.clock.now += consent.TASK_SECONDS + 1
+        self.assertFalse(self.scope.reusable(self.project))
+        self.assertFalse(self.scope.reusable(self.project))
+        fresh = consent.ProjectTaskConsent(self.project, "Inspect", clock=self.clock)
+        fresh.approve(self.project)
+        fresh.close()
+        self.assertFalse(fresh.reusable(self.project))
+        with self.assertRaises(consent.GrantDenied):
+            fresh.follow_up(self.project, "Again")
+
+    def test_an_empty_follow_up_question_is_refused(self):
+        self.scope.approve(self.project)
+        with self.assertRaises(consent.GrantDenied):
+            self.scope.follow_up(self.project, "")
+        self.assertFalse(self.scope.reusable(self.project))
 
     def test_task_deadline_starts_at_yes_and_later_stages_cannot_extend_it(self):
         self.clock.now += 10000

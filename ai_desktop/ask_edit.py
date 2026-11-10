@@ -53,6 +53,7 @@ class CreateCollision(EditDenied):
 @dataclass(frozen=True)
 class CompletedTask:
     code: int
+    fact: str = ""          # what the controller really did and the next step, for the conversation record (S9)
 
 
 @dataclass(frozen=True)
@@ -273,12 +274,17 @@ def delete_files(plan, snapshot, reader):
     return CompletedTask(0)
 
 
-def finish(prepared, response, args, reader):
+def finish(prepared, response, args, reader, *, approved_test=None):
+    """approved_test: the owner's earlier yes for exactly this declared project test (S9), spent on the attempt."""
     from .task_cli import finish_task
     values = dict(vars(args), workspace=prepared.workspace, test=prepared.check)
+    if approved_test is not None and prepared.project_test is None:
+        raise EditDenied("consent")
+    outcome = {}
     try:
         code = finish_task(prepared.before, prepared.source, response, SimpleNamespace(**values), reader,
-                           write_guard=prepared.write_grant.check, project_test=prepared.project_test)
+                           write_guard=prepared.write_grant.check, project_test=prepared.project_test,
+                           approved_test=approved_test, outcome=outcome)
     except EditConflict:
         conversation_state.note_action("Change NOT saved: the file changed after it was read; nothing was overwritten")
         raise
@@ -299,11 +305,22 @@ def finish(prepared, response, args, reader):
             raise
         conversation_state.note_action("Change NOT saved: the file changed after it was read; nothing was overwritten")
         raise EditConflict("input") from None
-    conversation_state.note_action(_change_fact(response, code, prepared.check))
-    return CompletedTask(code)
+    fact = _change_fact(response, code, prepared.check, outcome.get("reason"))
+    conversation_state.note_action(fact)
+    return CompletedTask(code, fact)
 
 
-def _change_fact(response, code, check):
+# The controller's own reason (task_cli.finish_task) -> what happened and the next step; never the model's words.
+_NOT_APPLIED = {
+    "unchanged": "No change needed: the file already had the proposed content; nothing was written",
+    "test-cancelled": "Change NOT applied: the user cancelled the test; nothing was written. Next: ask again to retry",
+    "test-failed": "Change NOT applied: test %s failed on the copy; nothing was written. "
+                   "Next: fix the change or the test, then ask again",
+    "write-declined": "Change NOT applied: the user declined the save after the diff; nothing was written",
+}
+
+
+def _change_fact(response, code, check, reason=None):
     """What really happened to a proposed change, from the controller's own result (never from the model's words)."""
     try:
         proposal = json.loads(response)
@@ -312,5 +329,8 @@ def _change_fact(response, code, check):
     except (ValueError, TypeError, KeyError, AttributeError):
         files, summary = "?", ""
     if code == 0:
-        return ("Change applied through ask (test %s passed, can be undone): %s [%s]" % (check, summary, files)).strip()
+        return ("Change applied (test %s passed; undo: ai-desktop task rollback): %s [%s]" % (check, summary, files)).strip()
+    if reason in _NOT_APPLIED:
+        text = _NOT_APPLIED[reason]
+        return ("%s: %s [%s]" % (text % check if "%s" in text else text, summary, files)).strip()
     return "Change NOT applied (code %s; cancelled, refused or test failed): %s [%s]" % (code, summary, files)
