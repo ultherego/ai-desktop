@@ -109,7 +109,7 @@ Release boundary: S8 client delivery, S9 task usability and the remaining S2–S
 |---|---|---|---|---|
 | 1 / S8 | E2, E7 / P0 | Independent system/native/HOME/npm clients with approved registration and shared compatibility | IN PROGRESS | Runtime and candidate-83 widget/quota flow accepted and merged in PR #20; broader native lifecycle/release acceptance remains open |
 | 2 / S9 | E3–E6 / P0 | One bounded task flow with fewer repeated approvals | DONE (after merge) | Candidate 84 (project analysis stages, standalone declared tests) is merged; candidate 158 adds the task scope across follow-up project questions, one edit-data+suite decision and recorded outcomes with the next step; accepted on CachyOS (two rounds) |
-| Remaining / S3 | E3–E6 / P0 | Large-file analysis, many files, anchored edits and independent test-copy budgets | IN PROGRESS | Existing read/plan/executor; bounded context work from S2 |
+| Remaining / S3 | E3–E6 / P0 | Large-file analysis, many files, anchored edits and independent test-copy budgets | READY FOR TEST | Candidate 79 (search/range reads of large files, anchored replacements, copy budgets); candidate 160 adds text `find` across a directory and excerpt edits of files above `read_file_size`; CachyOS acceptance of the four targets pending |
 | Remaining / S4 | E3, E6 / P0 | Shared on-demand Skills and documentation loader in every mode | IN PROGRESS | Existing role, source and recipient authorization |
 | Remaining / S5 | E3 / P0 | General Arch/CachyOS procedures and version-aware references | IN PROGRESS | S4 and official documentation |
 | Core / S2 | E3, E6 / P0 | Durable transcript, compaction and streaming beyond the bounded context improvements | IN PROGRESS | Candidate 87 keeps the whole read-back thread (up to 2000 turns) apart from the bounded request window; candidates 122–127 stream Claude answers and show web search progress; candidate 137 keeps a conversation's session and service connection between questions; candidate 140 streams Codex answers (synthetic tests only); candidates 145/149 remember only offline compatibility; one native client process per conversation is closed by the maintainer's decision of 2026-11-09 (a fresh sandbox per question). Remaining: a real Codex check, compaction and a durable record of decisions |
@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** CachyOS acceptance of candidate 159 (S1), then S3 in the same PR, and a real Codex request with its answer while written (after the maintainer's Codex limit resets around 2026-11-12). S0 and S7 remain deferred.
+**Next step:** CachyOS acceptance of candidate 160 (S3 targets), merge PR #52, and a real Codex request with its answer while written (after the maintainer's Codex limit resets around 2026-11-12). S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -260,6 +260,15 @@ Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaini
 ## Progress log
 
 Earlier dated entries preserve the evidence and status at that point. The latest entry supersedes historical pending/next-step statements.
+
+### 2026-11-10 — Candidate 160: S3 in ordinary conversation
+
+CachyOS check of the S3 targets on candidate 159 (synthetic data in a test directory): the 32 MiB log was searched and read by excerpts and the single error found (line ~210000 of 494175); the 20,000-file tree could not be searched by content (`find` matched names only and content search needed one known file); the edit of a 2 MiB+ configuration (12 bytes above `read_file_size`) was refused with the generic "Check files.read and files.write" message.
+- **Text find.** `find` gains kind `text` (`discovery_contract.KINDS`): permitted regular files of the subtree are read locally (each within `file_size`, at most `TEXT_SCAN_BYTES` = 64 MiB per find) and the names of those containing a query (case-insensitive) are returned; content never enters the step, so excerpts still require `search-content`/`read-range` of one file with their guards. Unreadable, binary, oversized or (v1) private-key files mark the find incomplete. A text find may use the remaining scan budget instead of a quarter.
+- **Excerpt edits.** `DiscoveryLedger.excerpts()` hands the excerpts delivered in the question to `ask_edit.prepare`; a writable file above `read_file_size` with excerpts goes to the model as `{"path","excerpts","size","writable"}` (`task_contract.excerpts`, at most 16 excerpts / 256 KiB) while the whole file is read locally from the workspace snapshot and must have the hash the excerpts came from (otherwise `EditConflict`). `task_contract.proposal(..., excerpts)` accepts only replacements whose old text lies within one excerpt; the local full contents (`PreparedEdit.local`) drive the test, diff, write and rollback as before. The worker validates the same task contract.
+- **Named refusals.** `EditDenied.hint` names `files.read_file_size`/`read_total_size` with their values and the way forward; `ask` prints it instead of the generic message.
+- Prompt room: `MAX_EXECUTION_INSTRUCTIONS` 104 → 103 KiB (a 96 KiB Skill + 4 KiB role + label still fit), freeing room for the three new instruction sentences (627 bytes left under the 128 KiB argv string).
+- Tests: `test_ask_discovery.TextFindTests`/`TextFindLedgerTests`, `test_task_contract.ExcerptEditTests`, `test_ask_edit` (excerpt request, stale-version conflict, named size refusal). **READY FOR TEST**, candidate **0.1.0-160**.
 
 ### 2026-11-10 — Candidate 159: S1 saving and continuation
 

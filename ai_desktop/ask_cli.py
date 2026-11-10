@@ -223,7 +223,10 @@ def _explain_refusal(refusal):
     elif isinstance(refusal, ask_edit.EditBusy):
         print("Not saved: another window is saving in this directory right now. Ask again in a moment.")
     elif isinstance(refusal, ask_edit.EditDenied):
-        print("Nothing was saved. Check files.read and files.write in permissions.toml, and that the directory and files exist.")
+        if getattr(refusal, "hint", None):
+            print("Nothing was saved. " + refusal.hint)
+        else:
+            print("Nothing was saved. Check files.read and files.write in permissions.toml, and that the directory and files exist.")
     # FileReadDenied: the local collector has already explained it; session diagnostics would obscure the cause.
 
 

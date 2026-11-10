@@ -735,7 +735,8 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                     return ask_edit.delete_files(plan, snapshot, reader)
             if plan["action"] == "edit":
                 progress("edit-prepare")
-                prepared = ask_edit.prepare(plan, snapshot, args, reader, question_consent=permit)
+                prepared = ask_edit.prepare(plan, snapshot, args, reader, question_consent=permit,
+                                            excerpts=ledger.excerpts() if ledger is not None else None)
                 progress("edit-request")
                 response = request(question, args, reader, task=prepared.source, write_grant=prepared.write_grant,
                                    check=permit.check, question_consent=permit, **_observed(carried, task=prepared.source))

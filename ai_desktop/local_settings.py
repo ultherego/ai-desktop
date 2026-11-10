@@ -49,6 +49,9 @@ def _write(name, value, home=None):
 
 def saving(home=None):
     """True unless the user turned automatic saving off (`ai-desktop settings save off`)."""
+    import sys
+    if home is None and "unittest" in sys.modules and os.environ.get("AI_DESKTOP_LOCAL_SETTINGS") != "on":
+        return True                    # like the model catalog: tests never read this computer's own settings
     return _read("save", SAVE_VALUES, "on", home) == "on"
 
 

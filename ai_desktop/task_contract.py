@@ -21,6 +21,8 @@ MAX_TOTAL = 16 * 1024 * 1024
 MAX_REPLACEMENTS = 128
 MAX_REPLACEMENT_TEXT = 128 * 1024
 MAX_REPLACEMENT_TOTAL = 512 * 1024
+MAX_EXCERPTS = 16                     # excerpts of one large file sent instead of its whole content (S3)
+MAX_EXCERPT_TOTAL = 256 * 1024
 TEST_SUITES = ("python-unittest", "pytest", *MULTIPROCESS)
 CHECKS = ("text", "toml", *TEST_SUITES, "python-syntax", "json", "bash-syntax", "fish-syntax")
 
@@ -89,6 +91,17 @@ def request(value):
         raise ValueError("files")
     seen, total, writable = set(), 0, False
     for item in files:
+        if type(item) is dict and set(item) == {"path", "excerpts", "size", "writable"}:
+            # A large writable file the model sees only through excerpts it already read; it may only be changed by
+            # replacements copied from them (see proposal), resolved locally against the whole verified file.
+            name = path(item["path"])
+            if (name in seen or item["writable"] is not True or type(item["size"]) is not int
+                    or isinstance(item["size"], bool) or not 0 < item["size"] <= MAX_FILE):
+                raise ValueError("file")
+            seen.add(name)
+            excerpts(item["excerpts"])
+            writable = True
+            continue
         if type(item) is not dict or set(item) != {"path", "content", "writable"}:
             raise ValueError("file")
         name = path(item["path"])
@@ -104,6 +117,28 @@ def request(value):
     if total > MAX_TOTAL or not writable:
         raise ValueError("total")
     return value
+
+
+def excerpts(value):
+    """Validate the excerpts of one large file: line numbers and text only, bounded in count and size."""
+    if type(value) is not list or not 1 <= len(value) <= MAX_EXCERPTS:
+        raise ValueError("excerpts")
+    total = 0
+    for item in value:
+        if (type(item) is not dict or set(item) != {"first", "last", "text"}
+                or any(type(item[key]) is not int or isinstance(item[key], bool) for key in ("first", "last"))
+                or not 1 <= item["first"] <= item["last"]):
+            raise ValueError("excerpt")
+        total += len(text(item["text"], MAX_EXCERPT_TOTAL).encode("utf-8"))
+    if total > MAX_EXCERPT_TOTAL:
+        raise ValueError("excerpts")
+    return value
+
+
+def excerpt_texts(source):
+    """{path: [excerpt texts]} of the files a request carries only as excerpts."""
+    return {item["path"]: [part["text"] for part in item["excerpts"]]
+            for item in source["files"] if "excerpts" in item}
 
 
 class UnchangedProposal(ValueError):
@@ -139,9 +174,13 @@ def _replace_exact(original, replacements):
     return text("".join(result))
 
 
-def proposal(raw, source):
-    """Normalize full contents or bounded anchored edits into an exact full-content plan."""
+def proposal(raw, source, excerpts=None):
+    """Normalize full contents or bounded anchored edits into an exact full-content plan.
+
+    `source` holds the whole local contents. `excerpts` ({path: [texts]}) names the files the model saw only as
+    excerpts: those accept only replacements whose old text lies within one excerpt."""
     request(source)
+    excerpts = excerpts or {}
     try:
         value = json.loads(raw, object_pairs_hook=_unique_pairs)
     except (json.JSONDecodeError, RecursionError, UnicodeError):
@@ -160,6 +199,13 @@ def proposal(raw, source):
         name = path(item["path"])
         if name not in allowed or name in seen:
             raise ValueError("not selected")
+        if name in excerpts:
+            if "replacements" not in item or type(item["replacements"]) is not list:
+                raise ValueError("excerpt file needs replacements")
+            for replacement in item["replacements"]:
+                if (type(replacement) is not dict or type(replacement.get("old")) is not str
+                        or not any(replacement["old"] in part for part in excerpts[name])):
+                    raise ValueError("replacement outside the excerpts")
         content = (text(item["content"]) if "content" in item
                    else _replace_exact(allowed[name], item["replacements"]))
         if content == allowed[name]:

@@ -144,7 +144,7 @@ def run_task(args, reader, *, display_state=None):
 
 
 def finish_task(before, source, response, args, reader, *, write_guard=None, config=UNSET, project_test=None,
-                test_consent=None, approved_test=None, outcome=None):
+                test_consent=None, approved_test=None, outcome=None, excerpts=None):
     """Shared proposal review; sending data never authorizes a filesystem write.
 
     ask supplies a policy-bound guard, repeated after confirmation and inside
@@ -163,7 +163,7 @@ def finish_task(before, source, response, args, reader, *, write_guard=None, con
     if write_guard is not None:
         write_guard()
     try:
-        proposed = contract.proposal(response, source)
+        proposed = contract.proposal(response, source, excerpts)
     except contract.UnchangedProposal:
         print("No change was proposed: the file already has this content. Nothing was saved.")
         if args.details:

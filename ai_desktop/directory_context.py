@@ -259,8 +259,36 @@ def list_step(policy, selections, after, limits, scan, byte_budget, permit):
     return step, tuple(guards)
 
 
+def _contains(policy, path, needles, budget):
+    """Does this permitted regular file contain one of the needles (case-insensitive)? (answer, bytes read).
+
+    None means it could not be checked (too large for the scan, unreadable, not UTF-8 text, a private key): the find is
+    then incomplete, never silently negative. Only the yes/no leaves this function; the content stays local."""
+    from .file_context_contract import contains_private_key
+    limit = min(policy.file_size(), budget)
+    if limit <= 0:
+        return None, 0
+    try:
+        raw, _ = permissions._read(path, policy.uid, limit, system=policy._version == 2)
+    except ValueError:
+        return None, 0
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeError:
+        return None, len(raw)
+    if policy._version == 1 and contains_private_key(text):
+        return None, len(raw)
+    folded = text.casefold()
+    return any(needle in folded for needle in needles), len(raw)
+
+
 def find_step(policy, selection, queries, kind, limits, scan, byte_budget, permit):
-    """Breadth-first search by name below ONE directory root; matches are metadata only, content is never read."""
+    """Breadth-first search below ONE directory root; matches are metadata only.
+
+    By name for kind any/file/directory. Kind text reads permitted regular files locally (at most TEXT_SCAN_BYTES in
+    all, each within file_size) and returns the names of the files whose contents contain a query; no content is put
+    into the step, so excerpts still need an explicit search-content or read-range of one file."""
+    from .discovery_contract import TEXT_SCAN_BYTES
     if (type(queries) is not list or not 1 <= len(queries) <= MAX_QUERIES or type(kind) is not str or kind not in KINDS):
         raise ValueError("files-selection")
     queries = list({item.casefold(): item for item in reversed([clean_query(i) for i in queries])}.values())[::-1]
@@ -269,6 +297,8 @@ def find_step(policy, selection, queries, kind, limits, scan, byte_budget, permi
     step = {"op": "find", "id": ident, "path": relative, "queries": queries, "kind": kind, "matches": [],
             "truncated": False, "incomplete": False}
     used, pending, seen = 0, deque([(physical, logical, 0, None)]), 0
+    contents = kind == "text"
+    read_left = TEXT_SCAN_BYTES
     while pending:
         permit.check()
         here_physical, here_logical, depth, expect = pending.popleft()
@@ -277,7 +307,8 @@ def find_step(policy, selection, queries, kind, limits, scan, byte_budget, permi
             continue
         try:
             children, cut, identities = _children(policy, here_physical, here_logical, scope, scan, expect,
-                                                        match=lambda text: any(query in text.casefold() for query in folded))
+                                                        match=None if contents else
+                                                        lambda text: any(query in text.casefold() for query in folded))
         except ValueError as error:
             # A swapped or re-linked subdirectory (different inode than the parent listing showed, or now a link) is
             # a security signal and stops the question with a NON-recoverable code; only a vanished or unreadable
@@ -297,9 +328,23 @@ def find_step(policy, selection, queries, kind, limits, scan, byte_budget, permi
                                 permissions._absolute(here_logical + "/" + name), depth + 1, identities.get(name)))
             elif entry["type"] == "directory":
                 step["incomplete"] = True
-            if kind != "any" and entry["type"] != kind and not (kind == "directory" and entry["type"] == "alias"):
+            if contents:
+                if entry["type"] != "file":
+                    continue
+                permit.check()
+                found, spent = _contains(policy, permissions._absolute(here_physical + "/" + name), folded, read_left)
+                read_left -= spent
+                if found is None:
+                    step["incomplete"] = True      # a file that could not be checked is reported, never counted as absent
+                    if read_left <= 0:
+                        pending.clear()
+                        break
+                    continue
+                if not found:
+                    continue
+            elif kind != "any" and entry["type"] != kind and not (kind == "directory" and entry["type"] == "alias"):
                 continue
-            if not any(query in name.casefold() for query in folded):
+            elif not any(query in name.casefold() for query in folded):
                 continue
             cost = _byte_size(entry) + 1
             if len(step["matches"]) >= limits.search_results or used + cost > byte_budget:

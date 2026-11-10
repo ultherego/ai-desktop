@@ -948,3 +948,79 @@ class InstructionPathHintTests(Base):
                                                "pliki: ~/.config/gizmo/settings.conf.bak")
         with self.assertRaises(ask_discovery.Recoverable):
             ledger.ground([sel("gizmo/settings.conf")])                           # a longer name is not this path
+
+
+class TextFindTests(Base):
+    """S3: find kind text lists the files whose contents contain a fragment, across a whole permitted subtree."""
+
+    def find(self, queries, policy=None, budget=60000):
+        policy = policy or permissions.load_policy()
+        return directory_context.find_step(policy, "f0", queries, "text", policy.limits(),
+                                           directory_context.Scan(policy.limits().search_scan), budget,
+                                           SimpleNamespace(check=lambda: None))[0]
+
+    def test_files_with_the_text_are_named_and_no_content_is_returned(self):
+        for number in range(30):
+            self.file("tree/m%02d/plik.txt" % number, "zwykła treść\n")
+        self.file("tree/m17/plik.txt", "linia\nKLUCZ_TESTOWY_S3 = zielony-kaktus\n")
+        step = self.find(["klucz_testowy_s3"])
+        self.assertEqual([m["path"] for m in step["matches"]], ["tree/m17/plik.txt"])
+        self.assertEqual(step["kind"], "text")
+        self.assertNotIn("zielony-kaktus", json.dumps(step))           # names only: excerpts need search-content
+
+    def test_denied_files_are_never_read_or_named(self):
+        self.file("vault/secret.txt", "KLUCZ w sejfie\n")
+        self.file("gizmo/token.txt", "KLUCZ w tokenie\n")
+        self.reads.clear()
+        step = self.find(["klucz"])
+        self.assertNotIn("vault", json.dumps(step))
+        self.assertNotIn("token", json.dumps(step))
+        self.assertFalse([path for path in self.reads if "vault" in path or "token.txt" in path])
+
+    def test_an_unreadable_binary_or_oversized_file_makes_the_result_incomplete_not_absent(self):
+        self.file("bin/blob.dat", "x")
+        (self.home / ".config/bin/blob.dat").write_bytes(b"\xff\xfe\x00KLUCZ")
+        step = self.find(["klucz"])
+        self.assertTrue(step["incomplete"])
+        self.assertTrue(step["truncated"])
+
+    def test_the_local_read_budget_stops_the_search_as_incomplete(self):
+        from ai_desktop import discovery_contract
+        for number in range(5):
+            self.file("big/f%d.txt" % number, "a" * 4000 + "\n")
+        with patch.object(discovery_contract, "TEXT_SCAN_BYTES", 6000):
+            step = self.find(["nothing-here"])
+        self.assertTrue(step["incomplete"])
+
+    def test_the_plan_and_the_worker_accept_kind_text(self):
+        from ai_desktop import discovery_contract
+        self.assertIn("text", discovery_contract.KINDS)
+        step = {"op": "find", "id": "f0", "path": "", "queries": ["klucz"], "kind": "text",
+                "matches": [{"path": "tree/a.txt", "type": "file", "size": 5}], "truncated": False, "incomplete": False}
+        document = {"steps": [step], "remaining": {"rounds": 1, "corrections": 1, "commands": 0}}
+        self.assertEqual(discovery_contract.validate_discovery(document)["steps"][0]["kind"], "text")
+        from ai_desktop import assistant_contract
+        access = {"files": [{"id": "f0", "pattern": "~/.config/**"}], "systemd": [], "weather": False}
+        plan = assistant_contract.parse_plan(json.dumps({"action": "find", "files": ["f0"], "queries": ["klucz"],
+                                                          "kind": "text"}), access)
+        self.assertEqual(plan["kind"], "text")
+
+
+class TextFindLedgerTests(Base):
+    def test_a_text_find_may_use_the_whole_remaining_scan_budget(self):
+        policy = permissions.load_policy()
+        ledger = ask_discovery.DiscoveryLedger(policy, "Znajdź KLUCZ", "")
+        before = ledger.scan.left
+        seen = {}
+        real = directory_context.find_step
+
+        def spy(policy, selection, queries, kind, limits, scan, budget, permit):
+            seen[kind] = scan.left
+            return real(policy, selection, queries, kind, limits, scan, budget, permit)
+        with patch.object(directory_context, "find_step", side_effect=spy):
+            ledger.run({"action": "find", "files": ["f0"], "queries": ["klucz"], "kind": "text"},
+                       SimpleNamespace(check=lambda: None))
+            ledger.run({"action": "find", "files": ["f0"], "queries": ["klucz"], "kind": "file"},
+                       SimpleNamespace(check=lambda: None))
+        self.assertEqual(seen["text"], before)
+        self.assertLessEqual(seen["file"], max(1000, policy.limits().search_scan // 4))

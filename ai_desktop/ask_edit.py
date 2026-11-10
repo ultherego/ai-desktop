@@ -17,7 +17,11 @@ from .workspace_executor import ExecutionDenied
 
 
 class EditDenied(AnalysisDenied):
-    """A local edit selection or its bound state was refused."""
+    """A local edit selection or its bound state was refused. `hint` (optional) says why, for the user."""
+
+    def __init__(self, reason, hint=None):
+        super().__init__(reason)
+        self.hint = hint
 
 
 class EditConflict(EditDenied):
@@ -64,6 +68,7 @@ class PreparedEdit:
     workspace: str
     write_grant: object
     project_test: object = None
+    local: dict = None              # the whole local contents when some files went to the model only as excerpts
 
 
 class WriteGrant:
@@ -118,7 +123,22 @@ class WriteGrant:
         permit.check()
 
 
-def prepare(plan, snapshot, args, reader, *, question_consent, expected_versions=None, project_context=None, test_root=None):
+def _size_hint(policy, path, code):
+    """Why a file of an edit could not be read whole, in the owner's own settings."""
+    limits = policy.limits()
+    name = terminal_text(path.rsplit("/", 1)[1])
+    if code == "files-size":
+        return ("%s is larger than files.read_file_size (%s), so it cannot be sent whole. Ask Claude to find the place to "
+                "change first (a search or a range of lines), then it edits only that part; or raise read_file_size in "
+                "permissions.toml (up to 8 MiB)." % (name, size_label(limits.read_file_size)))
+    if code == "files-total":
+        return ("The files of this change are together larger than files.read_total_size (%s). Change fewer files at "
+                "once or raise read_total_size in permissions.toml." % size_label(limits.read_total_size))
+    return None
+
+
+def prepare(plan, snapshot, args, reader, *, question_consent, expected_versions=None, project_context=None, test_root=None,
+            excerpts=None):
     from .run_controls import require_changes
     require_changes()
     """Snapshot only approved readable data and absent writable new targets."""
@@ -138,18 +158,36 @@ def prepare(plan, snapshot, args, reader, *, question_consent, expected_versions
         detached = task_workspace._can_apply(workspace)
         if args.details and type(detached) is int and detached:
             print(task_workspace.DETACHED_HISTORY_HINT)
-        read_paths, contents = (), {}
+        read_paths, contents, large = (), {}, {}
         if plan["files"]:
             question_consent.require_files(policy, plan["files"])
             read_paths = file_context.resolve_paths(policy, plan["files"])
             if any(not path.startswith(workspace + "/") for path in read_paths):
                 raise ValueError()
             question_consent.check()
-            bundle = permissions.read_selected(policy, read_paths)
-            conversation_state.note_sources([file["path"] for file in bundle["files"]])
-            contents = {item["path"]: item["content"] for item in bundle["files"]}
-            if set(contents) != set(read_paths):
-                raise ValueError()
+            # S3: a file larger than read_file_size goes to the model only as the excerpts it already read in this
+            # question; the whole file is read locally (below) and must be the version those excerpts came from.
+            limit = policy.limits().read_file_size
+            large = {path: entry for path, entry in (excerpts or {}).items()
+                     if path in read_paths and entry["size"] > limit and entry["fragments"]}
+            ordinary = tuple(path for path in read_paths if path not in large)
+            for path in large:
+                if policy.select(permissions.recheck_selection(policy, (path,))) != (path,):
+                    raise ValueError()
+            if ordinary:
+                try:
+                    bundle = permissions.read_selected(policy, ordinary)
+                except ValueError as exc:
+                    hint = _size_hint(policy, ordinary[0], exc.args[0] if exc.args else "")
+                    if hint is not None:
+                        raise EditDenied("input", hint) from None
+                    raise
+                conversation_state.note_sources([file["path"] for file in bundle["files"]])
+                contents = {item["path"]: item["content"] for item in bundle["files"]}
+                if set(contents) != set(ordinary):
+                    raise ValueError()
+            if large:
+                conversation_state.note_sources(list(large))
         question_consent.check()
         existing = [task_contract.path(path[len(workspace) + 1:]) for path in read_paths]
         if expected_versions is not None and (type(expected_versions) is not dict or set(expected_versions) != set(existing)):
@@ -170,10 +208,29 @@ def prepare(plan, snapshot, args, reader, *, question_consent, expected_versions
             if str(exc) == "text":
                 print("This file cannot be edited without changing its bytes: it has mixed line endings or control characters.")
             raise
-        files, targets = [], []
+        files, local, targets = [], [], []
         for name in names:
             path = workspace + "/" + name
             old = before["files"][name]["file"]
+            if path in large:
+                if old is None or not policy.can_write(path, index=index):
+                    raise ValueError()
+                if old["sha256"] != large[path]["version"]:
+                    raise EditConflict("input")         # changed since Claude read the excerpts: nothing is sent
+                parts = [{"first": item["first"], "last": item["last"], "text": task_contract.plain_text(item["text"])}
+                         for item in sorted(large[path]["fragments"], key=lambda item: item["start"])]
+                kept, used = [], 0
+                for part in parts[-task_contract.MAX_EXCERPTS:]:
+                    used += len(part["text"].encode("utf-8"))
+                    if used > task_contract.MAX_EXCERPT_TOTAL:
+                        break
+                    kept.append(part)
+                if not kept:
+                    raise EditDenied("input", _size_hint(policy, path, "files-size"))
+                targets.append(path)
+                files.append({"path": name, "excerpts": kept, "size": large[path]["size"], "writable": True})
+                local.append({"path": name, "content": task_contract.plain_text(old["content"]), "writable": True})
+                continue
             if name in created:
                 if old is not None:
                     raise ValueError()
@@ -188,11 +245,14 @@ def prepare(plan, snapshot, args, reader, *, question_consent, expected_versions
             if writable:
                 targets.append(path)
             files.append({"path": name, "content": content, "writable": writable})
+            local.append({"path": name, "content": content, "writable": writable})
         source = {"instruction": question_consent.question, "files": files}
         if project_context is not None:
             source["project_context"] = project_context
         source = task_contract.request(source)
-        grant = WriteGrant(question_consent, snapshot, index, before, source, read_paths, targets)
+        whole = task_contract.request({"instruction": question_consent.question, "files": local}) if large else None
+        grant = WriteGrant(question_consent, snapshot, index, before, source, tuple(p for p in read_paths if p not in large),
+                           targets)
         grant.require_transfer(question_consent, source)
         project_test = None
         if plan["check"] in task_contract.TEST_SUITES:
@@ -215,7 +275,7 @@ def prepare(plan, snapshot, args, reader, *, question_consent, expected_versions
                     for detail in exc.details:
                         print(detail)
                 raise
-        return PreparedEdit(before, source, plan["check"], workspace, grant, project_test)
+        return PreparedEdit(before, source, plan["check"], workspace, grant, project_test, whole)
     except (EditDenied, AnalysisDenied):
         raise
     except (OSError, ValueError, TypeError, KeyError, AttributeError, ExecutionDenied):
@@ -281,10 +341,12 @@ def finish(prepared, response, args, reader, *, approved_test=None):
     if approved_test is not None and prepared.project_test is None:
         raise EditDenied("consent")
     outcome = {}
+    local = prepared.local if prepared.local is not None else prepared.source
     try:
-        code = finish_task(prepared.before, prepared.source, response, SimpleNamespace(**values), reader,
+        code = finish_task(prepared.before, local, response, SimpleNamespace(**values), reader,
                            write_guard=prepared.write_grant.check, project_test=prepared.project_test,
-                           approved_test=approved_test, outcome=outcome)
+                           approved_test=approved_test, outcome=outcome,
+                           excerpts=task_contract.excerpt_texts(prepared.source) or None)
     except EditConflict:
         conversation_state.note_action("Change NOT saved: the file changed after it was read; nothing was overwritten")
         raise

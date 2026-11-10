@@ -96,6 +96,46 @@ class AskEditTests(unittest.TestCase):
             ask_edit.finish(prepared, json.dumps(PROPOSAL), self.args, Mock())
         self.assertIs(finish.call_args.kwargs["project_test"], helper)
 
+    def large(self, version="a" * 64):
+        """main.py is above read_file_size and Claude already read its second line in this question."""
+        self.policy.limits.return_value = SimpleNamespace(read_file_size=1024, read_total_size=4096, read_files=64)
+        self.enterContext(patch.object(ask_edit.permissions, "recheck_selection", side_effect=lambda policy, paths: tuple(paths)))
+        self.read.return_value = {"kind": "files", "files": [self.bundle["files"][1]]}
+        line = "    return a - b\n"
+        start = ORIGINAL.index(line)
+        return {WORKSPACE + "/main.py": {"version": version, "size": len(ORIGINAL.encode()), "fragments": [
+            {"first": 2, "last": 2, "start": start, "end": start + len(line), "text": line}]}}
+
+    def test_a_file_above_read_file_size_goes_out_only_as_the_excerpts_already_read(self):
+        prepared = ask_edit.prepare(copy.deepcopy(PLAN), self.snapshot, self.args, Mock(), question_consent=self.permit,
+                                    excerpts=self.large())
+        wire = {item["path"]: item for item in prepared.source["files"]}
+        self.assertEqual(set(wire["main.py"]), {"path", "excerpts", "size", "writable"})
+        self.assertEqual(wire["main.py"]["excerpts"], [{"first": 2, "last": 2, "text": "    return a - b\n"}])
+        self.assertNotIn("synthetic padding", json.dumps(prepared.source))         # the whole file never leaves
+        self.read.assert_called_once_with(self.policy, (WORKSPACE + "/tests/info.txt",))
+        local = {item["path"]: item for item in prepared.local["files"]}
+        self.assertEqual(local["main.py"]["content"], ORIGINAL)
+        reply = json.dumps({"summary": "Poprawiono znak.", "files": [
+            {"path": "main.py", "replacements": [{"old": "return a - b", "new": "return a + b"}]}]})
+        with patch.object(task_cli, "finish_task", return_value=0) as finish:
+            ask_edit.finish(prepared, reply, self.args, Mock())
+        self.assertIs(finish.call_args.args[1], prepared.local)
+        self.assertEqual(finish.call_args.kwargs["excerpts"], {"main.py": ["    return a - b\n"]})
+
+    def test_a_large_file_changed_since_its_excerpts_were_read_is_a_conflict(self):
+        with self.assertRaises(ask_edit.EditConflict):
+            ask_edit.prepare(copy.deepcopy(PLAN), self.snapshot, self.args, Mock(), question_consent=self.permit,
+                             excerpts=self.large(version="b" * 64))
+
+    def test_a_file_too_large_without_excerpts_is_refused_with_the_setting_named(self):
+        self.policy.limits.return_value = SimpleNamespace(read_file_size=1024, read_total_size=4096, read_files=64)
+        self.read.side_effect = ValueError("files-size")
+        with self.assertRaises(ask_edit.EditDenied) as caught:
+            self.prepare()
+        self.assertIn("files.read_file_size (1.0 KiB)", caught.exception.hint)
+        self.assertIn("find the place to change first", caught.exception.hint)
+
     def test_read_and_create_are_bound_to_one_workspace_with_readonly_context(self):
         prepared = self.prepare()
         self.assertEqual(prepared.workspace, WORKSPACE)

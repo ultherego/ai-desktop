@@ -202,3 +202,46 @@ class AnchoredProposalTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ExcerptEditTests(unittest.TestCase):
+    """S3: a large file goes out as excerpts; only replacements copied from them are accepted."""
+
+    WHOLE = "a = 1\n" + "x = 0\n" * 1000 + "limit = 50\n" + "y = 0\n" * 1000
+
+    def wire(self, excerpts=None):
+        return {"instruction": "Change the limit", "files": [{"path": "big.conf", "size": len(self.WHOLE),
+                "writable": True, "excerpts": excerpts if excerpts is not None else [{"first": 1002, "last": 1002, "text": "limit = 50\n"}]}]}
+
+    def local(self):
+        return {"instruction": "Change the limit", "files": [{"path": "big.conf", "content": self.WHOLE, "writable": True}]}
+
+    def test_the_wire_form_is_bounded(self):
+        from ai_desktop import task_contract
+        task_contract.request(self.wire())
+        for bad in ([], [{"first": 0, "last": 1, "text": "x"}], [{"first": 2, "last": 1, "text": "x"}],
+                    [{"first": 1, "last": 1, "text": "x", "extra": 1}],
+                    [{"first": 1, "last": 1, "text": "x"}] * (task_contract.MAX_EXCERPTS + 1),
+                    [{"first": 1, "last": 1, "text": "x" * (task_contract.MAX_EXCERPT_TOTAL + 1)}]):
+            with self.subTest(bad=str(bad)[:60]), self.assertRaises(ValueError):
+                task_contract.request(self.wire(bad))
+        readonly = self.wire()
+        readonly["files"][0]["writable"] = False
+        with self.assertRaises(ValueError):
+            task_contract.request(readonly)
+
+    def test_replacements_from_the_excerpts_apply_to_the_whole_local_file(self):
+        from ai_desktop import task_contract
+        excerpts = task_contract.excerpt_texts(self.wire())
+        reply = json.dumps({"summary": "limit", "files": [{"path": "big.conf",
+                            "replacements": [{"old": "limit = 50", "new": "limit = 200"}]}]})
+        result = task_contract.proposal(reply, self.local(), excerpts)
+        self.assertEqual(result["files"][0]["content"], self.WHOLE.replace("limit = 50", "limit = 200"))
+
+    def test_full_content_or_text_outside_the_excerpts_is_refused(self):
+        from ai_desktop import task_contract
+        excerpts = task_contract.excerpt_texts(self.wire())
+        for files in ([{"path": "big.conf", "content": "limit = 200\n"}],
+                      [{"path": "big.conf", "replacements": [{"old": "a = 1", "new": "a = 2"}]}]):
+            with self.subTest(files=files), self.assertRaises(ValueError):
+                task_contract.proposal(json.dumps({"summary": "s", "files": files}), self.local(), excerpts)
