@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** merge PR #52 (S1, S3), name the exact task in the post-save undo line (`--plan`), then and a real Codex request with its answer while written (after the maintainer's Codex limit resets around 2026-11-12). S0 and S7 remain deferred.
+**Next step:** merge PR #52 (S1, S3), name the exact task in the post-save undo line (`--plan`), and a real Codex request with its answer while written (after the maintainer's Codex limit resets around 2026-11-12). S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
