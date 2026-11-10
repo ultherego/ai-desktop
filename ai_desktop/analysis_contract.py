@@ -82,7 +82,7 @@ SYSTEM_PROMPT = (
     "return {\"action\":\"edit\",\"write\":\"w0\",\"files\":[\"f0\"],"
     "\"create\":[],\"check\":\"text\"}. An edit plan has exactly action, write, files, create, check. "
     "Before editing a file larger than the read limit, search-content or read-range the part to change: the edit then "
-    "receives only those excerpts. "
+    "receives only those excerpts (without them it is refused with files-size). "
     "write is one id from access.write; files selects reads using the selectors described below. "
     "create is at most 64 new relative paths inside the write scope, without .. and without creating directories. "
     "When only creating, and you do not need the content of existing files, give files=[]. "

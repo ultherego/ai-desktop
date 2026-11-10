@@ -92,7 +92,9 @@ def size_label(count):
     """A byte count as a person reads it."""
     if count < 1024:
         return "%d B" % count
-    return "%.1f KiB" % (count / 1024)
+    if count < 1024 * 1024:
+        return "%.1f KiB" % (count / 1024)
+    return "%.1f MiB" % (count / (1024 * 1024))
 
 
 def _fit(text, room):

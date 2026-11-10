@@ -198,3 +198,46 @@ class AskContentTests(Base):
         for first, last in ((True, 1), (0, 1), (2, 1)):
             with self.assertRaises(assistant_contract.PlanError):
                 assistant_contract.parse_plan(self.ranges(first=first, last=last), access)
+
+
+class ExcerptEditFlowTests(Base):
+    """S3: an edit of a file above read_file_size first gets a files-size correction, then only the read excerpts."""
+    policy_extra = 'write = ["~/.config/**"]\n'
+
+    def test_an_edit_without_excerpts_is_corrected_and_then_receives_the_excerpt(self):
+        from types import SimpleNamespace
+        from ai_desktop import ask_edit
+        path = self.home / ".config/big.conf"
+        path.write_text("".join("opcja_%05d = %d\n" % (i, i) for i in range(1, 110000)) + "limit = 50\n")
+        self.assertGreater(path.stat().st_size, permissions.load_policy().limits().read_file_size)
+        edit = json.dumps({"action": "edit", "write": "w0", "files": [sel("big.conf")], "create": [], "check": "text"})
+        seen = {}
+
+        def prepare(plan, snapshot, args, reader, **kwargs):
+            seen.update(kwargs)
+            return SimpleNamespace(source={"instruction": "x", "files": [{"path": "big.conf", "content": "x\n", "writable": True}]},
+                                   write_grant=None)
+        profile = {"provider": "claude", "model": "default", "effort": "default", "instructions": "",
+                   "profile": "diagnostic", "access": "changes"}
+        with patch.object(ask_edit, "prepare", side_effect=prepare), \
+                patch.object(ask_edit, "finish", return_value="ZAPISANO"):
+            self.wire = []
+            replies = iter([edit, AskContentTests.search("big.conf", "limit = "), edit])
+
+            def request(text, args, reader, **kwargs):
+                if "task" in kwargs:
+                    return "{}"
+                fields = {name: kwargs[name] for name in ("access", "context", "discovery", "web") if name in kwargs}
+                gate = wire.AnalysisConsent(None, question=text, **fields)
+                permit = kwargs["question_consent"]
+                permit.claim(gate, text, **fields)
+                approval = permit.authorize(gate, text, **fields)
+                self.wire.append(json.loads(wire.parse_request(approval.payload.encode())[0]))
+                return next(replies)
+            with execution.using(profile):
+                result = flow.run("Zmień limit w big.conf na 200", options(), self.reader, request)
+        self.assertEqual(result, "ZAPISANO")
+        refusal = self.wire[1]["discovery"]["steps"][0]
+        self.assertEqual((refusal["op"], refusal["code"]), ("refusal", "files-size"))
+        (entry,) = seen["excerpts"].values()
+        self.assertTrue(any("limit = 50" in fragment["text"] for fragment in entry["fragments"]))
