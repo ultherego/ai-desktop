@@ -5,12 +5,11 @@ Full OAuth/network/host-process proofs belong to E2 on CachyOS.
 """
 import contextlib
 import io
-import inspect
 from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-from ai_desktop import controller, diagnose, executor
+from ai_desktop import diagnose, executor
 from ai_desktop.report_policy import serialize_report
 from test_report_policy import report_fixture
 
@@ -43,71 +42,31 @@ class E1SecurityBoundaryTests(unittest.TestCase):
         self.assertNotIn("/home/example", sources)
         self.assertTrue(all("claude" not in s.lower() for s in sources))
 
-    def test_controller_preview_never_calls_claude(self):
+    def test_diagnostic_preview_never_starts_a_model_or_process(self):
         report = report_fixture()
-        payload = serialize_report(report)
         with (
-            patch.object(controller.os, "geteuid", return_value=1000),
-            patch.object(controller, "prepare",
-                         return_value=(report, payload, {"signals": [], "unknown": []})) as prepare,
-            patch.object(controller.diagnose, "ask") as ask,
+            patch.object(diagnose.os, "geteuid", return_value=1000),
+            patch.object(diagnose, "collect", return_value=report) as collect,
+            patch.object(diagnose.subprocess, "run") as run,
             contextlib.redirect_stdout(io.StringIO()) as output,
         ):
-            self.assertEqual(controller.main(["preview"]), 0)
-        prepare.assert_called_once_with()
-        ask.assert_not_called()
-        self.assertIn("PREVIEW: PASS", output.getvalue())
+            self.assertEqual(diagnose.main(["preview"]), 0)
+        collect.assert_called_once_with()
+        run.assert_not_called()
+        self.assertIn("PREVIEW: PASS (no data sent to AI)", output.getvalue())
+        self.assertIn(serialize_report(report), output.getvalue())
 
-    def test_failed_worker_probe_refuses_check_before_model(self):
-        report = report_fixture()
-        with (
-            patch.object(controller.diagnose, "collect", return_value=report),
-            patch.object(controller.executor, "_run", return_value={"probe": "FAIL"}) as worker,
-            patch.object(controller.diagnose, "ask") as ask,
-        ):
-            with self.assertRaises(RuntimeError):
-                controller.prepare()
-        worker.assert_called_once_with("--probe")
-        ask.assert_not_called()
-
-    def test_invalid_worker_response_prevents_model_launch(self):
-        report = report_fixture()
-        payload = serialize_report(report)
-        with (
-            patch.object(controller.os, "geteuid", return_value=1000),
-            patch.object(controller.diagnose, "collect", return_value=report),
-            patch.object(controller.executor, "_run",
-                         side_effect=[{"probe": "PASS"}, {"signals": ["shell_escape"], "unknown": []}]),
-            patch.object(controller.diagnose, "ask") as ask,
-            contextlib.redirect_stdout(io.StringIO()) as out,
-        ):
-            self.assertEqual(controller.main(["ask"]), 1)
-        ask.assert_not_called()
-        self.assertNotIn("shell_escape", out.getvalue())
-
-    def test_invalid_actions_and_root_refused_before_collect_or_model(self):
-        for args, is_root in ((["shell"], False), (["ask", "anything"], False),
-                              (["preview"], True), (["ask"], True)):
+    def test_invalid_actions_and_root_refused_before_collect(self):
+        for args, is_root in ((["shell"], False), (["ask"], False), (["preview", "anything"], False),
+                              (["preview"], True), (["snapshot"], True)):
             with self.subTest(args=args, root=is_root):
                 with (
-                    patch.object(controller.os, "geteuid", return_value=0 if is_root else 1000),
-                    patch.object(controller, "prepare") as prepare,
-                    patch.object(controller.diagnose, "ask") as ask,
+                    patch.object(diagnose.os, "geteuid", return_value=0 if is_root else 1000),
+                    patch.object(diagnose, "collect") as collect,
                     contextlib.redirect_stdout(io.StringIO()),
                 ):
-                    self.assertEqual(controller.main(args), 2)
-                prepare.assert_not_called()
-                ask.assert_not_called()
-
-    def test_current_host_claude_risk_must_remain_explicit(self):
-        # Regression on the documented starting point, NOT a security guarantee.
-        source = inspect.getsource(diagnose.ask)
-        threat_model = (Path(__file__).resolve().parent.parent /
-                        "docs" / "THREAT_MODEL.md").read_text(encoding="utf-8")
-        if "subprocess.run(" in source and '"HOME": str(Path.home())' in source:
-            self.assertIn("NIEZAIZOLOWANY PROCES CLAUDE", threat_model)
-            self.assertIn("P0", threat_model)
-            self.assertIn("E2", threat_model)
+                    self.assertEqual(diagnose.main(args), 2)
+                collect.assert_not_called()
 
     def test_threat_matrix_and_fallback_are_explicit(self):
         text = (Path(__file__).resolve().parent.parent /

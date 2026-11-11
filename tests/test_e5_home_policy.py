@@ -1,17 +1,15 @@
-"""Shared HOME refusal for legacy workspace, tasks and installer prefixes.
+"""Shared HOME refusal for the legacy workspace and tasks.
 
 Only synthetic identity and descriptor metadata are used; no real HOME is
 opened. Separate integration tests cover the ordinary project filesystem path.
 """
 import os
 import pwd
-import stat
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 from ai_desktop import workspace_executor as workspace
-from ai_desktop.install_policy import InstallDenied, _prefix
 from ai_desktop.typed_plan import PlanSession
 
 
@@ -54,21 +52,6 @@ class WorkspaceHomePolicyTests(unittest.TestCase):
         with patch.object(workspace.os, "open", side_effect=AssertionError("unknown identity opened")):
             with self.assertRaises(workspace.ExecutionDenied):
                 workspace._root(self.home + "/project")
-
-    def test_installer_cannot_use_whole_home_but_accepts_a_selected_subdirectory(self):
-        with patch.object(workspace.os, "open", side_effect=AssertionError("HOME opened")):
-            with self.assertRaises(InstallDenied):
-                _prefix(self.home)
-        # The new guard must not ban normal project/install directories below
-        # HOME or use environment HOME as authority. Existing checks still run.
-        target = self.home + "/ai-desktop-install"
-        info = SimpleNamespace(st_mode=stat.S_IFDIR | 0o700, st_uid=1000)
-        with patch.dict(os.environ, {"HOME": target}), \
-                patch.object(workspace.os, "open", side_effect=[10, 11, 12, 13]), \
-                patch.object(workspace.os, "close") as close, \
-                patch.object(workspace.os, "fstat", return_value=info):
-            self.assertEqual(_prefix(target), 13)
-            self.assertEqual(close.call_count, 3)
 
 
 if __name__ == "__main__":

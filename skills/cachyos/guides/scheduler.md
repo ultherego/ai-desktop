@@ -41,4 +41,4 @@ Give the confirmed state of the kernel and manager, the cause or hypothesis with
 
 Load the matching reference when the task concerns these tools. Verify the installed version and help; a rolling source is not a verified version match.
 
-- [Manager versions, capabilities and profiles](references/scheduler-tools.md).
+- [Manager versions, capabilities and profiles](../references/scheduler-tools.md).

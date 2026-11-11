@@ -46,8 +46,8 @@ Give the failure stage, the evidence, the scope of the proposed change and the c
 
 Load the matching reference when the task concerns these tools. Verify the installed version and help; a rolling source is not a verified version match.
 
-- [Btrfs Assistant and Snapper](references/snapshot-tools.md).
-- [Live ISO recovery with cachy-chroot](references/cachy-chroot.md).
-- [Limine configuration and entries](references/limine.md).
-- [Snapshot boot entries with limine-snapper-sync](references/limine-snapper-sync.md).
-- [Snapper configs and snap-pac snapshots](references/snapper-snap-pac.md).
+- [Btrfs Assistant and Snapper](../references/snapshot-tools.md).
+- [Live ISO recovery with cachy-chroot](../references/cachy-chroot.md).
+- [Limine configuration and entries](../references/limine.md).
+- [Snapshot boot entries with limine-snapper-sync](../references/limine-snapper-sync.md).
+- [Snapper configs and snap-pac snapshots](../references/snapper-snap-pac.md).

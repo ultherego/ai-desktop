@@ -43,4 +43,4 @@ Give the scope of the problem, the evidence, a baseline/trial table with measure
 
 Load the matching reference when the task concerns these tools. Verify the installed version and help; a rolling source is not a verified version match.
 
-- [CachyOS gaming packages, runners and wrappers](references/gaming-tools.md).
+- [CachyOS gaming packages, runners and wrappers](../references/gaming-tools.md).

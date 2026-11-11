@@ -1,8 +1,5 @@
 """E3/E4 real CLI entry points: temp workspaces, a real pty, no model, no network."""
 from pathlib import Path
-import contextlib
-import io
-import json
 import os
 import pty
 import re
@@ -14,9 +11,8 @@ import time
 import unittest
 from unittest.mock import patch
 
-from ai_desktop import approval_ui, controller, workspace_cli
+from ai_desktop import workspace_cli
 from ai_desktop.cli import main as cli_main
-from test_report_policy import report_fixture
 
 REPO = str(Path(__file__).resolve().parent.parent)
 
@@ -149,41 +145,6 @@ class WorkspaceCliTests(unittest.TestCase):
             self.assertEqual(cli_main(["workspace", "status", "/x"]), 0)
         run.assert_called_once_with(["status", "/x"])
         self.assertEqual(workspace_cli.main(["exec", "x"]), 2)
-
-
-class ControllerApproveTests(unittest.TestCase):
-    def prepared(self):
-        report = report_fixture()
-        return report, json.dumps(report), {"signals": [], "unknown": []}
-
-    def test_approve_records_consent_and_sends_nothing(self):
-        report = self.prepared()[0]
-        auth = type("A", (), {"sha256": "ab" * 32})()
-        out = io.StringIO()
-        with (patch.object(controller, "prepare", return_value=self.prepared()),
-              patch.object(controller.approval_ui, "confirm_transfer",
-                           return_value=auth) as confirm,
-              patch.object(controller.diagnose, "ask") as ask,
-              contextlib.redirect_stdout(out)):
-            self.assertEqual(controller.main(["approve"]), 0)
-        ask.assert_not_called()
-        self.assertEqual(confirm.call_args.args[0], report)
-        self.assertIn("no data sent to AI", out.getvalue())
-
-    def test_approve_denied_returns_2_and_never_asks(self):
-        with (patch.object(controller, "prepare", return_value=self.prepared()),
-              patch.object(controller.approval_ui, "confirm_transfer",
-                           side_effect=approval_ui.ApprovalDenied("x")),
-              patch.object(controller.diagnose, "ask") as ask,
-              contextlib.redirect_stdout(io.StringIO())):
-            self.assertEqual(controller.main(["approve"]), 2)
-        ask.assert_not_called()
-
-    def test_approve_without_terminal_is_denied(self):
-        with (patch.object(controller, "prepare", return_value=self.prepared()),
-              patch("sys.stdin", io.StringIO("SEND x\n")),
-              contextlib.redirect_stdout(io.StringIO())):
-            self.assertEqual(controller.main(["approve"]), 2)
 
 
 if __name__ == "__main__":

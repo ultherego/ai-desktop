@@ -37,7 +37,6 @@ from .question_input import (_without_locks, _KEYS, _PASTE_END, _PASTE_START, CO
 
 _ANSI = re.compile(r"\x1b\[[0-9;?<>]*[A-Za-z]")
 _current = None
-_SLASH = "/"
 _CTRL_C_REPORTED = (b"\x1b[99;5u", b"\x1b[27;5;99~")      # Ctrl+C under the kitty / modifyOtherKeys protocols
 
 

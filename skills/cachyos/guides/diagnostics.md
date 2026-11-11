@@ -49,4 +49,4 @@ Give: the symptom and scope, confirmed facts, the cause or a labeled hypothesis,
 
 Load the matching reference when the task concerns these tools. Verify the installed version and help; a rolling source is not a verified version match.
 
-- [CachyOS Settings helpers and report boundaries](references/settings-tools.md).
+- [CachyOS Settings helpers and report boundaries](../references/settings-tools.md).

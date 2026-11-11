@@ -21,4 +21,4 @@
 | Read refused | Check `read` and `deny`. A link, special file, foreign owner or hard link means refusal. The message gives the limit. |
 | `Nothing was saved` | Check `read` and `write` and whether the directory exists; then `task status`. |
 | A write refuses after an interrupted task | Temporary files were left. `task status`, then `task rollback`. Do not erase the journal. |
-| Limit of 128 tasks | The write will not be performed. No command cleans the history: review it by hand. |
+| Limit of 128 tasks | The write will not be performed. Review `task status`, then remove finished entries with `ai-desktop task prune --workspace DIRECTORY` (separate consent; user files are never deleted). |

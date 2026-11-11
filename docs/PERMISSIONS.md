@@ -1,6 +1,6 @@
 # `permissions.toml`: settings reference
 
-File: `~/.config/ai-desktop/permissions.toml`, owned by you, mode `0600`. Template: [`config/permissions.example.toml`](../config/permissions.example.toml). A missing key means "off"; an unknown key or bad value stops the program and names the problem. Details and examples: [CONFIGURATION.md](CONFIGURATION.md).
+File: `~/.config/ai-desktop/permissions.toml`, owned by you, mode `0600`. Template: [`config/permissions.example.toml`](../config/permissions.example.toml). `version` and `[files]` with its `read` and `deny` lists are required (an empty list is allowed); any other missing key means "off" or its default. An unknown key or bad value stops the program and names the problem. Details and examples: [CONFIGURATION.md](CONFIGURATION.md).
 
 ## Top level
 
@@ -62,7 +62,7 @@ Limits (default → highest allowed):
 - `deny`: commands never run, as word prefixes, e.g. `"docker rm"` blocks every `docker rm …`. It wins over `allow` and `change`. It does not reliably block a flag (`"docker ps -a"` still lets `--all` through), so do not open a template with `...` if some flag must stay off.
 - Commands run in a sandbox without your home directory. A path in your home that a command names (`~/` is expanded) and `read` allows is shown to that command read-only, so `niri validate -c ~/.config/niri/config.kdl` sees its file.
 - `share_processes`: `true` lets `allow` commands see host processes and their command lines. Default `false`.
-- `host_sockets`: list of extra sockets under `/run` that `allow` commands may reach (at most 8; never `/run/user`). Default `[]`.
+- `host_sockets`: list of extra sockets under `/run` that `allow` commands may reach (at most 8; never `/run/user` or `/run/dbus`, since D-Bus goes through its filter). Default `[]`.
 
 `allow` commands see an empty `/run` except journals, systemd and login state, udev data, mounts, `utmp` and NetworkManager state. D-Bus is available read-only, through a filter. Anything else needs `host_sockets`:
 

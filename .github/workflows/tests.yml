@@ -39,15 +39,6 @@ jobs:
           python -m pip install 'rich>=13.7,<15' 'cryptography>=44'
           python -B scripts/verify.py --mode ci --fail-fast --json "$RUNNER_TEMP/ai-desktop-check-${{ matrix.python-version }}.json"
           test -s "$RUNNER_TEMP/ai-desktop-check-${{ matrix.python-version }}.json"
-      - name: Install-home permission fixtures under different umasks
-        run: |
-          for aid_test_umask in 0022 0077 0002; do
-            printf 'UMASK=%s\n' "$aid_test_umask"
-            (
-              umask "$aid_test_umask"
-              python -B -m unittest discover -s tests -p test_e7_home.py -v
-            )
-          done
       - name: Full unit suite with private Codex read-only ambient profile
         run: python -B tests/profile_environment_check.py --allow-synthetic-profile-test
       - name: Real offline CLI integration tests (synthetic reports)
@@ -62,7 +53,6 @@ jobs:
           python -B -m ai_desktop diagnose --help
           python -B -m ai_desktop diagnose snapshot --help
           python -B -m ai_desktop diagnose --help
-          python -B -m ai_desktop controller --help
           python -B -m ai_desktop status --help
           python -B -m ai_desktop analyze --help
           python -B -m ai_desktop ask --help
@@ -211,8 +201,8 @@ jobs:
         run: |
           bwrap --unshare-user --unshare-net --ro-bind /usr /usr --symlink usr/lib /lib --symlink usr/lib64 /lib64 /usr/bin/true
           python -B -m unittest discover -s tests -p host_e2_subscription_checks.py -v
-      - name: Real systemd activation and confinement on the disposable runner
-        run: python -B tests/ci_e2_systemd_activation.py --allow-disposable-systemd-test
+      - name: Provision the isolated account and root-owned code on the disposable runner
+        run: python -B tests/ci_provision.py --allow-disposable-systemd-test
       - name: General ask, analysis, provider failures and cleanup (synthetic client, no OAuth)
         run: python -B tests/ci_analysis_systemd.py --allow-disposable-analysis-test
       - name: Selected-file and project tests (actual namespaces and user cgroups, no OAuth)

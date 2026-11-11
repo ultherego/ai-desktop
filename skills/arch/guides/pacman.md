@@ -43,10 +43,10 @@ Check that the original message is gone, the transaction completed, and the rele
 
 Load the matching reference when the task concerns these tools. Verify the installed version and help; a rolling source is not a verified version match.
 
-- [Installed pacman queries and configuration files](references/package-queries.md).
-- [Pacman 7.0.0 local repository access](references/pacman-700-local-repositories.md).
-- [.pacnew and .pacsave files after an upgrade](references/pacnew-pacsave.md).
-- [Finding and merging them with pacdiff](references/pacdiff.md).
-- [Signature errors and the keyring](references/package-signing.md).
-- [Mirror freshness and ranking](references/mirrors.md).
-- [Package cache size and cleanup with paccache](references/paccache.md).
+- [Installed pacman queries and configuration files](../references/package-queries.md).
+- [Pacman 7.0.0 local repository access](../references/pacman-700-local-repositories.md).
+- [.pacnew and .pacsave files after an upgrade](../references/pacnew-pacsave.md).
+- [Finding and merging them with pacdiff](../references/pacdiff.md).
+- [Signature errors and the keyring](../references/package-signing.md).
+- [Mirror freshness and ranking](../references/mirrors.md).
+- [Package cache size and cleanup with paccache](../references/paccache.md).

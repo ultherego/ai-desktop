@@ -16,7 +16,7 @@ class CachyOSKnowledgeTests(unittest.TestCase):
             for path in sorted(skills.ROOT.glob("*/SKILL.md")):
                 snapshot = skills.bundle(path.parent.name, root=skills.ROOT)
                 documents = [snapshot["text"]] + [guide["content"] for guide in snapshot["guides"].values()]
-                linked = set(re.findall(r"\]\(references/([a-z0-9-]+)\.md\)", "\n".join(documents)))
+                linked = set(re.findall(r"\]\((?:\.\./)?references/([a-z0-9-]+)\.md\)", "\n".join(documents)))
                 self.assertEqual(linked, set(snapshot["references"]), path.parent.name)
                 for name in linked:
                     with self.subTest(skill=path.parent.name, reference=name):

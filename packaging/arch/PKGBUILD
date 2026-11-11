@@ -32,8 +32,9 @@ package() {
     local src
     for src in "${root}"/ai_desktop/*.py; do
         [[ -f "${src}" && ! -L "${src}" ]] || return 1
-        # Development-only kernel-boundary probe: the repository's regressions run it, the installed runtime never imports it.
-        case "${src##*/}" in e2_boundary.py|e2_probe.py) continue ;; esac
+        # Development-only kernel-boundary probe and client compatibility harness: the repository's
+        # regressions run them, the installed runtime never imports them.
+        case "${src##*/}" in e2_boundary.py|e2_probe.py|e2_client_compat.py) continue ;; esac
         install -m644 "${src}" "${target}/ai_desktop/"
     done
     local skill
@@ -62,13 +63,11 @@ package() {
 
     # Dormant units only: no enable/start, polkit rule or automatic preset.
     local unit
-    for unit in ai-desktop-handoff@.socket ai-desktop-handoff@.service ai-desktop-analysis@.socket ai-desktop-analysis@.service \
+    for unit in ai-desktop-analysis@.socket ai-desktop-analysis@.service \
                 ai-desktop-codex-limits@.socket ai-desktop-codex-limits@.service; do
         [[ -f "${startdir}/../systemd/${unit}" && ! -L "${startdir}/../systemd/${unit}" ]] || return 1
         install -Dm644 "${startdir}/../systemd/${unit}" "${pkgdir}/usr/lib/systemd/system/${unit}"
     done
-    [[ -f "${startdir}/../systemd/activated-worker.py" && ! -L "${startdir}/../systemd/activated-worker.py" ]] || return 1
-    install -m644 "${startdir}/../systemd/activated-worker.py" "${target}/activated-worker.py"
     for src in analysis-worker.py analysis-client.py analysis-session.py codex-auth.py codex-client.py codex-quota.py client-admin.py; do
         [[ -f "${startdir}/../systemd/${src}" && ! -L "${startdir}/../systemd/${src}" ]] || return 1
         install -m644 "${startdir}/../systemd/${src}" "${target}/${src}"

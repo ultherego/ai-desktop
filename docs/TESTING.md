@@ -1,6 +1,6 @@
 # Tests
 
-```fish
+```sh
 python3 -B scripts/verify.py --mode ci --fail-fast     # syntax, unit tests, no AI provider
 python3 -B scripts/verify.py --mode local --fail-fast  # additionally real Bubblewrap probes on this computer
 ```

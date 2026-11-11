@@ -43,5 +43,5 @@ Give the compared versions and sources, the confirmed cause or hypothesis, and o
 
 Load the matching reference when the task concerns these tools. Verify the installed version and help; a rolling source is not a verified version match.
 
-- [Hello, Package Installer and mirror ranking](references/package-tools.md).
-- [Cachy-Update checks, tray and transactions](references/cachy-update.md).
+- [Hello, Package Installer and mirror ranking](../references/package-tools.md).
+- [Cachy-Update checks, tray and transactions](../references/cachy-update.md).

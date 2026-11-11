@@ -3,7 +3,7 @@
 if test (count $argv) -eq 1; and test "$argv[1]" = --help
     printf 'Usage: fish scripts/accept_system_clients_candidate.fish MODE SHA REPO_ROOT PROVIDER [BRANCH]\n'
     printf 'Modes: --local-only (CI + LOCAL + metadata), --installed-check (also isolated client probes), --allow-install (install AI Desktop only, then probes).\n'
-    printf 'Providers: claude, codex, both, local. Default branch: feature/system-client-runtime.\n'
+    printf 'Providers: claude, codex, both, local. Default branch: main.\n'
     printf 'Clients must be installed independently; HOME/npm sources need explicit ai-desktop clients register before isolated probes.\n'
     printf 'This runner never registers clients or reads credentials. No real model requests are used.\n'
     exit 0
@@ -16,7 +16,7 @@ if not string match -rq '^[0-9a-f]{40}$' -- "$argv[2]"; or not string match -rq 
     printf 'SYSTEM CLIENT ACCEPTANCE: REFUSED invalid SHA, repository or provider\n'
     exit 2
 end
-set -l aid_branch feature/system-client-runtime
+set -l aid_branch main
 if test (count $argv) -eq 5
     set aid_branch "$argv[5]"
 end

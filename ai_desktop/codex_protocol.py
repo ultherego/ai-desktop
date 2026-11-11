@@ -31,7 +31,6 @@ from .execution import using_history, using_memory, validate as validate_executi
 from .analysis_diagnostics import codex_diagnostic
 
 
-API_URL = "https://api.openai.com/v1"
 PROVIDER = "openai_chatgpt_plan"
 TOKEN_ENV = "ACCESS_TOKEN"
 CLIENT_VERSION = "0.166.0"

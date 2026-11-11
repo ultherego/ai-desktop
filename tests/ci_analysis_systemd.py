@@ -1,6 +1,6 @@
 """Real installed analysis chain, synthetic client, only disposable Ubuntu CI.
 
-Runs after ci_e2_systemd_activation.py provisioned the isolated account. Never
+Runs after ci_provision.py provisioned the isolated account. Never
 run on a developer's host: explicit flag + environment + installed-code check.
 """
 import hashlib
@@ -18,8 +18,8 @@ import sys
 import tempfile
 import time
 
-import ci_e2_systemd_activation as prior
-import host_e2_activated_worker as host
+import ci_provision as prior
+import installed_system as host
 import host_file_access_acceptance as file_fixture
 import host_ask_edit_acceptance as edit_fixture
 import host_home_policy_acceptance as home_fixture

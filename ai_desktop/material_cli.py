@@ -339,10 +339,6 @@ def _line_total(count):
     return "1 line" if count == 1 else "%d lines" % count
 
 
-def _line_label(first, last):
-    return "line %d" % first if first == last else "lines %d–%d" % (first, last)
-
-
 def _safe(text, limit=PREVIEW_COLUMNS):
     text = terminal_text(text.rstrip("\n"))
     return text if len(text) <= limit else text[:limit] + "…"

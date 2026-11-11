@@ -21,7 +21,7 @@ from ai_desktop import analysis_session_admin as session_admin
 from ai_desktop.analysis_sandbox import BINARY, INSTALL, runtime_ready, trusted_file
 from ai_desktop.terminal_consent import PROMPTS
 from ai_desktop.skills import inspect_skill
-import host_e2_activated_worker as offline
+import installed_system as offline
 
 PACKAGED_SKILLS = ("arch", "cachyos", "code-development", "code-review", "concise-assistant",
                    "desktop", "project-analysis")

@@ -45,4 +45,4 @@ Give the running and installed kernels, the state of the relevant module, the ev
 
 Load the matching reference when the task concerns these tools. Verify the installed version and help; a rolling source is not a verified version match.
 
-- [Kernel Manager and its scheduler controls](references/kernel-manager.md).
+- [Kernel Manager and its scheduler controls](../references/kernel-manager.md).

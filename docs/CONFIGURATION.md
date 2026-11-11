@@ -23,7 +23,7 @@ systemd = ["system", "user"]
 [files]
 read = ["~/Projects/my-project/"]
 write = ["~/Projects/my-project/"]
-deny = ["~/.ssh/", "~/.gnupg/", "~/.claude/", "~/.config/ai-desktop/"]
+deny = ["~/Projects/my-project/secrets/"]   # common secrets are protected by default (files.protect)
 
 [commands]
 allow = ["uptime", "systemctl status <unit> --no-pager", "journalctl -b -p err --no-pager -n <int>"]
@@ -31,7 +31,7 @@ allow = ["uptime", "systemctl status <unit> --no-pager", "journalctl -b -p err -
 
 How to read this file:
 
-- A missing field means refusal, including `network.claude`. An unknown key or a bad value stops the program, and the message points to the problem.
+- `version`, `[files] read` and `[files] deny` are required (`deny = []` is fine). Any other missing field means refusal, including `network.claude`. An unknown key or a bad value stops the program, and the message points to the problem.
 - The file must belong to you and have mode `0600`. Its directories must not be links or writable by others. The limit is 256 KiB and 64 rules per file list. Command templates have no count limit; the file size bounds them. All of them, with the file scopes, go to the model with every question, so a very long list makes every request longer.
 - `~/x` is one file, `~/x/*` is the files directly in the directory, and `~/x/` and `~/x/**` are the directory with its subdirectories. `~/` is the whole home directory. Two rules with the same scope (`~/` and `~/**`) are an error.
 - **`deny` wins and protects everything under the given path**, regardless of how it is written: `~/x`, `~/x/`, `~/x/*` and `~/x/**` work the same.

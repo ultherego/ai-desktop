@@ -1,8 +1,9 @@
-"""Install/run the exact worker units ONLY in the disposable Ubuntu CI VM.
+"""Install the application code and the isolated account ONLY in the disposable Ubuntu CI VM.
 
 No model, OAuth, real report, pacman, enable or changes to the developer host.
 Normal verify.py never runs this driver. The explicit flag AND CI preflight
 must pass before any sudo. Existing accounts/files are refused, not repaired.
+Later CI drivers (ci_analysis_systemd.py, ci_codex_quota.py) install their own units on top.
 """
 import grp
 import os
@@ -11,12 +12,11 @@ import pwd
 import subprocess
 import sys
 
-import host_e2_activated_worker as host
+import installed_system
 
 ROOT = Path(__file__).resolve().parents[1]
 DEST = Path("/usr/lib/ai-desktop")
 UNITS = Path("/usr/lib/systemd/system")
-NAMES = ("ai-desktop-handoff@.socket", "ai-desktop-handoff@.service")
 
 
 def _require_ci():
@@ -36,8 +36,7 @@ def _require_ci():
             pass
         else:
             raise ValueError("existing-account")
-    for path in (DEST, Path("/var/lib/ai-desktop"), Path("/run/ai-desktop-handoff"),
-                 *(UNITS / name for name in NAMES)):
+    for path in (DEST, Path("/var/lib/ai-desktop")):
         if os.path.lexists(path):
             raise ValueError("existing-installation")
     return uid
@@ -55,57 +54,27 @@ def _install():
         raise ValueError("source-code")
     _run("sudo", "-n", "/usr/bin/install", "-m644", *(str(p) for p in sources),
          str(DEST / "ai_desktop"))
-    _run("sudo", "-n", "/usr/bin/install", "-m644",
-         str(ROOT / "packaging/systemd/activated-worker.py"), str(DEST))
-    for name in NAMES:
-        _run("sudo", "-n", "/usr/bin/install", "-m644",
-             str(ROOT / "packaging/systemd" / name), str(UNITS / name))
     _run("sudo", "-n", "/usr/bin/systemd-sysusers", str(ROOT / "packaging/sysusers.d/ai-desktop.conf"))
     _run("sudo", "-n", "/usr/bin/systemd-tmpfiles", "--create", str(ROOT / "packaging/tmpfiles.d/ai-desktop.conf"))
     _run("sudo", "-n", "/usr/bin/systemctl", "daemon-reload")
 
 
-def _stopped(units, uid):
-    return (all(host._property(unit, "ActiveState") in ("inactive", "failed") for unit in units)
-            and host._property(units[1], "MainPID") == "0"
-            and not os.path.lexists(host.activation.socket_path(uid)))
-
-
 def main(argv=None):
     if (sys.argv[1:] if argv is None else argv) != ["--allow-disposable-systemd-test"]:
-        print("CI SYSTEMD: REFUSED (explicit disposable-CI flag required)")
+        print("CI PROVISION: REFUSED (explicit disposable-CI flag required)")
         return 2
-    started, passed, stage = False, False, "preflight"
+    stage = "preflight"
     try:
-        uid = _require_ci()
-        units = ["ai-desktop-handoff@" + str(uid) + suffix for suffix in (".socket", ".service")]
+        _require_ci()
         stage = "install"
         _install()
-        stage = "start"
-        started = True
-        _run("sudo", "-n", "/usr/bin/systemctl", "start", units[0])
-        stage = "activation"
-        if host._run_checks() != 0:
-            raise ValueError("activation")
-        passed = True
+        stage = "verify"
+        installed_system._installed_matches()
     except (OSError, ValueError, subprocess.SubprocessError):
-        print("CI SYSTEMD: FAIL stage=" + stage)
-    finally:
-        if started:
-            try:
-                _run("/usr/bin/systemctl", "show", units[1],
-                     "--property=ActiveState,Result,ExecMainCode,ExecMainStatus,MainPID")
-            except (OSError, subprocess.SubprocessError):
-                pass
-            try:
-                _run("sudo", "-n", "/usr/bin/systemctl", "stop", *units)
-                if not _stopped(units, uid):
-                    raise ValueError("still-active")
-            except (OSError, ValueError, subprocess.SubprocessError):
-                passed = False
-                print("CI SYSTEMD: FAIL stage=cleanup")
-    print("CI SYSTEMD: " + ("PASS activation=0 cleanup=0" if passed else "FAIL"))
-    return 0 if passed else 2
+        print("CI PROVISION: FAIL stage=" + stage)
+        return 2
+    print("CI PROVISION: PASS")
+    return 0
 
 
 if __name__ == "__main__":

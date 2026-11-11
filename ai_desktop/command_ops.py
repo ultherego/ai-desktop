@@ -125,7 +125,6 @@ def _require_command_path(program, arguments):
 # Paths among them are checked against the files policy by the caller (permissions.Policy.allows_command).
 ELLIPSIS = "..."
 _EXTRA = re.compile(r"[A-Za-z0-9._:=,@%+/-]{1,100}\Z")
-MAX_GROUP_NAME = 32
 # Verbs that change state. A read template that leaves its arguments open with "..." must not start with one: "docker
 # run --rm ..." in allow would run any container without asking. Such a template belongs in change.
 STATE_VERBS = frozenset(("run", "exec", "start", "stop", "restart", "kill", "rm", "rmi", "build", "pull", "push", "create",

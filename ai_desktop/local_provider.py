@@ -25,9 +25,6 @@ def endpoint(port=DEFAULT_LOCAL_PORT):
     return f"http://{HOST}:{port}{PATH}"
 
 
-ENDPOINT = endpoint()
-
-
 def capture_policy():
     try:
         return load_policy(optional=True)

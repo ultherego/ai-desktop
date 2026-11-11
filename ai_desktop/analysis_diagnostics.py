@@ -108,7 +108,6 @@ CODEX_DIAGNOSTIC_REASONS = MappingProxyType({
     "codex-stream-attempts": frozenset({"network"}),
     "codex-server-overloaded": frozenset({"provider-unavailable"}),
 })
-CODEX_DIAGNOSTICS = frozenset(CODEX_DIAGNOSTIC_REASONS)
 _CODEX_MODES = frozenset({"analysis", "question", "assistant", "material", "project", "workspace"})
 
 

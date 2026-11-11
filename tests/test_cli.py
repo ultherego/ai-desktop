@@ -68,7 +68,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(stopped.exception.code, 2)
         self.assertIn("Did you mean: ai-desktop sessions", output.getvalue())
         self.assertNotIn("usage:", output.getvalue())
-        self.assertNotIn("worker-once", output.getvalue())
+        self.assertNotIn("executor", output.getvalue())
         self.assertLessEqual(len(output.getvalue().splitlines()), 3)
         sessions.assert_not_called()
         run.assert_not_called()
@@ -179,45 +179,46 @@ class CliTests(unittest.TestCase):
             agent.assert_not_called()
 
     def test_no_implicit_ai_call(self):
-        with patch("ai_desktop.cli.diagnose.ask") as ask:
+        with patch("ai_desktop.analysis_cli.main") as analysis:
             with patch("ai_desktop.cli.diagnose.collect", return_value={"kernel": "test"}):
                 with patch("ai_desktop.cli.diagnose.serialize_report", return_value='{"kernel": "test"}'):
                     with contextlib.redirect_stdout(io.StringIO()):
                         self.assertEqual(main(["diagnose", "preview"]), 0)
-            ask.assert_not_called()
+            analysis.assert_not_called()
 
     def test_diagnose_snapshot_is_explicit_and_not_ai(self):
         with patch("ai_desktop.cli.diagnose.main", return_value=0) as run:
-            with patch("ai_desktop.cli.diagnose.ask") as ask:
+            with patch("ai_desktop.analysis_cli.main") as analysis:
                 self.assertEqual(main(["diagnose", "snapshot"]), 0)
         run.assert_called_once_with(["snapshot"])
-        ask.assert_not_called()
+        analysis.assert_not_called()
 
     def test_diagnose_save_requires_explicit_path_without_ai(self):
         with patch("ai_desktop.cli.diagnose.main", return_value=0) as run:
-            with patch("ai_desktop.cli.diagnose.ask") as ask:
-                self.assertEqual(main(["diagnose", "save", "/tmp/new-report.json"]), 0)
+            self.assertEqual(main(["diagnose", "save", "/tmp/new-report.json"]), 0)
         run.assert_called_once_with(["save", "/tmp/new-report.json"])
-        ask.assert_not_called()
 
-    def test_diagnose_ask_explicit(self):
-        with patch("ai_desktop.cli.diagnose.main", return_value=7) as run:
-            self.assertEqual(main(["diagnose", "ask"]), 7)
-            run.assert_called_once_with(["ask"])
+    def test_removed_diagnose_ask_is_rejected_before_dispatch(self):
+        with patch("ai_desktop.cli.diagnose.main") as run:
+            with contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as exited:
+                    main(["diagnose", "ask"])
+        self.assertEqual(exited.exception.code, 2)
+        run.assert_not_called()
 
     def test_doctor_routing_no_ai(self):
-        with patch("ai_desktop.cli.doctor.main", return_value=0) as doctor:
-            with patch("ai_desktop.cli.diagnose.ask") as ask:
-                self.assertEqual(main(["doctor"]), 0)
-                doctor.assert_called_once_with([])
-                ask.assert_not_called()
+        with patch("ai_desktop.cli.doctor.main", return_value=0) as doctor, \
+                patch("ai_desktop.cli.diagnose.main") as diagnostic:
+            self.assertEqual(main(["doctor"]), 0)
+            doctor.assert_called_once_with([])
+            diagnostic.assert_not_called()
 
     def test_validate_report_routes_without_ai(self):
         with patch("ai_desktop.cli.validate_snapshot.main", return_value=0) as run:
-            with patch("ai_desktop.cli.diagnose.ask") as ask:
+            with patch("ai_desktop.analysis_cli.main") as analysis:
                 self.assertEqual(main(["validate-report", "report.json"]), 0)
         run.assert_called_once_with(["report.json"])
-        ask.assert_not_called()
+        analysis.assert_not_called()
 
     def test_validate_report_requires_exactly_one_file(self):
         with patch("ai_desktop.cli.validate_snapshot.main") as run:
@@ -232,26 +233,26 @@ class CliTests(unittest.TestCase):
 
     def test_compare_routes_to_offline_module(self):
         with patch("ai_desktop.cli.compare.main", return_value=0) as run:
-            with patch("ai_desktop.cli.diagnose.ask") as ask:
+            with patch("ai_desktop.analysis_cli.main") as analysis:
                 self.assertEqual(main(["compare", "a.json", "b.json"]), 0)
         run.assert_called_once_with(["a.json", "b.json"])
-        ask.assert_not_called()
+        analysis.assert_not_called()
 
     def test_compare_summary_routes_without_model(self):
         with patch("ai_desktop.cli.compare.main", return_value=0) as run:
-            with patch("ai_desktop.cli.diagnose.ask") as ask:
+            with patch("ai_desktop.analysis_cli.main") as analysis:
                 self.assertEqual(main(["compare", "--summary", "a.json", "b.json"]), 0)
         run.assert_called_once_with(["--summary", "a.json", "b.json"])
-        ask.assert_not_called()
+        analysis.assert_not_called()
 
     def test_compare_exit_on_change_routes_without_model(self):
         with patch("ai_desktop.cli.compare.main", return_value=3) as run:
-            with patch("ai_desktop.cli.diagnose.ask") as ask:
+            with patch("ai_desktop.analysis_cli.main") as analysis:
                 self.assertEqual(main(["compare", "--exit-on-change", "a.json", "b.json"]), 3)
                 self.assertEqual(main(["compare", "--summary", "--exit-on-change", "a.json", "b.json"]), 3)
         self.assertEqual(run.call_args_list[0].args[0], ["--exit-on-change", "a.json", "b.json"])
         self.assertEqual(run.call_args_list[1].args[0], ["--summary", "--exit-on-change", "a.json", "b.json"])
-        ask.assert_not_called()
+        analysis.assert_not_called()
 
     def test_compare_requires_exactly_two_paths(self):
         with patch("ai_desktop.cli.compare.main") as run:
@@ -261,18 +262,19 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exited.exception.code, 2)
         run.assert_not_called()
 
-    def test_controller_forward_args(self):
-        with patch("ai_desktop.cli.controller.main", return_value=0) as run:
-            self.assertEqual(main(["controller", "preview"]), 0)
-            run.assert_called_once_with(["preview"])
-
-    def test_controller_rejects_arbitrary_action(self):
-        with patch("ai_desktop.cli.controller.main") as run:
-            with contextlib.redirect_stderr(io.StringIO()):
+    def test_removed_e2_commands_are_unknown(self):
+        for argv in (["controller", "preview"], ["controller", "ask"], ["handoff"],
+                     ["handoff-once", "f" * 32], ["worker-once", "f" * 32, "1000"]):
+            with self.subTest(argv=argv), contextlib.redirect_stderr(io.StringIO()) as output:
                 with self.assertRaises(SystemExit) as exited:
-                    main(["controller", "exec", "echo", "secret"])
+                    main(argv)
             self.assertEqual(exited.exception.code, 2)
-            run.assert_not_called()
+            self.assertIn("Unknown command.", output.getvalue())
+
+    def test_commands_is_dispatched_before_the_parser_with_its_arguments(self):
+        with patch("ai_desktop.commands_cli.main", return_value=0) as run:
+            self.assertEqual(main(["commands", "--help"]), 0)
+        run.assert_called_once_with(["--help"])
 
     def test_executor_forward_args(self):
         with patch("ai_desktop.cli.executor.main", return_value=0) as worker:
@@ -321,9 +323,10 @@ class CliTests(unittest.TestCase):
 
 
 class HelpTests(unittest.TestCase):
-    DAILY = ("ask", "material", "project", "task", "status", "stop", "settings", "agent", "agents", "panel", "account", "usage", "sessions", "skills", "login", "doctor")
+    DAILY = ("ask", "material", "project", "task", "status", "stop", "settings", "agent", "agents", "panel", "account", "usage", "sessions", "skills", "login", "doctor",
+             "clients", "commands")
     LEGACY = ("claude", "codex")
-    INTERNAL = ("controller", "executor", "handoff-once", "handoff", "worker-once", "workspace", "launcher", "sandbox",
+    INTERNAL = ("executor", "workspace", "launcher", "sandbox",
                 "skill-mount", "diagnose", "validate-report", "compare", "audit")
 
     def text(self, argv):

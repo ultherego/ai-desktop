@@ -16,14 +16,14 @@ class SnapshotTests(unittest.TestCase):
         with (
             patch.object(diagnose.os, "geteuid", return_value=1000),
             patch.object(diagnose, "collect", return_value=report) as collect,
-            patch.object(diagnose, "ask") as ask,
+            patch.object(diagnose.subprocess, "run") as process,
             patch("tempfile.TemporaryDirectory") as tempdir,
             contextlib.redirect_stdout(io.StringIO()) as output,
         ):
             code = diagnose.main(["snapshot"])
         self.assertEqual(code, 0)
         collect.assert_called_once_with()
-        ask.assert_not_called()
+        process.assert_not_called()
         tempdir.assert_not_called()
         self.assertEqual(json.loads(output.getvalue()), report)
         self.assertEqual(output.getvalue(), diagnose.serialize_report(report) + "\n")
@@ -38,24 +38,24 @@ class SnapshotTests(unittest.TestCase):
         with (
             patch.object(diagnose.os, "geteuid", return_value=1000),
             patch.object(diagnose, "collect", return_value={"token": "PRIVATE"}),
-            patch.object(diagnose, "ask") as ask,
+            patch.object(diagnose.subprocess, "run") as process,
             contextlib.redirect_stdout(io.StringIO()) as output,
         ):
             self.assertEqual(diagnose.main(["snapshot"]), 1)
         self.assertNotIn("PRIVATE", output.getvalue())
         self.assertNotIn('"token"', output.getvalue())
-        ask.assert_not_called()
+        process.assert_not_called()
 
     def test_root_denied_before_collection(self):
         with (
             patch.object(diagnose.os, "geteuid", return_value=0),
             patch.object(diagnose, "collect") as collect,
-            patch.object(diagnose, "ask") as ask,
+            patch.object(diagnose.subprocess, "run") as process,
             contextlib.redirect_stdout(io.StringIO()),
         ):
             self.assertEqual(diagnose.main(["snapshot"]), 2)
         collect.assert_not_called()
-        ask.assert_not_called()
+        process.assert_not_called()
 
     def test_unknown_action_rejected_before_collection(self):
         with (

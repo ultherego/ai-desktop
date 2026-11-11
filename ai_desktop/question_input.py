@@ -19,7 +19,6 @@ from .terminal_style import bar, greeting, paint
 
 
 PROMPT = "How can I help?\n> "
-PASTE_TEXT_BYTES = 32 * 1024          # one pasted block kept as an attachment (project mode)
 PASTES_TOTAL_BYTES = 32 * 1024        # all attachments of one prompt
 MAX_PASTES = 9
 ATTACH_MIN_BYTES = 400                # shorter single-line pastes simply become typed text
@@ -158,8 +157,6 @@ def _window(shown, cursor, available):
 
 
 _WORD = re.compile(r"\w", re.UNICODE)
-EDITS = ("left", "right", "home", "end", "text-start", "text-end", "backspace", "delete", "up", "down",
-         "word-left", "word-right", "kill-word-back", "kill-word-forward", "kill-start", "kill-end", "undo")
 MAX_UNDO = 200
 
 

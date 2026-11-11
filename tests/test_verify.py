@@ -13,7 +13,7 @@ from scripts import verify
 
 class VerificationRunnerTests(unittest.TestCase):
     def test_ci_steps_never_launch_ai_or_bubblewrap(self):
-        self.assertEqual(verify.STEPS["ci"], ("syntax", "unit", "cli", "skills", "doctor", "compare", "compare-summary", "snapshot", "compare-exit", "validate-report", "offline-pipeline", "stdin-pipeline", "snapshot-save", "e1-boundary", "e2-contract", "e3-e4-contracts", "e5-e6-contracts", "e7-install", "e7-host-cycle"))
+        self.assertEqual(verify.STEPS["ci"], ("syntax", "unit", "cli", "skills", "doctor", "compare", "compare-summary", "snapshot", "compare-exit", "validate-report", "offline-pipeline", "stdin-pipeline", "snapshot-save", "e1-boundary", "e2-contract", "e3-e4-contracts", "e5-e6-contracts"))
         for step in verify.STEPS["ci"]:
             argv = verify.command_for(step)
             if argv is not None:
@@ -129,21 +129,12 @@ class VerificationRunnerTests(unittest.TestCase):
         self.assertNotIn("e5-host-cycle", verify.STEPS["ci"])
         self.assertIn("e5-host-cycle", verify.STEPS["local"])
 
-    def test_e7_process_lifecycle_gate_is_offline_in_ci_and_local(self):
-        self.assertIn("e7-host-cycle", verify.STEPS["ci"])
-        self.assertIn("e7-host-cycle", verify.STEPS["local"])
-        self.assertIn("e7-host-cycle", verify.STEPS["ai"])
-        self.assertEqual(verify.command_for("e7-host-cycle", python="python3"),
-            ["python3", "-B", "-m", "unittest", "discover", "-s", "tests",
-             "-p", "host_e7_lifecycle_checks.py", "-v"])
-
-    def test_e7_fresh_prefix_installer_is_offline_ci_step(self):
-        self.assertEqual(
-            verify.command_for("e7-install", python="/usr/bin/python3"),
-            ["/usr/bin/python3", "-B", "-m", "unittest", "discover", "-s",
-             "tests", "-p", "test_e7_*.py", "-v"],
-        )
-        self.assertIn("e7-install", verify.STEPS["ci"])
+    def test_removed_user_prefix_installer_and_controller_steps_stay_gone(self):
+        for step in ("e7-install", "e7-host-cycle", "controller-preview", "controller-ask"):
+            for mode in verify.STEPS:
+                self.assertNotIn(step, verify.STEPS[mode])
+            with self.assertRaises(ValueError):
+                verify.command_for(step)
 
     def test_client_compat_is_separate_explicit_opt_in_not_ci_or_local(self):
         self.assertEqual(verify.STEPS["compat"], ("e2-claude-compat",))
@@ -227,8 +218,8 @@ class VerificationRunnerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             verify.command_for("shell")
         self.assertEqual(
-            verify.command_for("controller-ask", python="/usr/bin/python3"),
-            ["/usr/bin/python3", "-B", "-m", "ai_desktop", "controller", "ask"],
+            verify.command_for("agent", python="/usr/bin/python3"),
+            ["/usr/bin/python3", "-B", "-m", "ai_desktop", "agent", "version"],
         )
 
     def test_successful_steps_report_metadata_only(self):

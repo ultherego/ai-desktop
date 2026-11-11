@@ -2,7 +2,7 @@
 `packaging/arch/PKGBUILD` skips. Acceptance checks compare exactly this list with the installed tree."""
 from pathlib import Path
 
-DEVELOPMENT_ONLY = frozenset({"e2_boundary.py", "e2_probe.py"})
+DEVELOPMENT_ONLY = frozenset({"e2_boundary.py", "e2_probe.py", "e2_client_compat.py"})
 
 
 def packaged_modules(root):

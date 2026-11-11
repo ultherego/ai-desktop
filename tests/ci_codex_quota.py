@@ -5,7 +5,7 @@ from pathlib import Path
 import socket
 import subprocess
 
-import ci_e2_systemd_activation as prior
+import ci_provision as prior
 from ai_desktop import codex_quota_ipc as ipc
 from ai_desktop.siwc_auth import PLAN_SCOPES, _account_id
 

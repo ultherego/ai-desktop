@@ -46,6 +46,6 @@ Give the device, driver and kernel, the confirmed stage of the failure and the m
 
 Load the matching reference when the task concerns these tools. Verify the installed version and help; a rolling source is not a verified version match.
 
-- [chwd inventory and change boundaries](references/chwd.md).
-- [NVIDIA drivers and common problems](references/nvidia.md).
-- [Two GPUs and PRIME render offload](references/hybrid-graphics.md).
+- [chwd inventory and change boundaries](../references/chwd.md).
+- [NVIDIA drivers and common problems](../references/nvidia.md).
+- [Two GPUs and PRIME render offload](../references/hybrid-graphics.md).
