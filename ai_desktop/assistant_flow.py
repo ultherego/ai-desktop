@@ -632,7 +632,7 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                                     "the model continues without it." % symbol("skip"), "muted"))
                         continue
                     break
-                if following["action"] not in ("list", "find", "run", "skill", "read", "read-range", "search-content", "manual", "web-open", "answer", "edit", "delete", "project-test"):
+                if following["action"] not in ("list", "find", "run", "skill", "read", "read-range", "search-content", "manual", "web-open", "answer", "edit", "delete", "move", "copy", "project-test"):
                     raise PlanError("action")
                 return following
 
@@ -828,8 +828,14 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                                  question_consent=permit)
                 permit.check()
                 return answer
-            if plan["action"] in ("delete", "edit") and _record_full():
+            if plan["action"] in ("delete", "edit", "move", "copy") and _record_full():
                 return None
+            if plan["action"] in ("move", "copy"):
+                # Local only, like a deletion: nothing goes to the model, the owner's yes comes after the plan.
+                progress("edit-review")
+                permit.check()
+                with permit.waiting():
+                    return ask_edit.transfer_files(plan, snapshot, reader)
             if plan["action"] == "delete":
                 # Local only: nothing goes to the model, and the owner's own yes comes after the list of files.
                 progress("edit-review")

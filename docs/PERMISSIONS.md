@@ -27,7 +27,7 @@ All `true`/`false`, default `false`.
 ## `[files]`: what may be read and written
 
 - `read`: places that may be read, e.g. `"~/"`, `"~/Projects/**"`, `"/etc/"`.
-- `write`: places where changes may be saved (each save shows a diff and asks).
+- `write`: places where changes may be saved (each save shows a diff and asks), and where files and folders may be moved or copied (each move or copy shows the plan and asks; the source must also be readable).
 - `deny`: never read or written, wins over `read` and `write`, e.g. `"~/private/"`. At most 64 rules in each of `read`, `write`, `deny`.
 - `protect`: `true` (default) keeps common secrets out even under a broad rule such as `"~/**"`: SSH and GnuPG keys, password stores, cloud and client logins (`.aws`, `.kube`, `.claude`, `.codex`, `gh`, `rclone`, `borg`…), browser and mail profiles, `.netrc`, `.env`, `/etc/ssh`, `/etc/shadow`, Wi-Fi and WireGuard secrets. `/permissions` prints the list. Naming such a place in `read` opens exactly what you named; `false` switches the list off.
 

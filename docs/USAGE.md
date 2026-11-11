@@ -137,13 +137,14 @@ After a write the program prints the ready command.
 ```sh
 ai-desktop task status   --workspace DIRECTORY              # states, including the trash
 ai-desktop task rollback --workspace DIRECTORY              # undo a write, separate consent
-ai-desktop task restore  --workspace DIRECTORY --plan ID    # bring deleted files back
+ai-desktop task restore  --workspace DIRECTORY --plan ID    # bring deleted files back, or undo a move or copy
 ai-desktop task prune    --workspace DIRECTORY              # remove finished entries, separate consent
 ```
 
 - Undo compares **bytes and file mode**, so an editor saving the same content does not block it. When the file was changed later, undo refuses and leaves your version.
 - Such a conflict shows in `task status` and can be retried, but it does not block other writes. New writes are blocked only by unresolved temporary files and unfinished tasks.
 - Restore works only on free names and never overwrites a newer file.
+- **Moving and copying.** In a conversation you can ask to move or copy a file or a whole folder inside one `files.write` scope ("move the folder `old-version` from Downloads into my project folder"). The program shows source, destination, number of files and size, and asks; it never overwrites, so the destination must not exist. A move is one rename on one filesystem (use a copy across disks). A copy is built under a hidden name next to the destination and appears only when complete. Undo with the printed `task restore` command: a move goes back to its old name, a copy is moved into `.ai-desktop-tasks` rather than deleted. Links, devices and files you do not own are refused.
 - The journal lives in `.ai-desktop-tasks` in the task directory, contains the old and new content of files and has private permissions. The limit is 128 journals per directory, with no automatic cleanup. Do not delete it to get around a refusal, because you lose the ability to undo.
 - The journal is tied to the directory: a moved or replaced directory may give a safe refusal, and history from another place is marked as unlinked and is not used for undo.
 

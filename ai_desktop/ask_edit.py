@@ -334,6 +334,70 @@ def delete_files(plan, snapshot, reader):
     return CompletedTask(0)
 
 
+def transfer_files(plan, snapshot, reader):
+    """Move or copy a file or a whole folder inside one write scope after the owner's yes; nothing is overwritten and
+    the step can be undone with `ai-desktop task restore`. Nothing is sent to the model (S10)."""
+    from . import workspace_transfer
+    from .run_controls import require_changes
+    from .terminal_consent import confirm
+    require_changes()
+    policy = snapshot.policy
+    operation = plan.get("action")
+    try:
+        if policy is None or operation not in ("move", "copy") or plan["write"] not in {
+                item["id"] for item in snapshot.access.get("write", [])}:
+            raise ValueError()
+        index = int(plan["write"][1:])
+        workspace = policy.write_workspace(index)
+        source, target = task_contract.path(plan["from"]), task_contract.path(plan["to"])
+        absolute = (workspace + "/" + source, workspace + "/" + target)
+        # Both ends inside files.write; the source must also be readable (deny and the default protection win).
+        policy.require_write(absolute, index=index)
+        if not policy.allows(absolute[0]):
+            raise ValueError()
+        prepared = workspace_transfer.prepare(workspace, operation, source, target)
+        facts = prepared.data()
+    except workspace_transfer.TransferDenied as refused:
+        reasons = {"exists": "the destination already exists (nothing is overwritten)", "missing": "it does not exist",
+                   "device": "they are on different filesystems: copy instead of move",
+                   "type": "it holds a link, a device or a file you do not own",
+                   "space": "there is not enough free space", "inside": "a folder cannot go inside itself",
+                   "size": "it has more than %d entries" % workspace_transfer.MAX_FILES}
+        print("Refused: cannot %s %s to %s: %s." % (operation, terminal_text(plan.get("from", "")),
+                                                    terminal_text(plan.get("to", "")),
+                                                    reasons.get(refused.reason, "the workspace does not allow it")))
+        conversation_state.note_action("%s NOT done (%s): %s -> %s" % (operation.capitalize(), refused.reason,
+                                                                        plan.get("from"), plan.get("to")))
+        return CompletedTask(2)
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, ExecutionDenied):
+        raise EditDenied("input") from None
+    print()
+    what = "folder (%d files, %d folders)" % (facts["files"], facts["folders"]) if facts["kind"] == "folder" else "file"
+    print("%s in %s:" % (operation.capitalize(), terminal_text(workspace)))
+    print("  %s  ->  %s" % (terminal_text(source), terminal_text(target)))
+    print("  %s, %s; the destination does not exist yet, nothing is overwritten" % (what, size_label(facts["bytes"])))
+    if not confirm(operation, reader=reader):
+        print("Cancelled. Nothing was changed.")
+        conversation_state.note_action("%s NOT done (declined by the user): %s -> %s" % (operation.capitalize(),
+                                                                                         source, target))
+        return CompletedTask(2)
+    try:
+        policy.recheck()
+        plan_id = workspace_transfer.execute(prepared, prepared.authorize())
+    except workspace_transfer.TransferDenied as refused:
+        print("Refused: the files changed or the destination appeared after the plan was shown (%s). Nothing "
+              "was overwritten." % refused.reason)
+        conversation_state.note_action("%s NOT done (changed): %s -> %s" % (operation.capitalize(), source, target))
+        return CompletedTask(2)
+    except (OSError, ValueError, ExecutionDenied):
+        raise EditDenied("input") from None
+    print("%s done." % ("Moved" if operation == "move" else "Copied"))
+    print("Undo: " + shlex.join(["ai-desktop", "task", "restore", "--workspace", workspace, "--plan", plan_id]))
+    conversation_state.note_action("%s %s -> %s (can be undone with ai-desktop task restore)" % (
+        "Moved" if operation == "move" else "Copied", source, target))
+    return CompletedTask(0)
+
+
 def finish(prepared, response, args, reader, *, approved_test=None):
     """approved_test: the owner's earlier yes for exactly this declared project test (S9), spent on the attempt."""
     from .task_cli import finish_task

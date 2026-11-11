@@ -20,6 +20,7 @@ from .analysis_terminal import fenced_code, render_answer
 from . import task_contract as contract, task_sandbox, task_workspace as workspace
 from .task_plan import TaskPlan
 from .terminal_consent import confirm, fresh_input
+from .workspace_executor import ExecutionDenied
 from .execution import UNSET
 from .skill_runtime import task_skills, accept_skill_response, recheck_with, MAX_ROUNDS
 from .task_test_consent import CopyTestConsent
@@ -43,9 +44,9 @@ def build_parser():
     undo = commands.add_parser("rollback", help="Undo approved writes; refused if the file was edited later")
     undo.add_argument("--workspace", required=True)
     undo.add_argument("--plan", help="Optional ID; without it you pick the task from a list")
-    restore = commands.add_parser("restore", help="Restore files deleted in project mode (task trash)")
+    restore = commands.add_parser("restore", help="Restore files deleted in project mode (task trash) or undo a move or copy")
     restore.add_argument("--workspace", required=True)
-    restore.add_argument("--plan", required=True, help="Deletion ID from the message shown after the deletion")
+    restore.add_argument("--plan", required=True, help="ID from the message shown after the deletion, move or copy")
     prune = commands.add_parser("prune", help="Remove finished history entries you choose from a list")
     prune.add_argument("--workspace", required=True)
     for command in (run, status, undo, restore, prune):
@@ -316,9 +317,36 @@ def show_record(record, number=None, *, details=False):
         print("  Journal SHA256: " + record["journal_sha256"])
 
 
+def _undo_transfer(args, reader):
+    """Undo one move or copy (S10): a move goes back to its old name, a copy goes into the task's private state."""
+    from . import workspace_transfer
+    journal = workspace_transfer.describe(args.workspace, args.plan)
+    print("Undo a %s in %s:" % (journal["operation"], json.dumps(args.workspace, ensure_ascii=False)))
+    print("  %s  ->  %s" % (journal["from"], journal["to"]))
+    if journal["status"] != "done":
+        print("Nothing to undo: the %s is %s." % (journal["operation"], journal["status"]))
+        return 2
+    print("A move goes back to its old name; a copy is moved into the task state (.ai-desktop-tasks), not deleted. "
+          "Nothing is overwritten.")
+    if not confirm("transfer-undo", reader=reader):
+        print("Cancelled. Nothing was changed.")
+        return 2
+    if workspace_transfer.undo(args.workspace, args.plan):
+        print("Undone.")
+        return 0
+    print("Conflict: the destination changed or the old name is taken; nothing was moved. The journal was kept.")
+    return 2
+
+
 def restore_deleted(args, reader):
     """Undo one deletion made by `ai-desktop project`: files return only to free names, never over newer files."""
-    from . import workspace_trash
+    from . import workspace_trash, workspace_transfer
+    try:
+        transfer = workspace_transfer.known(args.workspace, args.plan)
+    except (OSError, ValueError, RuntimeError, ExecutionDenied):
+        transfer = False                  # not a transfer here; the deletion path reports an unknown ID itself
+    if transfer:
+        return _undo_transfer(args, reader)
     if not workspace_trash.known(args.workspace, args.plan):
         raise ValueError("unknown plan")
     print("Restoring files deleted in: " + json.dumps(args.workspace, ensure_ascii=False))

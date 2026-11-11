@@ -318,6 +318,20 @@ def parse_plan(raw, access):
                     raise ValueError("assistant-plan")
                 result["after"] = clean_path(value["after"])
             return result
+        if value.get("action") in ("move", "copy"):
+            # A file or a whole folder inside one write scope; the program shows the plan and asks (S10).
+            from .task_contract import path
+            check = "shape"
+            if set(value) != {"action", "write", "from", "to"}:
+                raise ValueError("assistant-plan")
+            check = "write"
+            if type(value["write"]) is not str or value["write"] not in {item["id"] for item in access.get("write", [])}:
+                raise ValueError("assistant-plan")
+            check = "create"
+            source, target = path(value["from"]), path(value["to"])
+            if source == target or target.startswith(source + "/"):
+                raise ValueError("assistant-plan")
+            return {"action": value["action"], "write": value["write"], "from": source, "to": target}
         if value.get("action") == "delete":
             from .task_contract import path
             check = "shape"
