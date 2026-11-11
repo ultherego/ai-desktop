@@ -74,6 +74,7 @@ class PromptSession:
         self.commands, self.pick, self.shown = (), 0, 0     # the `/` list: (name, description) pairs set by the caller
         self.paste_bytes = PASTES_TOTAL_BYTES               # `ask` allows more: a pasted text is what it is about
         self.prefill = ""                                   # what the next prompt starts with (e.g. "/model " to finish)
+        self.with_text = frozenset()                        # `/` commands that need text after them (`/arch question`)
 
     ARM_SECONDS = 3.0
 
@@ -440,6 +441,17 @@ def modified_key(key):
     return None
 
 
+def enter_choice(session, text, found, pick):
+    """Enter on a `/` word: (line text, send). A highlighted or typed command runs; one that needs text after it
+    (a Skill: `/arch question`) is only completed with a space, so the question can follow (as Tab does)."""
+    if not found or opens_list(text, pick):
+        return text, True
+    chosen = text if text in (item[0] for item in found) else found[pick][0]
+    if chosen in getattr(session, "with_text", ()):
+        return chosen + " ", False
+    return chosen, True
+
+
 def opens_list(text, pick):
     """A bare `/` sent with the first entry highlighted opens the full commands menu instead of running that entry."""
     return text == "/" and pick == 0
@@ -764,10 +776,14 @@ def read_question(*, max_bytes=MAX_QUESTION_BYTES, followup=False, prompt=None, 
                 continue
             if value in (b"\r", b"\n"):
                 found = _matches(session, line.text)
-                if found and line.text not in (item[0] for item in found) and not opens_list(line.text, session.pick):
-                    line.text = found[session.pick][0]      # `/mo` + Enter runs what the list has highlighted
+                if found:
+                    # `/mo` + Enter runs what the list has highlighted; `/ar` + Enter completes `/arch ` and waits
+                    line.text, send = enter_choice(session, line.text, found, session.pick)
                     line.cursor = len(line.text)
                     session.pick = 0
+                    if not send:
+                        redraw()
+                        continue
                 _hide_suggestions(session, output)
                 if attach and line.text.endswith("\\") and line.cursor == len(line.text):
                     line.text = line.text[:-1]                      # backslash + Enter: a line break instead of sending

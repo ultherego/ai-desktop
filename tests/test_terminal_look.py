@@ -400,6 +400,17 @@ class LiveInputTests(unittest.TestCase):
         self.type(owner, "x")
         self.assertEqual(owner._matches(), ())                                 # a space ends the list, as when idle
 
+    def test_during_a_turn_enter_on_a_skill_command_completes_it_and_queues_nothing(self):
+        from ai_desktop import question_input
+        seen, session = [], question_input.PromptSession()
+        session.with_text = frozenset({"/arch"})
+        owner = self.owner(lambda line: seen.append(line) or [], commands=(("/help", "list"), ("/arch", "skill")))
+        owner.session = session
+        self.type(owner, "/ar\r")
+        self.assertEqual((owner.line.text, seen), ("/arch ", []))
+        self.type(owner, "firewall?\r")
+        self.assertEqual(seen, ["/arch firewall?"])
+
 
 class StatusLineTests(unittest.TestCase):
     def test_the_line_under_the_input_follows_a_changed_setting(self):
