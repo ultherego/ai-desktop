@@ -81,18 +81,18 @@ class TransferTests(Workspace):
         self.assertEqual(caught.exception.reason, "type")
         os.unlink(self.root / "source/package/leak")
         with self.assertRaises(t.TransferDenied) as caught:
-            t.prepare(self.ws, "move", "disabled", "disabled/inner")
+            t.prepare(self.ws, "move", "source", "source/inner")
         self.assertEqual(caught.exception.reason, "inside")
         with self.assertRaises(t.TransferDenied) as caught:
             t.prepare(self.ws, "copy", "source/missing", "target/missing")
         self.assertEqual(caught.exception.reason, "missing")
         prepared = t.prepare(self.ws, "move", "source/package", "target/package")
-        os.rename(self.root / "source/package", self.root / "disabled/Old")
+        os.rename(self.root / "source/package", self.root / "source/old")
         (self.root / "source/package").mkdir()                                  # another folder now under the name
         with self.assertRaises(t.TransferDenied) as caught:
             t.execute(prepared, prepared.authorize())
         self.assertEqual(caught.exception.reason, "changed")
-        self.assertTrue((self.root / "disabled/Old/notes.txt").exists())
+        self.assertTrue((self.root / "source/old/notes.txt").exists())
 
     def test_one_approval_runs_once_and_an_undo_after_a_change_is_a_conflict(self):
         prepared = t.prepare(self.ws, "move", "source/package", "target/package")
@@ -107,14 +107,14 @@ class TransferTests(Workspace):
 
     def test_real_folder_names_with_spaces_other_languages_and_depth_work(self):
         # CachyOS check: a real folder path with spaces was refused by the narrow edit-path rules.
-        deep = self.root / "projects/My Files/level 2/level 3/Target Folder"
+        deep = self.root / "Data/My Files/level 2/level 3/Target Folder"
         deep.mkdir(parents=True)
-        (self.root / "projects/Ünïcode nàme").mkdir()
-        _, plan = self.run_transfer("move", "source/package", "projects/My Files/level 2/level 3/Target Folder/package")
+        (self.root / "Data/Zażółć gęślą").mkdir()
+        _, plan = self.run_transfer("move", "source/package", "Data/My Files/level 2/level 3/Target Folder/package")
         self.assertTrue((deep / "package/notes.txt").exists())
-        _, copied = self.run_transfer("copy", "projects/My Files/level 2/level 3/Target Folder/package",
-                                      "projects/Ünïcode nàme/Package copy")
-        self.assertTrue((self.root / "projects/Ünïcode nàme/Package copy/media/image.bin").exists())
+        _, copied = self.run_transfer("copy", "Data/My Files/level 2/level 3/Target Folder/package",
+                                      "Data/Zażółć gęślą/Kopia pakietu")
+        self.assertTrue((self.root / "Data/Zażółć gęślą/Kopia pakietu/media/image.bin").exists())
         self.assertTrue(t.undo(self.ws, copied) and t.undo(self.ws, plan))
         for bad in ("a/../b", "/abs", "a//b", "a/b/", ".ai-desktop-tasks/x", "x/.ai-desktop-copy-1", "a\u202eb", ""):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
