@@ -320,7 +320,7 @@ def parse_plan(raw, access):
             return result
         if value.get("action") in ("move", "copy"):
             # A file or a whole folder inside one write scope; the program shows the plan and asks (S10).
-            from .task_contract import path
+            from .workspace_transfer import path
             check = "shape"
             if set(value) != {"action", "write", "from", "to"}:
                 raise ValueError("assistant-plan")

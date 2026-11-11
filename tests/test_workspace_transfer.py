@@ -105,6 +105,21 @@ class TransferTests(Workspace):
         self.assertTrue((self.root / "target/package/notes.txt").exists())
         self.assertEqual(self.journal(plan)["status"], "conflict")
 
+    def test_real_folder_names_with_spaces_other_languages_and_depth_work(self):
+        # CachyOS check: a real folder path with spaces was refused by the narrow edit-path rules.
+        deep = self.root / "projects/My Files/level 2/level 3/Target Folder"
+        deep.mkdir(parents=True)
+        (self.root / "projects/Ünïcode nàme").mkdir()
+        _, plan = self.run_transfer("move", "source/package", "projects/My Files/level 2/level 3/Target Folder/package")
+        self.assertTrue((deep / "package/notes.txt").exists())
+        _, copied = self.run_transfer("copy", "projects/My Files/level 2/level 3/Target Folder/package",
+                                      "projects/Ünïcode nàme/Package copy")
+        self.assertTrue((self.root / "projects/Ünïcode nàme/Package copy/media/image.bin").exists())
+        self.assertTrue(t.undo(self.ws, copied) and t.undo(self.ws, plan))
+        for bad in ("a/../b", "/abs", "a//b", "a/b/", ".ai-desktop-tasks/x", "x/.ai-desktop-copy-1", "a\u202eb", ""):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                t.path(bad)
+
     def test_a_copy_checks_free_space_first(self):
         class Full:
             f_bavail, f_frsize = 0, 4096

@@ -19,7 +19,6 @@ import secrets
 import stat
 import time
 
-from . import task_contract as contract
 from . import task_workspace as tw
 from .e2_ipc import _unique_pairs
 from .fs_publish import rename_noreplace
@@ -31,6 +30,29 @@ APPROVAL_SECONDS = 600
 _PLAN = re.compile(r"[a-f0-9]{32}\Z")
 _STATUSES = ("prepared", "done", "failed", "undone", "conflict")
 _COPY_CHUNK = 1024 * 1024
+
+
+MAX_PATH_BYTES = 4096
+MAX_DEPTH = 32
+
+
+def path(value):
+    """A path relative to the workspace for a move or copy: real folder names (spaces, any language, deep trees) are
+    fine; empty, `.`/`..` and control characters are not, nor the task's private state. Wider than the edit paths of
+    task_contract on purpose: a move or copy writes no content of its own."""
+    import unicodedata
+    if (type(value) is not str or not value or len(value.encode("utf-8", "surrogatepass")) > MAX_PATH_BYTES
+            or value.startswith("/") or value.endswith("/")):
+        raise ValueError("path")
+    parts = value.split("/")
+    if len(parts) > MAX_DEPTH:
+        raise ValueError("path")
+    for part in parts:
+        if (part in ("", ".", "..") or len(part.encode("utf-8", "surrogatepass")) > 255
+                or part.casefold() == ".ai-desktop-tasks" or part.casefold().startswith((".ai-task-", ".ai-desktop-copy-"))
+                or any(unicodedata.category(c) in ("Cc", "Cf", "Cs", "Zl", "Zp") for c in part)):
+            raise ValueError("path")
+    return value
 
 
 class TransferDenied(ExecutionDenied):
@@ -127,7 +149,7 @@ def prepare(workspace, operation, source, target, *, clock=time.monotonic):
     if operation not in ("move", "copy"):
         raise TransferDenied("operation")
     try:
-        source, target = contract.path(source), contract.path(target)
+        source, target = path(source), path(target)
     except ValueError:
         raise TransferDenied("path") from None
     if _inside(source, target):
@@ -332,7 +354,7 @@ def _load(state, name):
             or _journal_name(value["plan"]) != name or value["operation"] not in ("move", "copy")
             or value["status"] not in _STATUSES or value["kind"] not in ("file", "folder")):
         raise ValueError("transfer journal")
-    contract.path(value["from"]), contract.path(value["to"])
+    path(value["from"]), path(value["to"])
     tw._valid_identity(value["entry"])
     return value
 

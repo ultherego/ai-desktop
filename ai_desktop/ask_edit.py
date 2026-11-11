@@ -349,7 +349,7 @@ def transfer_files(plan, snapshot, reader):
             raise ValueError()
         index = int(plan["write"][1:])
         workspace = policy.write_workspace(index)
-        source, target = task_contract.path(plan["from"]), task_contract.path(plan["to"])
+        source, target = workspace_transfer.path(plan["from"]), workspace_transfer.path(plan["to"])
         absolute = (workspace + "/" + source, workspace + "/" + target)
         # Both ends inside files.write; the source must also be readable (deny and the default protection win).
         policy.require_write(absolute, index=index)
