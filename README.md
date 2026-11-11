@@ -50,7 +50,7 @@ AI Desktop comes from its own signed pacman repository. Run these once:
 # 1. Trust the AI Desktop signing key
 curl -fsSLo /tmp/ai-desktop.asc https://raw.githubusercontent.com/ultherego/ai-desktopv2/main/packaging/signing-key.asc
 sudo pacman-key --add /tmp/ai-desktop.asc
-sudo pacman-key --lsign-key SIGNING_KEY_FINGERPRINT
+sudo pacman-key --lsign-key CFF85C09853A969B65A9D80DAD1162EE3172A20C
 
 # 2. Add the repository to pacman
 printf '\n[ai-desktop]\nServer = https://github.com/ultherego/ai-desktopv2/releases/download/repo\n' | sudo tee -a /etc/pacman.conf

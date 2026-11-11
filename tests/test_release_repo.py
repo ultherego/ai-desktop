@@ -59,6 +59,23 @@ class ScriptTests(unittest.TestCase):
             subprocess.run(["gpgconf", "--kill", "gpg-agent"], env=env, capture_output=True)
 
 
+class SigningKeyTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("gpg"), "needs gpg")
+    def test_the_committed_key_is_one_public_key_without_an_address_and_readme_names_its_fingerprint(self):
+        key = ROOT / "packaging/signing-key.asc"
+        text = key.read_text(encoding="ascii")
+        self.assertTrue(text.startswith("-----BEGIN PGP PUBLIC KEY BLOCK-----"))
+        self.assertNotIn("PRIVATE", text)
+        with tempfile.TemporaryDirectory() as home:
+            listing = subprocess.run(["gpg", "--homedir", home, "--batch", "--show-keys", "--with-colons", str(key)],
+                                     check=True, capture_output=True, text=True).stdout
+        fingerprints = re.findall(r"^fpr:+([0-9A-F]{40}):", listing, re.M)
+        uids = re.findall(r"^uid:(?:[^:]*:){8}([^:]*):", listing, re.M)
+        self.assertEqual(len(fingerprints), 1)
+        self.assertEqual(uids, ["AI Desktop package signing"])                  # no e-mail address in the key
+        self.assertIn("pacman-key --lsign-key " + fingerprints[0], (ROOT / "README.md").read_text())
+
+
 class WorkflowTests(unittest.TestCase):
     def setUp(self):
         self.text = WORKFLOW.read_text(encoding="utf-8")
