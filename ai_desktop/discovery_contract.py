@@ -36,7 +36,9 @@ CEILING_OUTPUT = 131072
 REFUSAL_CODES = ("discovery-required", "discovery-budget", "files-missing", "files-count", "files-total", "files-size", "files-empty",
                  "files-depth", "files-entries", "files-type", "files-symlink", "command-invalid",
                  # a plan whose file selector broke the selector rules; the model may correct it like a command
-                 "files-scope", "files-path", "files-directory", "files-selector")
+                 "files-scope", "files-path", "files-directory", "files-selector",
+                 # a web search asked for after local data was collected (only allowed first)
+                 "web-late")
 _ID = re.compile(r"f(?:[0-9]|[1-5][0-9]|6[0-3])\Z", re.ASCII)
 _SKILL = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*(?:/[a-z0-9]+(?:-[a-z0-9]+)*)?\Z", re.ASCII)
 MAX_SKILL_TEXT = 96 * 1024
@@ -305,7 +307,7 @@ def scope_ids(document):
             found.update(item["id"] for item in step["directories"])
         elif step["op"] in ("find", "content"):
             found.add(step["id"])
-        elif step["op"] in ("run", "skill", "web"):
+        elif step["op"] in ("run", "skill", "web", "manual"):
             continue
         else:
             found.update(item["id"] for item in step["selectors"])

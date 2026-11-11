@@ -567,6 +567,14 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                     except PlanError as error:
                         corrected(error)
                         continue
+                    if following["action"] == "web":
+                        # A search is allowed only first, before any local data; later it is refused as a correction
+                        # (web-late) so the model goes on with local data or answers, instead of ending the question.
+                        if not ledger.correction(ask_discovery.Recoverable("web-late", [], None)):
+                            raise PlanError("action")
+                        print(paint("  %s A web search is only possible before local data is collected; "
+                                    "the model continues without it." % symbol("skip"), "muted"))
+                        continue
                     break
                 if following["action"] not in ("list", "find", "run", "skill", "read", "read-range", "search-content", "manual", "answer", "edit", "delete", "project-test"):
                     raise PlanError("action")
