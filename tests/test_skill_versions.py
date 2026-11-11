@@ -65,13 +65,13 @@ class SkillVersionTests(unittest.TestCase):
                                                                 {"pacman": "7.0.0"}), "rolling")
 
     def test_actual_packaged_release_reference_is_withheld_until_matching_observation(self):
-        snapshot = skills.bundle("arch-pacman", root=skills.ROOT)
-        identifier = "arch-pacman/pacman-700-local-repositories"
+        snapshot = skills.bundle("arch", root=skills.ROOT)
+        identifier = "arch/pacman-700-local-repositories"
         body = snapshot["references"]["pacman-700-local-repositories"]["content"]
         unknown = skills.resource_text(snapshot, identifier)
         self.assertIn("Compatibility: unknown", unknown)
         self.assertNotIn(body, unknown)
-        self.assertIn("arch-pacman/package-queries", unknown)
+        self.assertIn("arch/package-queries", unknown)
         result = observation()
         versions = skill_versions.trusted_version_observation(result["argv"], result)
         matched = skills.resource_text(snapshot, identifier, versions=versions)
@@ -80,9 +80,21 @@ class SkillVersionTests(unittest.TestCase):
         mismatch = skills.resource_text(snapshot, identifier, versions={"pacman": "7.1.0"})
         self.assertIn("Compatibility: mismatch", mismatch)
         self.assertNotIn(body, mismatch)
-        rolling = skills.resource_text(snapshot, "arch-pacman/package-queries", versions=versions)
+        rolling = skills.resource_text(snapshot, "arch/package-queries", versions=versions)
         self.assertIn("not an exact version match", rolling)
         self.assertIn("pacman 7.0.0", rolling)
+
+
+class PackagedReferenceTests(unittest.TestCase):
+    def test_an_exact_or_ranged_version_names_one_tool(self):
+        """A version is compared with every tool listed; two tools never share one exact release (CachyOS check,
+        candidate 164: limine-snapper-sync 1.32.1 was compared with limine and reported as not matching)."""
+        from pathlib import Path
+        for path in sorted(Path(skills.ROOT).glob("*/references/*.md")):
+            meta = skills.parse_reference(path.read_text(encoding="utf-8"), path.stem)
+            with self.subTest(reference=path.name):
+                if meta["version"] != "rolling":
+                    self.assertEqual(len(meta["tools"]), 1, meta["tools"])
 
 
 if __name__ == "__main__":

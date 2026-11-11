@@ -20,7 +20,7 @@ import subprocess
 import time
 import unicodedata
 
-MAX_TEMPLATES = 128
+# No count limit on templates (owner's request): the policy file size (permissions.MAX_POLICY_BYTES) bounds them.
 MAX_TOKENS = 10
 MAX_TOKEN_BYTES = 100
 MAX_TEMPLATE_BYTES = 120
@@ -40,7 +40,9 @@ FORBIDDEN_PROGRAMS = frozenset((
 _PROGRAM = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}\Z")
 _LITERAL = re.compile(r"[A-Za-z0-9._+=:,@/%-]{1,100}\Z")
 _PLACEHOLDERS = {
-    "<unit>": re.compile(r"[A-Za-z0-9:_@.][A-Za-z0-9:_.@-]{0,99}\.(?:service|socket|timer|target|mount|path|slice|scope|device|swap)\Z"),
+    # A unit name with or without its type, as systemctl takes it ("ufw" means "ufw.service"); never an option.
+    "<unit>": re.compile(r"[A-Za-z0-9:_@][A-Za-z0-9:_.@-]{0,99}"
+                         r"(?:\.(?:service|socket|timer|target|mount|path|slice|scope|device|swap))?\Z"),
     "<int>": re.compile(r"(?:[1-9][0-9]{0,4}|0)\Z"),
     "<word>": re.compile(r"[A-Za-z0-9._:][A-Za-z0-9._:-]{0,63}\Z"),
 }
@@ -123,7 +125,6 @@ def _require_command_path(program, arguments):
 # Paths among them are checked against the files policy by the caller (permissions.Policy.allows_command).
 ELLIPSIS = "..."
 _EXTRA = re.compile(r"[A-Za-z0-9._:=,@%+/-]{1,100}\Z")
-MAX_GROUP_NAME = 32
 # Verbs that change state. A read template that leaves its arguments open with "..." must not start with one: "docker
 # run --rm ..." in allow would run any container without asking. Such a template belongs in change.
 STATE_VERBS = frozenset(("run", "exec", "start", "stop", "restart", "kill", "rm", "rmi", "build", "pull", "push", "create",
@@ -182,7 +183,7 @@ def parse_template(text, *, strict=False):
 
 
 def parse_templates(items, *, strict=False):
-    if type(items) is not list or len(items) > MAX_TEMPLATES:
+    if type(items) is not list:
         raise ValueError("command-template")
     result = tuple(parse_template(item, strict=strict) for item in items)
     if len(set(result)) != len(result):
@@ -223,7 +224,7 @@ def extra_words(templates, argv):
 
 def parse_deny(items):
     """Commands the owner never wants run, as word prefixes: "docker rm" refuses every docker rm call."""
-    if type(items) is not list or len(items) > MAX_TEMPLATES:
+    if type(items) is not list:
         raise ValueError("command-template")
     result = []
     for item in items:
@@ -320,7 +321,7 @@ def is_socket(path):
         return False
 
 
-def sandbox_command(path, argv, *, share_processes=False, host_sockets=()):
+def sandbox_command(path, argv, *, share_processes=False, host_sockets=(), binds=()):
     """Read-only, network-less view of the system for ONE command; no shell, clean environment.
     share_processes (owner opt-in) keeps the host's process table visible: the read-only bind of / already carries the
     host /proc, so the private PID namespace and its own /proc are simply not created."""
@@ -336,6 +337,10 @@ def sandbox_command(path, argv, *, share_processes=False, host_sockets=()):
     for item in host_sockets:
         if is_socket(item):                        # a directory or a link in its place is never shared
             run += ["--ro-bind-try", item, item]
+    for item in binds:                             # policy-checked paths (Policy.sandbox_binds), read-only over the tmpfs
+        if type(item) is not str or not item.startswith("/") or os.path.realpath(item) != item:
+            return None
+        run += ["--ro-bind", item, item]
     from . import dbus_filter
     bus = dbus_filter.current()
     if bus is not None:

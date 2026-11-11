@@ -286,6 +286,8 @@ def _run_command(snapshot, ledger, plan, permit, args, reader):
     the model's next request."""
     from . import command_ops
     policy, argv = snapshot.policy, plan["argv"]
+    if policy is not None:
+        argv = policy.expand_home(argv)            # `~/x` as a shell would expand it; files.read still decides
     selected = current_execution()
     shown = lambda words: terminal_text(" ".join(words))
 
@@ -370,9 +372,10 @@ def _run_command(snapshot, ledger, plan, permit, args, reader):
             print("%s %s sandbox: read-only, no network" % (path, symbol("dot")))
         extra = {}
         share, sockets = policy.share_processes(), policy.host_sockets()
-        if share or sockets:                  # owner opt-ins; the default call is exactly what it always was
+        binds = policy.sandbox_binds(argv)
+        if share or sockets or binds:         # owner opt-ins and named paths; otherwise the call is what it always was
             extra["command"] = functools.partial(command_ops.sandbox_command, share_processes=share,
-                                                 host_sockets=sockets)
+                                                 host_sockets=sockets, binds=binds)
         step = command_ops.execute(path, argv, output_limit=room, timeout=policy.limits().command_timeout, **extra)
         permit.check()
         step = add(argv, "read", step["status"], step["exit"], step["output"], step["truncated"])
@@ -567,8 +570,16 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                     except PlanError as error:
                         corrected(error)
                         continue
+                    if following["action"] == "web":
+                        # A search is allowed only first, before any local data; later it is refused as a correction
+                        # (web-late) so the model goes on with local data or answers, instead of ending the question.
+                        if not ledger.correction(ask_discovery.Recoverable("web-late", [], None)):
+                            raise PlanError("action")
+                        print(paint("  %s A web search is only possible before local data is collected; "
+                                    "the model continues without it." % symbol("skip"), "muted"))
+                        continue
                     break
-                if following["action"] not in ("list", "find", "run", "skill", "read", "read-range", "search-content", "answer", "edit", "delete", "project-test"):
+                if following["action"] not in ("list", "find", "run", "skill", "read", "read-range", "search-content", "manual", "answer", "edit", "delete", "project-test"):
                     raise PlanError("action")
                 return following
 
@@ -606,14 +617,23 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                     raise AccessDenied()
                 if plan["action"] == "skill":
                     # On demand: until the model asks, only the name and description of a Skill leave this computer.
-                    skill_rounds += 1
-                    if skills is None or skill_rounds > MAX_SKILL_ROUNDS:
+                    if skills is None:
                         raise PlanError("action")
                     previous = {step["name"]: step["text"] for step in ledger.steps if step["op"] == "skill"}
                     wanted = [name for name in plan["names"] if name not in loaded or
                               "/" in name and skills(name) != previous.get(name)]
-                    if not wanted:
-                        raise PlanError("action")      # nothing new: another round would only repeat the same request
+                    if not wanted or skill_rounds >= MAX_SKILL_ROUNDS:
+                        # Nothing new, or the Skill rounds are used up: a correction (CachyOS check, candidate 164),
+                        # so the model goes on with what it has instead of the question ending.
+                        code = "skill-repeat" if not wanted else "skill-limit"
+                        if not ledger.correction(ask_discovery.Recoverable(code, [], None)):
+                            raise PlanError("action")
+                        print(paint("  %s %s; the model continues with what it has." % (symbol("skip"), (
+                            "The requested Skill is already loaded" if not wanted
+                            else "No more Skills can be loaded for this question")), "muted"))
+                        plan = next_plan()
+                        continue
+                    skill_rounds += 1
                     progress("collect")
                     for name in wanted:
                         loaded.add(name)
@@ -649,6 +669,21 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                         else:
                             ledger.tree_rows = None          # a change shows its own card, not a tree
                         _run_command(snapshot, ledger, plan, permit, args, reader)
+                    plan = next_plan()
+                    continue
+                if plan["action"] == "manual":
+                    # Installed documentation, read by the program itself: public data, no network, no files policy.
+                    progress("collect")
+                    try:
+                        found = ledger.manual(plan)
+                        print(paint("  %s Manual %s(%s)%s · %s" % (
+                            symbol("ok" if found["status"] == "ok" else "skip"), plan["page"], plan["section"],
+                            (" \u201c" + plan["needle"] + "\u201d") if plan.get("needle") else "",
+                            "%d excerpt(s)" % len(found["fragments"]) if found["status"] == "ok" else "not installed"),
+                            "muted"))
+                    except ask_discovery.BudgetExhausted as exhausted:
+                        if not ledger.soft_stop(exhausted.name):
+                            _budget_stop(snapshot.policy, exhausted.name)
                     plan = next_plan()
                     continue
                 if plan["action"] in ("read-range", "search-content"):

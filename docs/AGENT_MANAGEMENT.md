@@ -4,14 +4,14 @@ An agent never adds permissions. Files, commands and network are decided by `~/.
 
 ## Independently installed clients
 
-Candidate 0.1.0-81 uses independently installed Claude or Codex clients through the existing isolated account flows below. The application package contains no vendor executables. System packages work directly; official native/HOME/npm installations need `ai-desktop clients register PROVIDER`. After updating that source, `clients refresh PROVIDER` approves the new bytes. Registration is system-wide and takes priority over the provider package until explicitly removed. Ordinary `doctor` and panel status inspect metadata only; `ai-desktop doctor --clients` explicitly checks the selected client's compatibility offline without a profile, network or model request. The new execution boundary still requires its own CachyOS acceptance. See [client installation, compatibility and migration](AGENT_INSTALL.md).
+AI Desktop uses independently installed Claude or Codex clients through the isolated account flows below. The application package contains no vendor executables. System packages work directly; official native/HOME/npm installations need `ai-desktop clients register PROVIDER`. After updating that source, `clients refresh PROVIDER` approves the new bytes. Registration is system-wide and takes priority over the provider package until explicitly removed. Ordinary `doctor` and panel status inspect metadata only; `ai-desktop doctor --clients` explicitly checks the selected client's compatibility offline without a profile, network or model request. See [client installation, compatibility and migration](AGENT_INSTALL.md).
 
 ## Settings and login
 
 `ai-desktop settings` opens a menu in the terminal: arrows and Enter select, Esc goes back. The menu covers the service, agent, model, reasoning level, access, instructions and Skills.
 Changing settings does not log in or send anything.
 
-```fish
+```sh
 ai-desktop settings                                  # menu (also: settings menu)
 ai-desktop settings show                             # current settings
 ai-desktop settings models                           # available models and levels
@@ -33,10 +33,10 @@ The service is shared by all agents. After a service change, an agent returns to
 
 ## Agents
 
-An agent is a saved role: service, model, level, access (`changes` or `read-only`), instructions up to 4 KiB and assigned Skills (role plus metadata catalog up to 104 KiB; selected procedures/references use a separate 192 KiB budget). The limit is 24 profiles. A `read-only` agent does not write, does not delete and does not get
+An agent is a saved role: service, model, level, access (`changes` or `read-only`), instructions up to 4 KiB and assigned Skills (role plus metadata catalog up to 103 KiB; selected procedures/references use a separate 192 KiB budget). The limit is 24 profiles. A `read-only` agent does not write, does not delete and does not get
 commands from the `change` list.
 
-```fish
+```sh
 ai-desktop agents setup                  # adds missing roles and Skills, does not change your settings
 ai-desktop agents                        # menu in the terminal, a list outside it
 ai-desktop agents list
@@ -54,8 +54,8 @@ New configurations expose the default, diagnostic, programmer and reviewer catal
 
 | Profile | Skill | Access |
 |---|---|---|
-| `default` | 28 general Arch/CachyOS, diagnostics and development Skills, including `concise-assistant` | `changes` |
-| `diagnostic` | CachyOS diagnostic, desktop documentation and Arch procedures (17 for an empty selection) | `read-only` |
+| `default` | the `arch` and `cachyos` area Skills, the `desktop` area Skill, the development Skills and `concise-assistant` | `changes` |
+| `diagnostic` | the `arch`, `cachyos` and `desktop` area Skills | `read-only` |
 | `programmer` | `code-development` | `changes` |
 | `reviewer` | `code-review` | `read-only` |
 | `analyst` | `project-analysis` | `read-only` |
@@ -66,7 +66,7 @@ The program runs only one role in the foreground. The client's native subagents 
 
 ## Skills
 
-```fish
+```sh
 ai-desktop skills                 # list; your own are marked
 ai-desktop skills show NAME
 ai-desktop skills validate
@@ -74,7 +74,7 @@ ai-desktop skills menu            # assignments of the active agent
 ai-desktop skills new NAME        # ~/.config/ai-desktop/skills/NAME/SKILL.md
 ```
 
-A Skill is a procedure of up to 96 KiB, without executable tools or scripts. It may include bounded documentation under `references/`, loaded individually on demand. The package contains general Skills for CachyOS (`cachyos-*`) and Arch Linux (`arch-*`), for programming and analysis, and `desktop-documentation`, which points to desktop documentation; the CachyOS Skills deliberately do not describe desktops and compositors. Your own Skill lives outside the repository and the package, and with the same name it takes priority over the general one.
+A Skill is a procedure of up to 96 KiB, without executable tools or scripts. It may include bounded documentation under `references/`, loaded individually on demand. The package contains two area Skills, `arch` (general Arch Linux) and `cachyos` (what CachyOS adds), each a short `SKILL.md` with its rules and a table of topic guides (`guides/`, e.g. `arch/firewall`, `cachyos/kernel`) and source-backed references (`references/`), all loaded on demand; a third area Skill, `desktop`, with a guide for each desktop, compositor, window manager and desktop shell the CachyOS installer offers (KDE Plasma, GNOME, COSMIC, Xfce, Cinnamon, Budgie, MATE, LXQt, LXDE, Hyprland, niri, Sway, i3, MangoWM, Wayfire, Qtile, bspwm, Openbox, DMS, Noctalia); a guide names the programs of its environment (`programs:`) and the catalog offers it only when one of them is installed in the system directories, so one package serves every desktop; plus Skills for programming and analysis. The packaged Skills belong to the program and every update replaces them. Your own Skills live in `~/.config/ai-desktop/skills/` outside the repository and the package and must use other names: a Skill of yours with a packaged name is ignored (`/skills`, `ai-desktop skills list` and `ai-desktop doctor` say so) and `ai-desktop skills new` refuses such a name. Saved profiles that still name the former per-topic Skills (`arch-pacman`, `cachyos-kernel` and the others) or `desktop-documentation` get the area Skill instead.
 A name consists of lowercase letters, digits and hyphens. Do not put secrets in it: assigned metadata goes to the model, and a selected procedure or reference sends its content. A path written in the main Skill procedure or in an agent's instructions counts as given by you, so the model can read it without discovery; the policy and `deny` still decide.
 
 Reference documents do not ground local paths or grant reads. New configurations expose the general catalog; existing saved assignments, including an empty list, are preserved.
@@ -85,20 +85,17 @@ Changing assigned Skills may require a new conversation, because a saved convers
 
 Run `ai-desktop ask` once and keep working: after an answer, `>` comes back. Arrows edit the line and recall earlier messages. An empty line or two Ctrl-D end the conversation. Ctrl-C while waiting stops only the current turn. `ask --question "..."` is a single question.
 
-**Consent.** One `Send this request to Claude? [y/n]:` per conversation. Asked again after a change of permissions, service or agent. It lives only in the process's memory, so after a conversation is resumed the program asks again. Writes and changes have their own consents. Current project suites also ask before running the permitted local copy. The next flow will approve a declared plan, its stages and copy tests once, with separate final diff/write approval; this simplification is not implemented by client discovery.
+**Consent.** One `Send this request to Claude? [y/n]:` per conversation. Asked again after a change of permissions, service or agent. It lives only in the process's memory, so after a conversation is resumed the program asks again. Writes and changes have their own consents. In `ask`, each project suite on a copy asks before it runs; in `ai-desktop project`, one approval covers the task and an edit with its declared suite is one decision (see [USAGE.md](USAGE.md#task-approval-scope)). The final diff and write always need their own approval.
 
-**Memory has two layers:**
+**Memory** has two layers: recent exchanges sent word for word and a bounded task memory (goal, attempts, values, corrections, decisions, and facts the program adds itself: what it ran, applied or refused). Limits: [conversation memory](USAGE.md#conversation-memory).
 
-1. Up to 64 recent exchanges within 512 KiB (question up to 128 KiB, answer up to 32 KiB with visible truncation).
-2. Task memory: up to 96 entries (1 KiB each, 64 KiB in total) with the goal, criterion, attempts, values, corrections and decisions. The model proposes updates in its answer, and when out of room the oldest unprotected entries are dropped first. The program adds facts itself: what it ran and with what exit code, what it applied, what was refused.
-
-Memory gives no permissions. When access to a file is revoked, the answers and model entries that depend on it are removed before the next question, and the program says so. Only the latest 64 exchanges can be included verbatim in a request.
+Memory gives no permissions. When access to a file is revoked, the answers and model entries that depend on it are removed before the next question, and the program says so.
 
 ## Saved conversations
 
 Interactive terminal `ask` saves locally by default after the first completed turn or completed action. One-shot `--question` and non-terminal embedded invocations remain non-persistent unless an explicit session is selected. The first checkpoint is published as one complete private record; declining or cancelling before a completed turn creates no empty file. Each later completed turn updates that record atomically. The next `ai-desktop ask` offers conversations of the same agent. Use `--no-save` for a temporary in-memory conversation. `--session new` creates an explicit record, and `--session ID` resumes one (also for `material` and `project`). `--no-save` and `--session` cannot be combined.
 
-```fish
+```sh
 ai-desktop sessions          # menu, a list outside the terminal
 ai-desktop sessions list
 ai-desktop sessions show ID
@@ -110,7 +107,7 @@ The save is in `~/.local/state/ai-desktop/conversations` (directory `0700`, file
 
 ## Commands and changes on the live system
 
-The description of `[commands]` in `permissions.toml` is in [CONFIGURATION.md](CONFIGURATION.md#commands-commands), and the boundaries are in the [threat model](THREAT_MODEL.md#4-command-boundary). In short: `allow` runs in the sandbox without asking, up to 16 commands per step and `command_rounds` per question. `change` runs on the live system after you type `yes`, with a test and an undo. With `systemctl --user` the sandbox has no access to the user session, so such commands may return nothing.
+The description of `[commands]` in `permissions.toml` is in [CONFIGURATION.md](CONFIGURATION.md#commands-commands), and the boundaries are in the [threat model](THREAT_MODEL.md#4-command-boundary). In short: `allow` runs in the sandbox without asking, up to 32 commands per step and `command_rounds` per question. `change` runs on the live system after you type `yes`, with a test and an undo. With `systemctl --user` the sandbox has no access to the user session, so such commands may return nothing.
 
 ## Automatic discovery in `ask`
 
@@ -123,15 +120,15 @@ You do not have to name files. Within one consent the model carries out a finite
 
 `deny` acts first: a name covered by `deny` is not listed, counted or sent. Refusals have fixed codes and contain no system text. Exceeding a budget names the key; the program does not send a selected part as if it were the whole. The budgets are in the [limits table](CONFIGURATION.md#optional-limits). Every step and correction is an additional request to the model.
 
-In `version = 2` there is no hidden list of names. If `read` covers `~/.config/ai-desktop/` and it is not in `deny`, the model can read there (the template rules this out).
+In `version = 2`, `files.protect` (on by default) keeps a published list of common secret locations out even under a broad `read` rule, including `~/.ssh`, `~/.claude`, `~/.codex` and AI Desktop's own `~/.config/ai-desktop`; `/permissions` prints the list and [CONFIGURATION.md](CONFIGURATION.md#first-run-and-permissions) explains how to lift it for one location.
 
 **Symlinks in `version = 2`.** A symlink is followed only if there is one, it belongs to you, it points to a plain directory name next to it (no `/`, `.`, `..`), the parent directory is not writable by others, and both the symlink and the target are allowed. The state is checked on read and before each send. Loops, chains, symlinks to files and special files are `files-symlink`. This exception does not apply to the policy, `material`, `project` or writing.
 
 ## Codex through a ChatGPT subscription
 
-Codex is selected and enabled independently of Claude. Treat this adapter as experimental. Install the system `openai-codex` package independently, then use its shared compatibility check and the existing AI Desktop account flow:
+Codex is selected and enabled independently of Claude. Treat this adapter as experimental. Install the system `openai-codex` package, or register your existing native/npm installation with `ai-desktop clients register codex` ([client installation](AGENT_INSTALL.md)), then use the shared compatibility check and the AI Desktop account flow:
 
-```fish
+```sh
 ai-desktop agent use codex
 ai-desktop doctor --clients
 ai-desktop codex status
@@ -174,7 +171,7 @@ The server is a separate, owner-managed program. Its launch options, file access
 
 The existing subscription for each service is named `default`. Register a named account, complete its private browser login, then select it for new tasks:
 
-```fish
+```sh
 ai-desktop account add claude work --login
 ai-desktop account add codex personal --login
 ai-desktop account use claude work
@@ -198,9 +195,9 @@ The home panel shows the selected account for the active service. Choose **Subsc
 
 By default the terminal and widget read local observations. An approved conversation may deliver native quota events. A partial event preserves the other window and its observation time. Expired readings are labelled as historical.
 
-For an on-demand Codex account snapshot, use the native quota connection for a signed-in local slot. These fish commands use the default slot:
+For an on-demand Codex account snapshot, use the native quota connection for a signed-in local slot. These commands use the default slot:
 
-```fish
+```sh
 ai-desktop account connect-limits codex default
 ai-desktop usage --refresh --provider codex --account default
 ai-desktop usage --provider codex

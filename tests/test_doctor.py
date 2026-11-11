@@ -111,7 +111,7 @@ class DoctorTests(unittest.TestCase):
         source = skills / doctor.SKILL / "SKILL.md"
         source.parent.mkdir(parents=True)
         source.write_text(
-            "---\nname: cachyos-diagnostics\ndescription: Local system checks\n---\n"
+            "---\nname: " + doctor.SKILL + "\ndescription: Local system checks\n---\n"
             "Follow read-only checks.\n",
             encoding="utf-8",
         )

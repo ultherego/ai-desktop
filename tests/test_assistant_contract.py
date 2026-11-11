@@ -50,6 +50,7 @@ class AssistantContractTests(unittest.TestCase):
             with self.subTest(value=repr(value)), self.assertRaises(ValueError):
                 contract.validate_access(value)
 
+    @patch.object(contract, "MAX_ACCESS_BYTES", 8192)   # the fail-closed check, at the former threshold
     def test_access_count_pattern_and_total_byte_limits_are_independent(self):
         full = dict(EMPTY, files=[{"id": f"f{i}", "pattern": f"~/p{i}/*"} for i in range(64)])
         self.assertEqual(contract.validate_access(full), full)

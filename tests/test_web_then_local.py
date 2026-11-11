@@ -56,13 +56,26 @@ class WebThenLocalTests(Base):
         self.assertEqual(self.modes(), ["assistant", "web"])
         self.assertNotIn("followup", self.wire[1])
 
-    def test_a_second_search_in_the_same_question_is_refused(self):
+    def test_a_second_search_in_the_same_question_is_refused_and_the_model_goes_on(self):
+        answer = json.dumps({"action": "answer", "text": FINAL})
         for second in (CONTINUE, json.dumps({"action": "web"})):
-            with self.subTest(second=second), self.assertRaises(plans.PlanError):
-                self.run_flow([CONTINUE, WEB_TEXT, second])
-            self.assertEqual(self.modes(), ["assistant", "web", "assistant"])
+            with self.subTest(second=second):
+                self.assertEqual(self.run_flow([CONTINUE, WEB_TEXT, second, answer]), FINAL)
+                self.assertEqual(self.modes(), ["assistant", "web", "assistant", "assistant"])
+                self.assertEqual(self.wire[3]["discovery"]["steps"][-1],
+                                 {"op": "refusal", "code": "web-late", "selectors": [], "limit": None})
 
-    def test_a_search_after_local_work_is_refused(self):
+    def test_a_search_after_local_work_is_refused_as_a_correction(self):
+        # CachyOS check (candidate 164): a search asked for after commands ended the question with plan-action.
+        listing = json.dumps({"action": "list", "files": [{"id": "f0", "path": "gizmo"}]})
+        answer = json.dumps({"action": "answer", "text": FINAL})
+        self.assertEqual(self.run_flow([listing, CONTINUE, answer]), FINAL)
+        self.assertNotIn("web", self.modes())
+        self.assertEqual(self.wire[-1]["discovery"]["steps"][-1]["code"], "web-late")
+        self.assertIn("only possible before local data", self.output.getvalue())
+
+    def test_a_late_search_with_no_corrections_left_still_ends_the_question(self):
+        self.write_policy(extra="plan_corrections = 0\n")
         listing = json.dumps({"action": "list", "files": [{"id": "f0", "path": "gizmo"}]})
         with self.assertRaises(plans.PlanError):
             self.run_flow([listing, CONTINUE])

@@ -2,7 +2,7 @@
 # Material acceptance: `ai-desktop material` on SYNTHETIC files in ~/ai-lc1-check (questions in plain words).
 # --offline: SHA-pinned worktree + central CI gate (no model, no installed app).
 # --native : offline + file-based refusal checks with the INSTALLED code under your REAL policy,
-#            then two guided interactive sessions (real Claude requests, YOU type every answer).
+#            then three guided interactive sessions (real Claude requests, YOU type every answer).
 # The script never feeds input to the app, never installs or restarts, and stops before any
 # session if an earlier check fails.
 if test (count $argv) -eq 1; and test "$argv[1]" = --help

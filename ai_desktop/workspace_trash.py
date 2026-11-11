@@ -27,7 +27,6 @@ from .workspace_executor import ExecutionDenied, _parent
 MAX_DELETE = 8
 MAX_FILE_BYTES = 16 * 1024 * 1024
 _PLAN = re.compile(r"[a-f0-9]{32}\Z")
-_STASH = re.compile(r"[0-9]\Z")
 
 @dataclass(frozen=True)
 class DeleteAuthorization:

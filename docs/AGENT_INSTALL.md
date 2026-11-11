@@ -1,6 +1,6 @@
 # Client installation, registration and compatibility
 
-Candidate **0.1.0-162** uses independently installed clients. The application package contains adapters and isolation machinery, not vendor executables. Choose **Claude Code**, **Codex**, both, or local inference with neither. The unchanged candidate-82 client runtime passed CachyOS upgrade and isolated offline checks with Claude 2.1.319 and Codex 0.167.0; [the exact-head record](ROADMAP.md) distinguishes this from login or inference acceptance.
+AI Desktop uses independently installed clients. The application package contains adapters and isolation machinery, not vendor executables. Choose **Claude Code**, **Codex**, both, or local inference with neither.
 
 ## Supported installations
 
@@ -24,7 +24,7 @@ Current Codex packages keep `bin/codex`, `codex-package.json`, `codex-path/` and
 
 The application can be installed before a provider. From a checkout owned by your regular user:
 
-```fish
+```sh
 python3 -B scripts/install_agents.py codex --install
 ```
 
@@ -32,7 +32,7 @@ Use `claude`, `both` or `local` instead as appropriate. Without `--install`, the
 
 For a client installed through `curl` and a shell, npm or another user-owned native installation:
 
-```fish
+```sh
 ai-desktop clients list
 ai-desktop clients register claude
 # Or: ai-desktop clients register codex
@@ -48,13 +48,13 @@ This copy is an explicit trust decision: it does not prove vendor authenticity. 
 
 Registrations are **system-wide**, with one active copy per provider. They take priority over a supported system package. A corrupt or incomplete registration is refused rather than silently bypassed. Review a replacement knowing it affects all users of that provider. Remove a registration explicitly to return to the system package, without removing the original client or account data:
 
-```fish
+```sh
 ai-desktop clients remove claude
 ```
 
 ## Inspect and check compatibility
 
-```fish
+```sh
 ai-desktop clients list
 ai-desktop doctor
 ai-desktop doctor --v
@@ -66,7 +66,7 @@ ai-desktop doctor --clients --v
 
 `doctor --clients` explicitly probes the **selected** cloud provider in an offline namespace with a fresh empty home and no account profile, proxy or model request. It reports the shared runtime compatibility result and returns nonzero on refusal. Selecting local inference does not require or probe a cloud CLI.
 
-Native CachyOS diagnosis of candidate 81 showed that Claude 2.1.319 returned JSONL when print options were combined with `auth status`, while standalone status returned the correct signed-out JSON. Candidate 82 separates those checks and raises the payload limit for the complete standalone Codex bundle. Both corrections passed exact-candidate host acceptance, retaining the approved Claude copy and registering the complete 44-file Codex bundle. The repair does not require resetting login data or registering Claude again. `compatible-untested` means the client passed the offline prerequisites but is newer than the built-in tested baseline; it is not a compatibility failure.
+`compatible-untested` means the client passed the offline prerequisites but is newer than the built-in tested baseline; it is not a compatibility failure.
 
 For a future refusal, from a reviewed source checkout matching the installed version, `python3 -B tests/host_client_diagnostic.py --allow-offline-client-check claude` verifies the installed application before diagnosing its fixed probes in their credential-free namespace. It reports bounded phase/exit/format summaries, a validated version and closed field/error classifications, never native stdout/stderr or account data. On a protocol refusal it may compare the standalone signed-out status probe within the original deadline and bound installation. Exit 2 preserves the refusal; obtaining diagnostics is not successful compatibility acceptance. Separate Codex source metadata distinguishes absent launchers, missing targets and unsupported payloads without executing Codex. Track the result in [ROADMAP.md](ROADMAP.md) before changing the compatibility contract.
 
@@ -81,7 +81,7 @@ Version text alone is insufficient. Required command/configuration capabilities 
 
 Update the original client through its own installation method. Supported system packages are selected afresh for each operation. A registered copy retains its approved bytes after the original source updates; approve a replacement explicitly:
 
-```fish
+```sh
 ai-desktop clients list
 ai-desktop clients refresh claude
 # Or: ai-desktop clients refresh codex

@@ -116,15 +116,17 @@ class SystemAccountPackagingTests(unittest.TestCase):
             # Pacman systemd auto-hooks must have nothing to trigger.
             self.assertFalse((package_root / "usr/lib/sysusers.d/ai-desktop.conf").exists())
             self.assertFalse((package_root / "usr/lib/tmpfiles.d/ai-desktop.conf").exists())
-            for name in ("ai-desktop-handoff@.socket", "ai-desktop-handoff@.service"):
+            for name in ("ai-desktop-analysis@.socket", "ai-desktop-analysis@.service"):
                 source_unit = ROOT / "packaging/systemd" / name
                 staged_unit = package_root / "usr/lib/systemd/system" / name
                 self.assertEqual(staged_unit.read_bytes(), source_unit.read_bytes())
                 self.assertEqual(stat.S_IMODE(staged_unit.stat().st_mode), 0o644)
                 self.assertNotIn("\n[Install]", staged_unit.read_text())
-            self.assertEqual(
-                (package_root / "usr/lib/ai-desktop/activated-worker.py").read_bytes(),
-                (ROOT / "packaging/systemd/activated-worker.py").read_bytes())
+            # The removed one-shot diagnostic handoff is never packaged again.
+            for removed in ("usr/lib/systemd/system/ai-desktop-handoff@.socket",
+                            "usr/lib/systemd/system/ai-desktop-handoff@.service",
+                            "usr/lib/ai-desktop/activated-worker.py"):
+                self.assertFalse((package_root / removed).exists(), removed)
             for name in ("ai-desktop-codex-limits@.socket", "ai-desktop-codex-limits@.service"):
                 self.assertEqual((package_root / "usr/lib/systemd/system" / name).read_bytes(),
                                  (ROOT / "packaging/systemd" / name).read_bytes())
@@ -168,7 +170,7 @@ class SystemAccountPackagingTests(unittest.TestCase):
                 (("--version",), 0, "ai-desktop 0.1.0"),
                 (("doctor",), 0, "Login and AI operation: not checked."),
                 (("diagnose", "invalid"), 2, "invalid choice"),
-                (("worker-once", "f" * 32, "1000"), 2, "WORKER: REFUSED"),
+                (("worker-once", "f" * 32, "1000"), 2, "Unknown command."),
             ):
                 with self.subTest(arguments=args):
                     launched = subprocess.run(
@@ -225,8 +227,8 @@ class SystemAccountPackagingTests(unittest.TestCase):
         units = ROOT / "packaging/systemd"
         result = subprocess.run([
             "/usr/bin/systemd-analyze", "verify",
-            str(units / "ai-desktop-handoff@.socket"),
-            str(units / "ai-desktop-handoff@.service"),
+            str(units / "ai-desktop-analysis@.socket"),
+            str(units / "ai-desktop-analysis@.service"),
             str(units / "ai-desktop-codex-limits@.service"),
             str(units / "ai-desktop-codex-limits@.socket"),
         ], check=False, capture_output=True, text=True, timeout=15)

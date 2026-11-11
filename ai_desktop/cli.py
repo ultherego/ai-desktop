@@ -9,10 +9,11 @@ import re
 import sys
 
 from . import __version__
-from . import agent, audit, compare, controller, diagnose, doctor, e2_handoff_cli, executor, launcher, sandbox, skill_mount, skills, validate_snapshot, workspace_cli
+from . import agent, audit, compare, diagnose, doctor, executor, launcher, sandbox, skill_mount, skills, validate_snapshot, workspace_cli
 
 PUBLIC_COMMANDS = ("ask", "material", "project", "task", "status", "stop", "settings",
                    "agents", "agent", "account", "usage", "local", "panel", "sessions", "skills", "login", "doctor", "clients",
+                   "commands",
                    "widget")
 
 
@@ -30,6 +31,8 @@ def build_parser():
     commands.add_parser("claude", help="Compatibility: older Claude settings; use settings", add_help=False)
     commands.add_parser("codex", help="Compatibility: Codex administration; log in with login", add_help=False)
     commands.add_parser("clients", help="List, register, refresh or remove independently installed client copies", add_help=False)
+    commands.add_parser("commands", help="The commands permissions.toml allows (read or change), with package versions",
+                        add_help=False)
     commands.add_parser("agents", help="Create and choose agent profiles", add_help=False)
     commands.add_parser("sessions", help="List and resume saved conversations", add_help=False)
     commands.add_parser("task", help="Change chosen files, test them, approve the diff or undo the save")
@@ -81,24 +84,12 @@ def build_parser():
     comparison.add_argument("--exit-on-change", action="store_true",
                             help="Exit with code 3 when the reports are valid but differ")
 
-    diagnostic = commands.add_parser("diagnose", help="Diagnostics and optional AI analysis")
-    diagnostic.add_argument("action", choices=("preview", "snapshot", "save", "ask"))
+    diagnostic = commands.add_parser("diagnose", help="Collect, show or save the diagnostic report offline")
+    diagnostic.add_argument("action", choices=("preview", "snapshot", "save"))
     diagnostic.add_argument("output", nargs="?", help="New JSON file, required for save")
-
-    controlled = commands.add_parser("controller", help="Controlled diagnostics with an isolation gate")
-    controlled.add_argument("action", choices=("preview", "approve", "ask"))
 
     isolated = commands.add_parser("executor", help="Safe offline Bubblewrap executor")
     isolated.add_argument("action", choices=("self-test", "inspect"))
-
-    # Isolated, one-shot local transport only. Neither action escalates UID,
-    # starts Claude, performs network IO or writes host files.
-    handoff = commands.add_parser("handoff-once", help="Show and approve a report for a separate worker")
-    handoff.add_argument("session", help="Random ID of the one-time session")
-    commands.add_parser("handoff", help="Approve a report and start the offline worker through systemd")
-    worker = commands.add_parser("worker-once", help="Receive one report as the ai-desktop user")
-    worker.add_argument("session", help="Random ID of the one-time session")
-    worker.add_argument("desktop_uid", type=int, help="Trusted UID of the desktop application")
 
     commands.add_parser("workspace", help="Plan, approve and save new files in the workspace",
                         add_help=False)
@@ -123,6 +114,8 @@ def build_parser():
 SHORT_HELP = """AI Desktop: controlled tools for CachyOS
 
 Run ai-desktop in a terminal to start a conversation; ai-desktop -c continues the last one.
+At the start a list offers the saved conversations of the current agent, or a new one (all of them: ai-desktop sessions).
+Conversations are saved after the first answer unless saving is off: ai-desktop settings save on|off.
   ask        Ask a question; optionally attach chosen context
   material   Analyze one local text file (up to 32 MiB by default)
   project    Work with a project directory: read-only analysis; changes and deletions only after your approval
@@ -142,6 +135,7 @@ Run ai-desktop in a terminal to start a conversation; ai-desktop -c continues th
   login      Log in to the default Claude or Codex account
   doctor     Check requirements without starting AI
   clients    Inspect installed clients and manage their isolated copies
+  commands   The commands permissions.toml allows (read or change), with package versions
 
 Full command list, including internal and developer tools: ai-desktop --help-all
 Help for a command: ai-desktop COMMAND --help
@@ -175,6 +169,11 @@ def main(argv=None):
         argv = ["ask"] if sys.stdin.isatty() and sys.stdout.isatty() else ["status"]
     if argv in (["--help"], ["-h"]):                  # the short, task-oriented help; every command still works
         print(SHORT_HELP, end="")
+        from .local_settings import saving
+        try:
+            print("Saving conversations now: " + ("on" if saving() else "off (no list at the start)") + ".")
+        except (OSError, ValueError):
+            pass
         return 0
     if argv == ["--help-all"]:                        # the complete listing; text only, no host effects
         print(build_parser().format_help(), end="")
@@ -196,6 +195,9 @@ def main(argv=None):
     if argv[0] == "local":
         from . import local_provider
         return local_provider.main(argv[1:])
+    if argv[0] == "commands":
+        from . import commands_cli
+        return commands_cli.main(argv[1:])
     if argv[0] == "clients":
         from . import clients_cli
         return clients_cli.main(argv[1:])
@@ -308,14 +310,6 @@ def main(argv=None):
         if args.output is not None:
             params.append(args.output)
         return diagnose.main(params)
-    if args.command == "controller":
-        return controller.main([args.action])
-    if args.command == "handoff-once":
-        return e2_handoff_cli.desktop_main(args.session)
-    if args.command == "handoff":
-        return e2_handoff_cli.desktop_main()
-    if args.command == "worker-once":
-        return e2_handoff_cli.worker_main(args.session, args.desktop_uid)
     if args.command == "executor":
         return executor.main([args.action])
     if args.command == "skills":

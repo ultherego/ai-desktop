@@ -19,12 +19,12 @@ class PrivateSnapshotSaveTests(unittest.TestCase):
         with (
             patch.object(diagnose.os, "geteuid", return_value=0 if root else 1000),
             patch.object(diagnose, "collect", return_value=payload) as collect,
-            patch.object(diagnose, "ask") as ask,
+            patch.object(diagnose.subprocess, "run") as process,
             patch("tempfile.TemporaryDirectory") as tempdir,
             contextlib.redirect_stdout(io.StringIO()) as output,
         ):
             result = diagnose.main(args)
-        ask.assert_not_called()
+        process.assert_not_called()
         tempdir.assert_not_called()
         return result, output.getvalue(), collect
 

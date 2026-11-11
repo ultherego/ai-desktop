@@ -17,6 +17,28 @@ _CSI = re.compile(r"\x1b\[([0-9;?<>=]*)([ -/]*)([@-~])")
 _RESET = "\x1b[0m"
 
 
+def _background(style):
+    """The background colour parameters of an SGR state ("48;2;R;G;B", "48;5;N", "4x", "10x"), or ""."""
+    found = ""
+    for params in re.findall(r"\x1b\[([0-9;]*)m", style):
+        parts = params.split(";") if params else ["0"]
+        index = 0
+        while index < len(parts):
+            part = parts[index]
+            if part in ("", "0", "49"):
+                found = ""
+            elif part == "48" and index + 1 < len(parts):
+                width = 5 if parts[index + 1] == "2" else 3 if parts[index + 1] == "5" else 2
+                found = ";".join(parts[index:index + width])
+                index += width - 1
+            elif part in ("38", "58") and index + 1 < len(parts):
+                index += 4 if parts[index + 1] == "2" else 2 if parts[index + 1] == "5" else 1
+            elif part.isdigit() and (40 <= int(part) <= 47 or 100 <= int(part) <= 107):
+                found = part
+            index += 1
+    return found
+
+
 class Row(list):
     """One screen row of (character, style) cells; `wrapped` when it continues the row above (the terminal wrapped
     a long line), so copied text joins them again."""
@@ -140,23 +162,24 @@ class ScreenModel:
             self.row = min(max((first or 1) - 1, 0), self.rows - 1)
         elif final == "K":
             line = self.grid[self.row]
-            blank = (" ", "")
+            blank = self._blank()
             if first == 0:
                 self.grid[self.row] = _row(line[:self.column] + [blank] * (self.columns - self.column), line.wrapped)
             elif first == 1:
                 self.grid[self.row] = _row([blank] * (self.column + 1) + line[self.column + 1:], line.wrapped)
             else:
-                self.grid[self.row] = self._blank_row()
+                self.grid[self.row] = _row([blank] * self.columns)
         elif final == "J":
+            blank = self._blank()
             if first == 0:
                 self._erase_line_from_cursor()
                 for row in range(self.row + 1, self.rows):
-                    self.grid[row] = self._blank_row()
+                    self.grid[row] = _row([blank] * self.columns)
             elif first == 1:
                 for row in range(0, self.row):
-                    self.grid[row] = self._blank_row()
+                    self.grid[row] = _row([blank] * self.columns)
             else:
-                self.grid = [self._blank_row() for _ in range(self.rows)]
+                self.grid = [_row([blank] * self.columns) for _ in range(self.rows)]
         elif final == "r":
             top = (numbers[0] or 1) - 1
             bottom = ((numbers[1] if len(numbers) > 1 else self.rows) or self.rows) - 1
@@ -172,7 +195,13 @@ class ScreenModel:
 
     def _erase_line_from_cursor(self):
         line = self.grid[self.row]
-        self.grid[self.row] = _row(line[:self.column] + [(" ", "")] * (self.columns - self.column), line.wrapped)
+        self.grid[self.row] = _row(line[:self.column] + [self._blank()] * (self.columns - self.column), line.wrapped)
+
+    def _blank(self):
+        """An erased cell: like the terminal (background colour erase), it keeps the current background colour only,
+        so a shaded row such as the input band is drawn again across the whole width, not only under its text."""
+        background = _background(self.style)
+        return (" ", "\x1b[" + background + "m" if background else "")
 
     def _sgr(self, params):
         if params in ("", "0"):

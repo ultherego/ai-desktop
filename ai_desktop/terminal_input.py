@@ -32,11 +32,11 @@ import time
 from .analysis_contract import MAX_MESSAGE_BYTES
 from . import question_input
 from .question_input import (_without_locks, _KEYS, _PASTE_END, _PASTE_START, CONTROL_EDITS, UP_DOWN, HistoryWalk, QuestionInputError,
-                             _Line, _safe_text, edit_key, modified_key, opens_list, scroll_key)
+                             _Line, _safe_text, edit_key, enter_choice, modified_key, opens_list, scroll_key,
+                             waits_for_text)
 
 _ANSI = re.compile(r"\x1b\[[0-9;?<>]*[A-Za-z]")
 _current = None
-_SLASH = "/"
 _CTRL_C_REPORTED = (b"\x1b[99;5u", b"\x1b[27;5;99~")      # Ctrl+C under the kitty / modifyOtherKeys protocols
 
 
@@ -492,9 +492,18 @@ class TypeAhead:
     def _send(self):
         """Enter on the draft: queue it (a `/` command goes through the resolver first)."""
         found = self._matches()
-        if found and self.line.text not in (item[0] for item in found) and not opens_list(self.line.text, self.pick):
-            self.line.text = found[self.pick][0]       # `/mo` + Enter runs what the list has highlighted
+        if found:
+            # `/mo` + Enter runs what the list has highlighted; `/ar` + Enter completes `/arch ` and waits for the text
+            self.line.text, send = enter_choice(self.session, self.line.text, found, self.pick)
+            self.line.cursor = len(self.line.text)
+            if not send:
+                self.pick = 0
+                return
         self.pick = 0
+        if waits_for_text(self.session, self.line.text):
+            self.line.text = self.line.text.strip() + " "      # `/arch ` + Enter: wait for the question, queue nothing
+            self.line.cursor = len(self.line.text)
+            return
         text = self.line.text
         if self.line.text.endswith("\\") and self.line.cursor == len(self.line.text):
             self.line.text = self.line.text[:-1]       # backslash + Enter: a line break instead of sending

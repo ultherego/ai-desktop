@@ -19,7 +19,6 @@ from .terminal_style import bar, greeting, paint
 
 
 PROMPT = "How can I help?\n> "
-PASTE_TEXT_BYTES = 32 * 1024          # one pasted block kept as an attachment (project mode)
 PASTES_TOTAL_BYTES = 32 * 1024        # all attachments of one prompt
 MAX_PASTES = 9
 ATTACH_MIN_BYTES = 400                # shorter single-line pastes simply become typed text
@@ -74,6 +73,7 @@ class PromptSession:
         self.commands, self.pick, self.shown = (), 0, 0     # the `/` list: (name, description) pairs set by the caller
         self.paste_bytes = PASTES_TOTAL_BYTES               # `ask` allows more: a pasted text is what it is about
         self.prefill = ""                                   # what the next prompt starts with (e.g. "/model " to finish)
+        self.with_text = frozenset()                        # `/` commands that need text after them (`/arch question`)
 
     ARM_SECONDS = 3.0
 
@@ -157,8 +157,6 @@ def _window(shown, cursor, available):
 
 
 _WORD = re.compile(r"\w", re.UNICODE)
-EDITS = ("left", "right", "home", "end", "text-start", "text-end", "backspace", "delete", "up", "down",
-         "word-left", "word-right", "kill-word-back", "kill-word-forward", "kill-start", "kill-end", "undo")
 MAX_UNDO = 200
 
 
@@ -438,6 +436,22 @@ def modified_key(key):
     if held == 4 and code in _CTRL_LETTERS:
         return _CTRL_LETTERS[code]
     return None
+
+
+def enter_choice(session, text, found, pick):
+    """Enter on a `/` word: (line text, send). A highlighted or typed command runs; one that needs text after it
+    (a Skill: `/arch question`) is only completed with a space, so the question can follow (as Tab does)."""
+    if not found or opens_list(text, pick):
+        return text, True
+    chosen = text if text in (item[0] for item in found) else found[pick][0]
+    if chosen in getattr(session, "with_text", ()):
+        return chosen + " ", False
+    return chosen, True
+
+
+def waits_for_text(session, text):
+    """`/arch ` with nothing after it: a Skill command still waiting for its question is not sent."""
+    return text.strip() in getattr(session, "with_text", ()) and "\n" not in text
 
 
 def opens_list(text, pick):
@@ -764,10 +778,19 @@ def read_question(*, max_bytes=MAX_QUESTION_BYTES, followup=False, prompt=None, 
                 continue
             if value in (b"\r", b"\n"):
                 found = _matches(session, line.text)
-                if found and line.text not in (item[0] for item in found) and not opens_list(line.text, session.pick):
-                    line.text = found[session.pick][0]      # `/mo` + Enter runs what the list has highlighted
+                if found:
+                    # `/mo` + Enter runs what the list has highlighted; `/ar` + Enter completes `/arch ` and waits
+                    line.text, send = enter_choice(session, line.text, found, session.pick)
                     line.cursor = len(line.text)
                     session.pick = 0
+                    if not send:
+                        redraw()
+                        continue
+                if waits_for_text(session, line.text):
+                    line.text = line.text.strip() + " "
+                    line.cursor = len(line.text)
+                    redraw()
+                    continue
                 _hide_suggestions(session, output)
                 if attach and line.text.endswith("\\") and line.cursor == len(line.text):
                     line.text = line.text[:-1]                      # backslash + Enter: a line break instead of sending

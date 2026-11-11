@@ -339,10 +339,6 @@ def _line_total(count):
     return "1 line" if count == 1 else "%d lines" % count
 
 
-def _line_label(first, last):
-    return "line %d" % first if first == last else "lines %d–%d" % (first, last)
-
-
 def _safe(text, limit=PREVIEW_COLUMNS):
     text = terminal_text(text.rstrip("\n"))
     return text if len(text) <= limit else text[:limit] + "…"
@@ -1305,7 +1301,7 @@ def main(argv=None, *, reader=input, clock=time.monotonic, sleep=time.sleep, win
             print(_read_hint(exc))
             return 2
         if policy is None:
-            print("No permissions.toml: this file needs a files.read scope. See config/permissions.example.toml.")
+            print("No permissions.toml: this file needs a files.read scope. See /usr/share/doc/ai-desktop/permissions.example.toml.")
             return 2
         selected, material = load_material(args.path, policy)
     except AnalysisDenied:

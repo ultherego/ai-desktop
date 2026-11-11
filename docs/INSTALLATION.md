@@ -6,13 +6,17 @@ AI Desktop uses a compatible **independently installed Claude Code or Codex clie
 
 Supported system packages are used directly. Clients installed in your home directory through the official installer or npm are registered explicitly as an administrator-approved copy; AI Desktop does not run a mutable HOME executable under its service account. Before credentials or model input are released, the selected native client and its private resources are bound to the operation and checked in an offline namespace. A compatible client update needs no AI Desktop rebuild; a registered client needs an explicit refresh to approve the new bytes. Your ordinary CLI login is not imported: connect an AI Desktop account separately. See [client installation and compatibility](AGENT_INSTALL.md).
 
-## Installation (CachyOS / Arch x86_64)
+## Installation from the signed repository (recommended)
+
+The package is published in a signed pacman repository on GitHub Releases; the steps are in the [README](../README.md#install). pacman checks the signature of the package and of the repository database against the AI Desktop key you trusted with `pacman-key --lsign-key`; a package or database signed by any other key is refused. `sudo pacman -Syu` then updates AI Desktop with the rest of the system. The policy template and the settings reference are installed in `/usr/share/doc/ai-desktop/`.
+
+## Building from source (CachyOS / Arch x86_64)
 
 Keep the Claude/Codex installation you use: supported Arch/AUR packages, official native installers and current npm installations are covered. The example below uses the Arch Codex package. If you already installed through `curl` and a shell, omit `openai-codex` from the package command and register your existing client after installing AI Desktop. Local inference needs no cloud client. See [installation variants and migration](AGENT_INSTALL.md).
 
-```fish
+```sh
 # 1. Application build tools and the selected system client (Codex example)
-sudo pacman -S --needed base-devel git fish python bubblewrap xdg-dbus-proxy libseccomp sudo python-rich python-cryptography openai-codex
+sudo pacman -S --needed base-devel git python bubblewrap xdg-dbus-proxy libseccomp sudo python-rich python-cryptography openai-codex
 
 # 2. Code and application installation; this does not download a provider client
 git clone https://github.com/ultherego/ai-desktopv2.git ~/ai-desktop
@@ -42,15 +46,15 @@ Notes:
 - **Client installation.** Choose `claude`, `codex`, `both` or `local` for `install_agents.py`; the same application can be installed before a provider. The helper never downloads, upgrades or removes a client. For a HOME/native/npm installation, use `ai-desktop clients register claude` or `ai-desktop clients register codex`, review the proposed payload and approve the administrator action. `--path /absolute/path` handles a recognized native installation outside automatic discovery. After updating that source, use `clients refresh PROVIDER`. See the [registration and update boundary](AGENT_INSTALL.md).
 - **Sudo.** The client session is started by a fixed helper with administrator rights, so `ask`, `material`, `project`, `task run`, `login` and `stop` may ask for your `sudo` password. The package adds no sudoers or polkit rules.
 - **Requirements.** Python 3.12 or newer, systemd, working unprivileged namespaces and a regular terminal: without one the program does not ask for consent, it refuses.
-- **Host acceptance.** Fresh installation, registration/refresh and upgrade through the new client paths remain release gates; automated CI is not a substitute for CachyOS testing.
+- **Checks.** Automated tests do not prove isolation on your computer; what has not been checked is listed in [known limitations](KNOWN_LIMITATIONS.md).
 
 ## Updating
 
 Update the application and your Claude/Codex installations independently. A registered copy stays unchanged when its source updates; `ai-desktop clients list` exposes the source state, and `ai-desktop clients refresh PROVIDER` asks you to approve the replacement payload. Registration applies to the whole AI Desktop installation, so changing it affects every user of that provider. It takes priority over the system package until explicitly removed with `ai-desktop clients remove PROVIDER`. The adapter checks supported version ranges and required capabilities before account or model access. A newer client may pass those checks while remaining explicitly untested; an incompatible version or protocol is refused. One operation uses a fixed executable/resource snapshot, and a detected source change refuses further phases. Finish an operation before upgrading a client.
 
-When upgrading from 0.1.0-79/80, use a supported independent client: a system package or an explicitly registered existing installation. The application can be installed before registration. The new application package no longer owns or runs its old private vendor files; pacman handles removal of files from the old package manifest. Existing account profiles, policy, sessions and journals are retained. Ignored copies left in the source checkout are not packaged or used. Do not copy credentials into a user CLI profile or delete them to complete the migration.
+Upgrading from packages 0.1.0-79/80, which bundled their own clients, is described in [migration from packages 79/80](AGENT_INSTALL.md#migration-from-packages-7980).
 
-```fish
+```sh
 ai-desktop stop
 ai-desktop status
 cd ~/ai-desktop

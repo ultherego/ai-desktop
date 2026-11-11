@@ -8,7 +8,7 @@ if test (count $argv) -eq 1; and test "$argv[1]" = --help
     printf '  --allow-codex-install        compatibility alias for app installation only; never installs Codex\n'
     printf '  --allow-cachyos-acceptance    installation + separately confirmed native WebSearch\n'
     printf '  --part-profile-acceptance     installation + bounded native 240/512 KiB benchmark (4 runs, hard request caps)\n'
-    printf 'Default branch: feature/ask-web-search. SHA must match its fetched HEAD.\n'
+    printf 'Default branch: main. SHA must match its fetched HEAD.\n'
     exit 0
 end
 if test (count $argv) -lt 3; or test (count $argv) -gt 4; or not contains -- "$argv[1]" --local-only --allow-install --allow-codex-install --allow-cachyos-acceptance --part-profile-acceptance
@@ -24,7 +24,7 @@ if not string match -rq '^/' -- "$argv[3]"
     exit 2
 end
 set -l aid_mode "$argv[1]"
-set -l aid_branch feature/ask-web-search
+set -l aid_branch main
 if test (count $argv) -eq 4
     set aid_branch "$argv[4]"
 end
@@ -138,7 +138,7 @@ function __aid18_cycle --argument-names aid_expected aid_repo aid_tmp aid_script
     test -f "$aid_package"; and not test -L "$aid_package"; or return 2
     set -l aid_package_info (/usr/bin/pacman -Qp "$aid_package")
     or return $status
-    __aid18_step PACKAGE_VERSION test "$aid_package_info" = 'ai-desktop 0.1.0-162'
+    __aid18_step PACKAGE_VERSION test "$aid_package_info" = 'ai-desktop 0.1.0-164'
     or return $status
     bsdtar -xOf "$aid_package" .INSTALL > "$aid_tmp/package.install"
     or return $status

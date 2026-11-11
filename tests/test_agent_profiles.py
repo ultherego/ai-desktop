@@ -40,12 +40,11 @@ class ProfileStoreTests(unittest.TestCase):
     def installed_skills(self):
         root = self.home / "installed-presets"
         root.mkdir(mode=0o755)
+        import shutil
         for name in {name for group in profiles.PRESET_SKILLS.values() for name in group}:
-            directory = root / name
-            directory.mkdir(mode=0o755)
-            path = directory / "SKILL.md"
-            path.write_bytes((skills.ROOT / name / "SKILL.md").read_bytes())
-            path.chmod(0o644)
+            shutil.copytree(skills.ROOT / name, root / name)        # SKILL.md with its guides and references
+        for path in root.rglob("*"):
+            path.chmod(0o755 if path.is_dir() else 0o644)
         return root
 
     def test_reading_defaults_does_not_create_files_and_profiles_are_immutable(self):
@@ -108,7 +107,7 @@ class ProfileStoreTests(unittest.TestCase):
         default = profiles.Profile(provider="codex", effort="high", access="read-only",
                                    instructions="Moje ustawienia.")
         reviewer = profiles.Profile(model="opus", effort="low", access="changes",
-                                    instructions="Moja rola.", skills=("cachyos-diagnostics",))
+                                    instructions="Moja rola.", skills=("cachyos",))
         analyst = profiles.Profile(model="haiku", effort="medium", access="changes",
                                    instructions="Mój analityk.", skills=("code-review",))
         custom = profiles.Profile(model="sonnet", skills=("code-development",))
@@ -145,11 +144,18 @@ class ProfileStoreTests(unittest.TestCase):
         with patch.object(skills, "ROOT", self.installed_skills()):
             selected = profiles.prepared(profiles.defaults()).profiles["diagnostic"]
             catalog = profiles.catalog_for(selected)
-            for name in ("arch-btrfs", "arch-systemd", "cachyos-boot-snapshots"):
+            for name in ("arch/btrfs", "arch/systemd", "cachyos/boot-snapshots"):     # topic guides, by name only
                 self.assertIn("- " + name + ":", catalog)
             self.assertNotIn("# Btrfs diagnostics", catalog)
-            original = profiles.defaults().put("diagnostic", replace(selected, skills=("arch-audio",)))
-            self.assertEqual(profiles.prepared(original).profiles["diagnostic"].skills, ("arch-audio",))
+            original = profiles.defaults().put("diagnostic", replace(selected, skills=("arch",)))
+            self.assertEqual(profiles.prepared(original).profiles["diagnostic"].skills, ("arch",))
+
+    def test_a_saved_profile_with_the_old_topic_names_gets_the_area_skills(self):
+        raw = profiles.defaults().put("reviewer", profiles.Profile(skills=("code-review",))).data()
+        raw["profiles"]["reviewer"]["skills"] = ["arch-pacman", "arch-btrfs", "cachyos-kernel", "code-review", "mine"]
+        import json
+        config = profiles._decode(json.dumps(raw).encode())
+        self.assertEqual(config.profiles["reviewer"].skills, ("arch", "cachyos", "code-review", "mine"))
 
     def test_prepared_publishes_with_existing_snapshot_transaction(self):
         root = self.installed_skills()
@@ -341,19 +347,19 @@ class ProfileStoreTests(unittest.TestCase):
 
     def test_skills_are_selected_as_bounded_instructions_without_new_authority(self):
         root = self.home / "installed-skills"
-        (root / "cachyos-diagnostics").mkdir(parents=True)
-        source = root / "cachyos-diagnostics" / "SKILL.md"
-        source.write_text("---\nname: cachyos-diagnostics\ndescription: Diagnosis\n---\nSprawdź dowody.\n")
+        (root / "diag-example").mkdir(parents=True)
+        source = root / "diag-example" / "SKILL.md"
+        source.write_text("---\nname: diag-example\ndescription: Diagnosis\n---\nSprawdź dowody.\n")
         source.chmod(0o644)
         with patch.object(skills, "ROOT", root):
-            self.assertEqual(self.cli(["agents", "update", "reviewer", "--skill", "cachyos-diagnostics"])[0], 0)
+            self.assertEqual(self.cli(["agents", "update", "reviewer", "--skill", "diag-example"])[0], 0)
             execution = profiles.resolve(profile="reviewer", store=self.store)
-        self.assertIn("- cachyos-diagnostics:", execution["instructions"])
+        self.assertIn("- diag-example:", execution["instructions"])
         self.assertNotIn("Sprawdź dowody.", execution["instructions"])
         self.assertEqual(execution["access"], "read-only")
         self.assertLessEqual(len(execution["instructions"].encode()), 8192)
         self.assertEqual(self.cli(["agents", "update", "reviewer", "--no-skills"])[0], 0)
-        self.assertNotIn("- cachyos-diagnostics:", profiles.resolve(profile="reviewer", store=self.store)["instructions"])
+        self.assertNotIn("- diag-example:", profiles.resolve(profile="reviewer", store=self.store)["instructions"])
 
     def test_menu_uses_snapshot_and_returns_clean_summary(self):
         # The model list is the client's own (here a fixed one); the 4th entry is Opus.

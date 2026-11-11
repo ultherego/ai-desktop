@@ -30,7 +30,7 @@ The interface and settings are in English, and the selected model answers in the
 
 This is a development version, not a 1.0 release.
 
-The current candidate package is **0.1.0-162** (changes: [CHANGELOG.md](CHANGELOG.md)).
+The current candidate package is **0.1.0-164** (changes: [CHANGELOG.md](CHANGELOG.md)).
 
 What was checked on CachyOS, and what was not, is in the progress log of [docs/ROADMAP.md](docs/ROADMAP.md), the only roadmap and progress record. Read [docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md) before using this on important data.
 
@@ -44,30 +44,49 @@ What was checked on CachyOS, and what was not, is in the progress log of [docs/R
 
 ## Install
 
-AI Desktop uses a compatible **independently installed Claude Code or Codex client** and never downloads one. Supported system packages are used directly. A client installed in your home directory (official installer or npm) is registered once as an administrator-approved copy with `ai-desktop clients register claude` or `ai-desktop clients register codex`.
+AI Desktop comes from its own signed pacman repository. Run these once:
 
-```fish
-sudo pacman -S --needed base-devel git fish python bubblewrap xdg-dbus-proxy libseccomp sudo python-rich python-cryptography
-git clone https://github.com/ultherego/ai-desktopv2.git ~/ai-desktop
-cd ~/ai-desktop
-python3 -B scripts/install_agents.py codex --install    # claude, codex, both or local
-sudo systemctl daemon-reload
+```sh
+# 1. Trust the AI Desktop signing key
+curl -fsSLo /tmp/ai-desktop.asc https://raw.githubusercontent.com/ultherego/ai-desktopv2/main/packaging/signing-key.asc
+sudo pacman-key --add /tmp/ai-desktop.asc
+sudo pacman-key --lsign-key CFF85C09853A969B65A9D80DAD1162EE3172A20C
+
+# 2. Add the repository to pacman
+grep -q '^\[ai-desktop\]' /etc/pacman.conf || printf '\n[ai-desktop]\nServer = https://github.com/ultherego/ai-desktopv2/releases/download/repo\n' | sudo tee -a /etc/pacman.conf
+
+# 3. Install
+sudo pacman -Syu ai-desktop
 ```
 
-The full guide, with client selection, login, the access policy, updating and uninstalling, is in [docs/INSTALLATION.md](docs/INSTALLATION.md). Client variants and migration are in [docs/AGENT_INSTALL.md](docs/AGENT_INSTALL.md).
+Updates then come with `sudo pacman -Syu`, like any other package.
 
-## Quick start
+## First start
 
-```fish
-ai-desktop agent use codex     # choose the service (claude, codex or local)
-ai-desktop doctor --clients   # check the selected client offline
-ai-desktop login --codex      # connect a separate AI Desktop account
-ai-desktop ask --preview      # see what the policy allows, without the model or sending data
-ai-desktop ask                # start a conversation
-ai-desktop -c                 # continue the last conversation
+AI Desktop talks to Claude or Codex through **their own client**, which you install yourself (it never downloads one), or to a model server on your computer.
+
+```sh
+# Codex: the Arch package
+sudo pacman -S openai-codex
+ai-desktop agent use codex
+
+# or Claude: your Claude Code installation, approved once for AI Desktop
+ai-desktop clients register claude                 # Codex from npm or its installer: ai-desktop clients register codex
+ai-desktop agent use claude
+
+# What AI Desktop may read and run: start from the example and edit it
+mkdir -p ~/.config/ai-desktop
+install -m600 /usr/share/doc/ai-desktop/permissions.example.toml ~/.config/ai-desktop/permissions.toml
+$EDITOR ~/.config/ai-desktop/permissions.toml     # for Codex set codex = true under [network]
+
+# Log in (a separate AI Desktop account) and start
+ai-desktop login
+ai-desktop
 ```
 
-Create your policy first from `config/permissions.example.toml`; see [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+In the conversation, `/help` lists the commands. `ai-desktop -c` continues the last conversation. Every setting of `permissions.toml` in one line each, with examples: [docs/PERMISSIONS.md](docs/PERMISSIONS.md) (also installed in `/usr/share/doc/ai-desktop/`).
+
+Building from source, other client installations, updating and uninstalling: [docs/INSTALLATION.md](docs/INSTALLATION.md).
 
 ## Documentation
 
@@ -91,7 +110,7 @@ Create your policy first from `config/permissions.example.toml`; see [docs/CONFI
 
 ## Tests
 
-```fish
+```sh
 python3 -B scripts/verify.py --mode ci --fail-fast     # syntax, unit tests, no AI provider
 ```
 

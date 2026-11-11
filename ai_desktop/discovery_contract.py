@@ -36,7 +36,11 @@ CEILING_OUTPUT = 131072
 REFUSAL_CODES = ("discovery-required", "discovery-budget", "files-missing", "files-count", "files-total", "files-size", "files-empty",
                  "files-depth", "files-entries", "files-type", "files-symlink", "command-invalid",
                  # a plan whose file selector broke the selector rules; the model may correct it like a command
-                 "files-scope", "files-path", "files-directory", "files-selector")
+                 "files-scope", "files-path", "files-directory", "files-selector",
+                 # a web search asked for after local data was collected (only allowed first)
+                 "web-late",
+                 # a Skill asked for again (already in discovery) or after the Skill rounds of a question are used up
+                 "skill-repeat", "skill-limit")
 _ID = re.compile(r"f(?:[0-9]|[1-5][0-9]|6[0-3])\Z", re.ASCII)
 _SKILL = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*(?:/[a-z0-9]+(?:-[a-z0-9]+)*)?\Z", re.ASCII)
 MAX_SKILL_TEXT = 96 * 1024
@@ -167,6 +171,25 @@ def _step(value, total):
     if op == "content":
         from .ask_content import validate_step
         return validate_step(value)
+    if op == "manual":
+        from .manuals import MAX_FRAGMENT_BYTES, MAX_FRAGMENTS, PAGE, SECTION
+        if (set(value) != {"op", "page", "section", "status", "lines", "fragments", "complete"}
+                or type(value["page"]) is not str or not PAGE.fullmatch(value["page"])
+                or type(value["section"]) is not str or not SECTION.fullmatch(value["section"])
+                or value["status"] not in ("ok", "missing") or type(value["complete"]) is not bool
+                or type(value["lines"]) is not int or isinstance(value["lines"], bool) or not 0 <= value["lines"] < 2**31
+                or type(value["fragments"]) is not list or len(value["fragments"]) > MAX_FRAGMENTS
+                or (value["status"] == "missing" and value["fragments"])):
+            raise ValueError("discovery")
+        for item in value["fragments"]:
+            if (type(item) is not dict or set(item) != {"first", "last", "text"}
+                    or any(type(item[key]) is not int or isinstance(item[key], bool) for key in ("first", "last"))
+                    or not 1 <= item["first"] <= item["last"] or type(item["text"]) is not str
+                    or len(item["text"].encode("utf-8")) > MAX_FRAGMENT_BYTES
+                    or any(char not in "\n\t" and unicodedata.category(char) in ("Cc", "Cf", "Cs") for char in item["text"])):
+                raise ValueError("discovery")
+        return {key: value[key] for key in ("op", "page", "section", "status", "lines", "fragments", "complete")} | {
+            "fragments": [dict(item) for item in value["fragments"]]}
     if op == "skill":
         if (set(value) != {"op", "name", "status", "text"} or type(value["name"]) is not str
                 or not _SKILL.fullmatch(value["name"]) or value["status"] not in ("ok", "missing")
@@ -286,7 +309,7 @@ def scope_ids(document):
             found.update(item["id"] for item in step["directories"])
         elif step["op"] in ("find", "content"):
             found.add(step["id"])
-        elif step["op"] in ("run", "skill", "web"):
+        elif step["op"] in ("run", "skill", "web", "manual"):
             continue
         else:
             found.update(item["id"] for item in step["selectors"])

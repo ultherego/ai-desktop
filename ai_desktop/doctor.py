@@ -13,7 +13,7 @@ from . import e2_account, skills, system_clients
 
 MINIMUM_PYTHON = (3, 12)
 TOOLS = ("bwrap", "findmnt", "systemctl")
-SKILL = "cachyos-diagnostics"
+SKILL = "cachyos"
 # Historical skill installation presence only; NOT an approved Claude/OAuth profile.
 PROFILE = Path.home() / ".local/state/ai-desktop/claude"
 
@@ -150,6 +150,12 @@ def main(argv=None):
         print("Offline requirements (metadata): " + (
             "met." if data.get("offline_prerequisites_present") is True else "incomplete."))
         print("Runtime sources: system packages or registered copies (ai-desktop clients list).")
+        from . import skills as packaged_skills
+        try:
+            for name in packaged_skills.shadowed():
+                print("Warning: " + packaged_skills.SHADOWED_HINT % (name, name, name))
+        except OSError:
+            pass
         print("Isolated account metadata: " + (
             "valid." if data.get("isolated_account_metadata_valid") is True else "unconfirmed."))
         for name in ("claude", "codex"):

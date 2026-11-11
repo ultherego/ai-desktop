@@ -39,6 +39,9 @@ class AnalysisPackagingTests(unittest.TestCase):
             for name in ("ai_desktop", "skills", "packaging"):
                 shutil.copytree(ROOT / name, root / name, ignore=shutil.ignore_patterns(
                     "__pycache__", "claude-code", "codex", "pkg", "src", "*.pkg.tar.*"))
+            for name in ("config/permissions.example.toml", "docs/PERMISSIONS.md"):
+                (root / name).parent.mkdir(exist_ok=True)
+                shutil.copy2(ROOT / name, root / name)
             staging = root / "packaging/arch"
             marker = Path(temp) / "native-was-executed"
             env = {"PATH": "/usr/bin:/bin", "startdir": str(staging),

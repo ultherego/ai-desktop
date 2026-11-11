@@ -125,10 +125,30 @@ def parse_ops(raw):
         return None
 
 
+# What a long conversation can lose first (S2). An outdated version of a corrected entry goes first, its replacement
+# stays; then working notes. A rejected proposal and a completed action are kept longer than both, because forgetting
+# them is how an assistant proposes again what was refused or already done; active decisions, values and corrections
+# come next, and the goal and the agreed success criteria and baseline last.
+_DROP_RANK = {"superseded": 0, "working": 1, "rejected": 2, "done": 3, "agreed": 4, "pinned": 5, "goal": 6}
+
+
 def _drop_order(entry):
-    pinned = (2 if entry["kind"] == "goal" else 1) if entry["kind"] in PINNED and entry["status"] == "active" else 0
-    finished = entry["status"] in ("superseded", "rejected", "done")
-    return (pinned, not finished, entry["turn"])
+    status, kind = entry["status"], entry["kind"]
+    if status == "superseded":
+        rank = "superseded"
+    elif status == "rejected":
+        rank = "rejected"
+    elif status == "done":
+        rank = "done"
+    elif kind == "goal":
+        rank = "goal"
+    elif kind in PINNED:
+        rank = "pinned"
+    elif kind in ("decision", "value", "correction"):
+        rank = "agreed"
+    else:
+        rank = "working"
+    return (_DROP_RANK[rank], entry["turn"])
 
 
 def trim(entries, dropped):

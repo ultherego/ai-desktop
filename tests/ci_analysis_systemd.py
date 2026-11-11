@@ -1,6 +1,6 @@
 """Real installed analysis chain, synthetic client, only disposable Ubuntu CI.
 
-Runs after ci_e2_systemd_activation.py provisioned the isolated account. Never
+Runs after ci_provision.py provisioned the isolated account. Never
 run on a developer's host: explicit flag + environment + installed-code check.
 """
 import hashlib
@@ -18,8 +18,8 @@ import sys
 import tempfile
 import time
 
-import ci_e2_systemd_activation as prior
-import host_e2_activated_worker as host
+import ci_provision as prior
+import installed_system as host
 import host_file_access_acceptance as file_fixture
 import host_ask_edit_acceptance as edit_fixture
 import host_home_policy_acceptance as home_fixture
@@ -90,20 +90,21 @@ def install_skills():
     bundles = []
     for directory in directories:
         snapshot = skills.bundle(directory.name, root=source)
-        bundles.append((directory, tuple(snapshot["references"])))
+        bundles.append((directory, tuple(snapshot["references"]), tuple(snapshot["guides"])))
     # Validate the whole source tree before any privileged installation. The
     # production loader remains responsible for ownership, modes and links.
     owner = ("sudo", "-n", "/usr/bin/install", "-o", "root", "-g", "root")
     destination = prior.DEST / "skills"
     prior._run(*owner, "-d", "-m755", str(destination))
-    for directory, references in bundles:
+    for directory, references, guides in bundles:
         target = destination / directory.name
         prior._run(*owner, "-d", "-m755", str(target))
         prior._run(*owner, "-m644", str(directory / "SKILL.md"), str(target / "SKILL.md"))
-        if references:
-            prior._run(*owner, "-d", "-m755", str(target / "references"))
-            prior._run(*owner, "-m644", *(str(directory / "references" / (name + ".md"))
-                                        for name in references), str(target / "references"))
+        for part, names in (("references", references), ("guides", guides)):
+            if names:
+                prior._run(*owner, "-d", "-m755", str(target / part))
+                prior._run(*owner, "-m644", *(str(directory / part / (name + ".md"))
+                                            for name in names), str(target / part))
 
 
 def install(temp, file_home):

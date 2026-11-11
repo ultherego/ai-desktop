@@ -53,13 +53,6 @@ def collect():
     }
 
 
-def ask(report):
-    """Fail closed until the A+ boundary and real-client consent are accepted."""
-    serialize_report(report)
-    print("AI E2: BLOCKED (no approved Claude/OAuth isolation)")
-    return 2
-
-
 def save_payload(payload, destination):
     """Create a private snapshot exclusively, without overwriting user files."""
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
@@ -75,8 +68,8 @@ def main(argv=None):
     saving = (len(args) == 2 and args[0] == "save"
               and type(args[1]) is str and bool(args[1])
               and args[1] != "-" and not args[1].startswith("--"))
-    if args not in (["preview"], ["snapshot"], ["ask"]) and not saving:
-        print("Usage: python3 -B -m ai_desktop.diagnose preview|snapshot|save FILE|ask")
+    if args not in (["preview"], ["snapshot"]) and not saving:
+        print("Usage: python3 -B -m ai_desktop.diagnose preview|snapshot|save FILE")
         return 2
 
     if os.geteuid() == 0:
@@ -108,16 +101,8 @@ def main(argv=None):
 
     print("=== DIAGNOSTIC DATA ===", flush=True)
     print(payload, flush=True)
-
-    if args == ["preview"]:
-        print("PREVIEW: PASS (no data sent to AI)")
-        return 0
-
-    try:
-        return ask(report)
-    except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
-        print("AI: ERROR (" + type(exc).__name__ + ")")
-        return 1
+    print("PREVIEW: PASS (no data sent to AI)")
+    return 0
 
 
 if __name__ == "__main__":

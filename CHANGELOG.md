@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.1.0-164: two system Skills, a ready command set, secrets protected by default
+
+- **Skills `arch` and `cachyos` instead of 23 separate ones.** Each has a short guide of rules and a table of topics; the topics (firewall, SSH, pacman, kernel, snapshots and the others) are loaded only when a question needs them. Ten new source-backed notes: .pacnew/.pacsave and pacdiff, package signatures, mirrors, the package cache, Limine and limine-snapper-sync, Snapper with snap-pac, NVIDIA and two GPUs. Saved agents that named the old Skills get the new ones.
+- **The program's Skills are always its own.** Each update replaces them; a Skill of yours with the same name is ignored with a warning (`/skills`, `ai-desktop skills list`, `ai-desktop doctor`), so give yours another name. `ai-desktop skills new` refuses a packaged name.
+- **`preset = "diagnostics"`** in `[commands]` switches on about 150 read-only commands for all these topics, kept up to date with the program: no need to know every command or flag. Your own commands add to it, `commands.deny` removes from it. It is off until you add the line, because it reads logs, process lists and network names.
+- **Secrets protected by default** (`files.protect`, policy version 2): SSH keys, GnuPG, password stores, cloud and client logins, browser and mail profiles, keyrings, Borg/borgmatic, Wi-Fi/VPN credentials, also under `~/**`. Naming one of them in `files.read` lifts it for exactly that; `/permissions` shows the list. The example `permissions.toml` no longer needs its long `deny` list.
+- References can state a version range (`>=7.0.0`), compared the way pacman compares versions.
+- **Skill `desktop` with guides for 20 desktops, compositors and shells** (everything the CachyOS installer offers, plus DMS and Noctalia). Only the guides of what is installed on your computer are offered. Replaces `desktop-documentation`.
+- **Desktop configuration checks in the preset:** `niri validate -c`, `sway -C -c` and `i3 -C -c` check a configuration offline. A path in your home directory that a read command names and `files.read` allows is shown to that command read-only, so the check sees its file.
+- **`ai-desktop commands`** lists every command your policy allows, whether it is installed and which package owns it; `--json` gives the same for scripts.
+- **`/context`** shows what of the conversation the next question sends: the recent turns word for word, the task-memory entries and what was left out to fit the limits. Refused proposals and completed actions now stay in the task memory longer.
+- **Installed manual pages as evidence:** during a question Claude can read the manual page of a tool from `/usr/share/man`, so the answer describes the installed version; nothing goes to the network.
+- `ai-desktop --help` explains the list of saved conversations shown at start and whether saving is on.
+- No fish requirement: installation uses only `sh` commands, the Niri shortcut example opens your preferred terminal through `xdg-terminal-exec`, and the `concise-assistant` Skill asks for commands that work in common shells. `ai-desktop skills new` also refuses the former packaged Skill names.
+- The grey input field keeps its full width and height after scrolling the history.
+- Fixes found in the CachyOS check: a manual page excerpt no longer ends the question, a late web search, a repeated Skill request or one Skill round too many are corrected instead of ending the question, Enter on `/ar` completes `/arch `, and the preset reads `/` and `/boot` directly (`findmnt /`, `btrfs filesystem usage /`).
+
+## 0.1.0-163: no limit on command templates, unit names without `.service`
+
+- `permissions.toml` may hold any number of command templates (the file may now be up to 256 KiB); the former 128 per list and the 8 KiB limit of the access description sent with each question are gone.
+- `<unit>` accepts a unit name without its type, as `systemctl` does: `systemctl is-active <unit>` now also runs `systemctl is-active ufw`, not only `ufw.service`.
+
 ## 0.1.0-162: Skills always on, `/SKILL question`
 
 - The Skills that come with a built-in agent are always on, also new ones from an update; `/skills` now saves your choice in the agent instead of only this conversation.
@@ -90,7 +112,7 @@ A review of the whole program found places where one failure ended more than it 
 
 ## 0.1.0-147: selecting, editing keys, resizing
 
-- Select text in the conversation with the mouse: drag with the left button, and releasing copies it to the clipboard (through the terminal, which also works inside Zellij or tmux, and with `wl-copy` on Wayland when it is installed). A double click selects a word or a path. Rows the window wrapped are copied as one line.
+- Select text in the conversation with the mouse: drag with the left button, and releasing copies it to the clipboard (through the terminal, which also works inside a terminal multiplexer, and with `wl-copy` on Wayland when it is installed). A double click selects a word or a path. Rows the window wrapped are copied as one line.
 - The input knows the usual editing keys: Ctrl/Alt+Left/Right move by words, Ctrl+Backspace, Alt+Backspace and Ctrl+W delete a word back, Ctrl+Delete and Alt+D a word forward, Ctrl+U and Ctrl+K to the start and end of the line, Home/End go to the start and end of the line (Ctrl+Home/End: of the whole message), Ctrl+Z undoes. The same keys work while an answer is being written.
 - Resizing the window no longer leaves empty rows between a question and what follows: the conversation stays right above the input, and earlier rows come back when the window grows.
 - A web search with `max` reasoning is no longer refused as `web-stream`: the transcript may now hold as much as the service keeps (512 KiB, 512 events).

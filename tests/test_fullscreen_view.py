@@ -24,6 +24,23 @@ def text(model, row):
 
 
 class ScreenModelTests(unittest.TestCase):
+    def test_an_erased_row_keeps_the_background_so_the_input_band_is_redrawn_full_width(self):
+        # CachyOS check (candidate 164): after scrolling the history, the grey input band came back as one row only as
+        # wide as its text, because erased cells lost the background colour that the terminal keeps (BCE).
+        model = ScreenModel(4, 20)
+        shade = "\x1b[48;2;40;42;54m"
+        model.feed("\x1b[2;1H" + shade + "\x1b[K\x1b[0m\x1b[3;1H" + shade + "\x1b[38;5;8m> ask\x1b[K\x1b[0m")
+        for row in (1, 2):
+            self.assertEqual(len(model.grid[row]), 20)
+            self.assertTrue(all(style == "\x1b[48;2;40;42;54m" for char, style in model.grid[row][5:]), row)
+        painted = model.repaint(region=False)
+        self.assertTrue(ScreenModel.render(model.grid[2]).replace("\x1b[0m", "").endswith(" " * 15))  # the input row's tail
+        self.assertIn("\x1b[48;2;40;42;54m" + " " * 20, painted)                     # the padding row, full width
+        model.feed("\x1b[0m\x1b[4;1Hplain\x1b[K")
+        self.assertEqual(ScreenModel.render(model.grid[3]), "plain")                  # no colour: trailing blanks stay out
+        self.assertEqual(screen_model._background("\x1b[1m\x1b[38;2;1;2;3m\x1b[44m"), "44")
+        self.assertEqual(screen_model._background("\x1b[48;5;236m\x1b[49m"), "")
+
     def test_text_lines_and_a_scroll_region_keep_scrolled_rows_in_the_history(self):
         model = ScreenModel(6, 20)
         model.feed("\x1b[1;4r\x1b[1;1H")                   # the conversation area is rows 1-4

@@ -4,13 +4,14 @@
 # Only the guarded package scriptlet may apply it during this approved install.
 pkgname=ai-desktop
 pkgver=0.1.0
-pkgrel=162
+pkgrel=164
 pkgdesc='Terminal AI assistant for CachyOS and Arch with an isolated client and approved changes'
 arch=('x86_64')
 url='https://github.com/ultherego/ai-desktopv2'
 license=('Apache-2.0')
 depends=('python>=3.12' 'bubblewrap' 'xdg-dbus-proxy>=0.1.9' 'systemd' 'ca-certificates' 'libseccomp' 'sudo' 'python-rich>=13.7' 'python-cryptography')
 optdepends=('claude-code: independently installed native Claude client' 'openai-codex: independently installed native Codex client'
+            'xdg-terminal-exec: open your preferred terminal from the example Niri shortcuts'
             'python-pytest: run the offline pytest recipe' 'go: run the offline go-test recipe' 'npm: run the offline npm-test recipe')
 install=ai-desktop.install
 source=()
@@ -31,8 +32,9 @@ package() {
     local src
     for src in "${root}"/ai_desktop/*.py; do
         [[ -f "${src}" && ! -L "${src}" ]] || return 1
-        # Development-only kernel-boundary probe: the repository's regressions run it, the installed runtime never imports it.
-        case "${src##*/}" in e2_boundary.py|e2_probe.py) continue ;; esac
+        # Development-only kernel-boundary probe and client compatibility harness: the repository's
+        # regressions run them, the installed runtime never imports them.
+        case "${src##*/}" in e2_boundary.py|e2_probe.py|e2_client_compat.py) continue ;; esac
         install -m644 "${src}" "${target}/ai_desktop/"
     done
     local skill
@@ -41,13 +43,15 @@ package() {
         install -d -m755 "${target}/skills/${skill##*/}"
         [[ -f "${skill}/SKILL.md" && ! -L "${skill}/SKILL.md" ]] || return 1
         install -m644 "${skill}/SKILL.md" "${target}/skills/${skill##*/}/SKILL.md"
-        if [[ -d "${skill}/references" ]]; then
-            install -d -m755 "${target}/skills/${skill##*/}/references"
-            for src in "${skill}"/references/*.md; do
+        local part
+        for part in references guides; do
+            [[ -d "${skill}/${part}" ]] || continue
+            install -d -m755 "${target}/skills/${skill##*/}/${part}"
+            for src in "${skill}/${part}"/*.md; do
                 [[ -f "${src}" && ! -L "${src}" ]] || return 1
-                install -m644 "${src}" "${target}/skills/${skill##*/}/references/"
+                install -m644 "${src}" "${target}/skills/${skill##*/}/${part}/"
             done
-        fi
+        done
     done
 
     # Never place these in /usr/lib/sysusers.d or /usr/lib/tmpfiles.d:
@@ -59,13 +63,11 @@ package() {
 
     # Dormant units only: no enable/start, polkit rule or automatic preset.
     local unit
-    for unit in ai-desktop-handoff@.socket ai-desktop-handoff@.service ai-desktop-analysis@.socket ai-desktop-analysis@.service \
+    for unit in ai-desktop-analysis@.socket ai-desktop-analysis@.service \
                 ai-desktop-codex-limits@.socket ai-desktop-codex-limits@.service; do
         [[ -f "${startdir}/../systemd/${unit}" && ! -L "${startdir}/../systemd/${unit}" ]] || return 1
         install -Dm644 "${startdir}/../systemd/${unit}" "${pkgdir}/usr/lib/systemd/system/${unit}"
     done
-    [[ -f "${startdir}/../systemd/activated-worker.py" && ! -L "${startdir}/../systemd/activated-worker.py" ]] || return 1
-    install -m644 "${startdir}/../systemd/activated-worker.py" "${target}/activated-worker.py"
     for src in analysis-worker.py analysis-client.py analysis-session.py codex-auth.py codex-client.py codex-quota.py client-admin.py; do
         [[ -f "${startdir}/../systemd/${src}" && ! -L "${startdir}/../systemd/${src}" ]] || return 1
         install -m644 "${startdir}/../systemd/${src}" "${target}/${src}"
@@ -85,6 +87,12 @@ package() {
     for src in niri-bindings.kdl "${widget}"/{plugin.json,Widget.qml,Settings.qml,usage/QuotaCard.qml,usage/Status.js}; do
         [[ -f "${desktop}/${src}" && ! -L "${desktop}/${src}" ]] || return 1
         install -Dm644 "${desktop}/${src}" "${pkgdir}/usr/share/ai-desktop/${src}" || return 1
+    done
+
+    # The policy template and the settings reference, readable after an installation from the repository.
+    for src in config/permissions.example.toml docs/PERMISSIONS.md; do
+        [[ -f "${root}/${src}" && ! -L "${root}/${src}" ]] || return 1
+        install -Dm644 "${root}/${src}" "${pkgdir}/usr/share/doc/ai-desktop/${src##*/}" || return 1
     done
 
     install -d -m755 "${pkgdir}/usr/bin"

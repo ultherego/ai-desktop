@@ -1,10 +1,10 @@
 # `permissions.toml`: settings reference
 
-File: `~/.config/ai-desktop/permissions.toml`, owned by you, mode `0600`. Template: [`config/permissions.example.toml`](../config/permissions.example.toml). A missing key means "off"; an unknown key or bad value stops the program and names the problem. Details and examples: [CONFIGURATION.md](CONFIGURATION.md).
+File: `~/.config/ai-desktop/permissions.toml`, owned by you, mode `0600`. Template: [`config/permissions.example.toml`](../config/permissions.example.toml). `version` and `[files]` with its `read` and `deny` lists are required (an empty list is allowed); any other missing key means "off" or its default. An unknown key or bad value stops the program and names the problem. Details and examples: [CONFIGURATION.md](CONFIGURATION.md).
 
 ## Top level
 
-- `version`: `2` (current; `deny` is the only protection for secrets) or `1` (older; adds a built-in list of blocked places).
+- `version`: `2` (current: common secrets protected by default, see `protect`) or `1` (older: a fixed built-in list of blocked places instead).
 
 ## `[network]`
 
@@ -28,7 +28,8 @@ All `true`/`false`, default `false`.
 
 - `read`: places that may be read, e.g. `"~/"`, `"~/Projects/**"`, `"/etc/"`.
 - `write`: places where changes may be saved (each save shows a diff and asks).
-- `deny`: never read or written, wins over `read` and `write`, e.g. `"~/.ssh/"`, `"~/.claude/"`, `"~/.codex/"`.
+- `deny`: never read or written, wins over `read` and `write`, e.g. `"~/private/"`. At most 64 rules in each of `read`, `write`, `deny`.
+- `protect`: `true` (default) keeps common secrets out even under a broad rule such as `"~/**"`: SSH and GnuPG keys, password stores, cloud and client logins (`.aws`, `.kube`, `.claude`, `.codex`, `gh`, `rclone`, `borg`…), browser and mail profiles, `.netrc`, `.env`, `/etc/ssh`, `/etc/shadow`, Wi-Fi and WireGuard secrets. `/permissions` prints the list. Naming such a place in `read` opens exactly what you named; `false` switches the list off.
 
 Rule forms: `~/x` one file, `~/x/*` files directly in it, `~/x/` or `~/x/**` the whole tree.
 
@@ -54,12 +55,14 @@ Limits (default → highest allowed):
 
 ## `[commands]`: what the model may run
 
-- `allow`: read-only commands, run at once without asking, e.g. `"systemctl status <unit> --no-pager"`. Placeholders: `<unit>` systemd unit, `<int>` number, `<word>` one word.
+- `preset`: `"diagnostics"` switches on about 150 built-in read-only commands for system, systemd and logs, hardware, disks and Btrfs, network, firewall status, packages, Flatpak, Docker status and offline compositor checks (`niri validate -c ...`). Updated with the program; your `allow` adds to it, `deny` removes from it. `ai-desktop commands` lists what is on.
+- `allow`: read-only commands, run at once without asking, e.g. `"systemctl status <unit> --no-pager"`. Placeholders: `<unit>` systemd unit, with or without its type (`sshd`, `sshd.service`), `<int>` number, `<word>` one word. Any number of templates.
 - `...` at the end: any further plain words after the fixed ones, e.g. `"docker ps ..."` allows `docker ps -a --format=json`. A path among them must be inside `files.read` (and, in `change`, `files.write`) and outside `files.deny`. In `allow`, a template that changes things (`run`, `rm`, `pull`, `build`, `start`, …) cannot end with `...`, and such a word is refused among the open words too (`"docker image ..."` allows `docker image ls`, not `docker image rm`): put changes in `change`.
 - `change`: commands that change the system; each needs you to type `yes`, a test (an exact `allow` command, no `...`) and an undo (a `change` command or an exact `allow` command). `...` works here too, e.g. `"docker run --rm ..."`. For `"docker pull ..."` keep `"docker images"` in `allow` as the test and add `"docker image rm <word>"` to `change` as the undo.
 - `deny`: commands never run, as word prefixes, e.g. `"docker rm"` blocks every `docker rm …`. It wins over `allow` and `change`. It does not reliably block a flag (`"docker ps -a"` still lets `--all` through), so do not open a template with `...` if some flag must stay off.
+- Commands run in a sandbox without your home directory. A path in your home that a command names (`~/` is expanded) and `read` allows is shown to that command read-only, so `niri validate -c ~/.config/niri/config.kdl` sees its file.
 - `share_processes`: `true` lets `allow` commands see host processes and their command lines. Default `false`.
-- `host_sockets`: list of extra sockets under `/run` that `allow` commands may reach (at most 8; never `/run/user`). Default `[]`.
+- `host_sockets`: list of extra sockets under `/run` that `allow` commands may reach (at most 8; never `/run/user` or `/run/dbus`, since D-Bus goes through its filter). Default `[]`.
 
 `allow` commands see an empty `/run` except journals, systemd and login state, udev data, mounts, `utmp` and NetworkManager state. D-Bus is available read-only, through a filter. Anything else needs `host_sockets`:
 
@@ -89,3 +92,75 @@ docker = ["docker run --rm ..."]
 ```
 
 The exact path depends on the package; check it with `ls -l /run`.
+
+## Recipes
+
+Each block goes into `~/.config/ai-desktop/permissions.toml`; keep the sections you already have and add the lines. `ai-desktop commands` shows the result.
+
+**Logs (`journalctl`).** The preset already allows `journalctl ...`. Without it, open only what you need:
+
+```toml
+[commands.allow]
+logs = [
+    "journalctl -b -p err --no-pager",            # errors of this boot
+    "journalctl -u <unit> -b --no-pager",         # one service: sshd, docker.service
+    "journalctl -k -b --no-pager",                # kernel messages
+    "journalctl --user -u <unit> -b --no-pager",  # one of your user services
+]
+```
+
+A pattern after `-g` is one plain word (`-g btrfs`): `|`, `(`, `*` are not allowed, so ask for one pattern per command.
+
+**Docker.** The daemon is reached through its socket; listing it is root-equivalent.
+
+```toml
+[commands]
+host_sockets = ["/run/docker.sock"]
+deny = ["docker rm", "docker rmi"]                # never, even if a template below would allow it
+
+[commands.allow]
+docker = ["docker ps ...", "docker images", "docker logs ...", "docker inspect ..."]
+
+[commands.change]                                 # each asks for yes, with a test and an undo
+docker = ["docker pull ...", "docker image rm <word>", "docker run --rm ..."]
+```
+
+**Podman.** Rootless Podman keeps its data in your home and its socket in `/run/user`, which commands never see. A root Podman service is reached through its socket, if your user may open it (by default only root may):
+
+```toml
+[commands]
+host_sockets = ["/run/podman/podman.sock"]
+
+[commands.allow]
+podman = ["podman --url=unix:///run/podman/podman.sock ps ...",
+          "podman --url=unix:///run/podman/podman.sock images"]
+```
+
+**Other services with a socket** (for example libvirt): add the socket and the read commands.
+
+```toml
+[commands]
+host_sockets = ["/run/example-daemon.sock", "/run/libvirt/libvirt-sock-ro"]
+
+[commands.allow]
+services = ["exampletool status", "virsh -r -c qemu:///system list --all"]
+```
+
+**Restarting a service.** Commands run as you, without `sudo`: a system service (`systemctl restart sshd`) needs root, so the model gives you the command instead. Your own user services can be changed:
+
+```toml
+[commands.allow]
+units = ["systemctl --user is-active <unit>"]     # the test after the change
+
+[commands.change]
+units = ["systemctl --user restart <unit>"]
+```
+
+**Desktop configuration check.** In the preset; without it:
+
+```toml
+[commands.allow]
+desktop = ["niri validate -c ...", "sway -C -c ...", "i3 -C -c ..."]
+```
+
+The path after `-c` must be inside `[files] read`.

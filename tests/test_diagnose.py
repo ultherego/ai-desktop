@@ -22,16 +22,19 @@ class DiagnoseTests(unittest.TestCase):
             "ai_desktop.diagnose.collect",
             return_value={"kernel": "test"},
         ):
-            with patch("ai_desktop.diagnose.serialize_report", return_value='{"kernel": "test"}'):
-                with patch("ai_desktop.diagnose.ask") as ask:
-                    self.assertEqual(main(["preview"]), 0)
-                    ask.assert_not_called()
+            with patch("ai_desktop.diagnose.serialize_report", return_value='{"kernel": "test"}'), \
+                    patch("ai_desktop.diagnose.subprocess.run") as run:
+                self.assertEqual(main(["preview"]), 0)
+                run.assert_not_called()
 
     def test_preview_rejects_unapproved_report(self):
         with patch("ai_desktop.diagnose.collect", return_value={"token": "secret"}):
-            with patch("ai_desktop.diagnose.ask") as ask:
-                self.assertEqual(main(["preview"]), 1)
-                ask.assert_not_called()
+            self.assertEqual(main(["preview"]), 1)
 
     def test_disallow_unexpected_command(self):
         self.assertEqual(main(["unsafe"]), 2)
+
+    def test_removed_blocked_ask_is_an_unknown_action(self):
+        with patch("ai_desktop.diagnose.collect") as collect:
+            self.assertEqual(main(["ask"]), 2)
+            collect.assert_not_called()

@@ -25,13 +25,13 @@ COMPAT_FAILURE_REASONS = frozenset({"internal", "timeout", "output-limit", "proc
     "turn-limit", "boundary", "version", "fault-not-observed"})
 STEPS = {
     "compat": ("e2-claude-compat",),
-    "ci": ("syntax", "unit", "cli", "skills", "doctor", "compare", "compare-summary", "snapshot", "compare-exit", "validate-report", "offline-pipeline", "stdin-pipeline", "snapshot-save", "e1-boundary", "e2-contract", "e3-e4-contracts", "e5-e6-contracts", "e7-install", "e7-host-cycle"),
-    "local": ("syntax", "unit", "cli", "skills", "doctor", "compare", "compare-summary", "snapshot", "compare-exit", "validate-report", "offline-pipeline", "stdin-pipeline", "snapshot-save", "e1-boundary", "e2-contract", "e3-e4-contracts", "e5-e6-contracts", "e7-install", "sandbox", "skill-mount",
-              "executor-probe", "executor-inspect", "e2-host-probe", "e5-host-cycle", "e7-host-cycle", "task-host-cycle", "e5-btrfs-binding"),
-    "ai": ("syntax", "unit", "cli", "skills", "doctor", "compare", "compare-summary", "snapshot", "compare-exit", "validate-report", "offline-pipeline", "stdin-pipeline", "snapshot-save", "e1-boundary", "e2-contract", "e3-e4-contracts", "e5-e6-contracts", "e7-install", "sandbox", "skill-mount",
-           "executor-probe", "executor-inspect", "launcher", "agent", "e2-host-probe", "e5-host-cycle", "e7-host-cycle", "controller-preview", "controller-ask"),
+    "ci": ("syntax", "unit", "cli", "skills", "doctor", "compare", "compare-summary", "snapshot", "compare-exit", "validate-report", "offline-pipeline", "stdin-pipeline", "snapshot-save", "e1-boundary", "e2-contract", "e3-e4-contracts", "e5-e6-contracts"),
+    "local": ("syntax", "unit", "cli", "skills", "doctor", "compare", "compare-summary", "snapshot", "compare-exit", "validate-report", "offline-pipeline", "stdin-pipeline", "snapshot-save", "e1-boundary", "e2-contract", "e3-e4-contracts", "e5-e6-contracts", "sandbox", "skill-mount",
+              "executor-probe", "executor-inspect", "e2-host-probe", "e5-host-cycle", "task-host-cycle", "e5-btrfs-binding"),
+    "ai": ("syntax", "unit", "cli", "skills", "doctor", "compare", "compare-summary", "snapshot", "compare-exit", "validate-report", "offline-pipeline", "stdin-pipeline", "snapshot-save", "e1-boundary", "e2-contract", "e3-e4-contracts", "e5-e6-contracts", "sandbox", "skill-mount",
+           "executor-probe", "executor-inspect", "launcher", "agent", "e2-host-probe", "e5-host-cycle"),
 }
-TIMEOUTS = {"unit": 240, "controller-ask": 180, "e2-claude-compat": 670, "e2-host-probe": 80}
+TIMEOUTS = {"unit": 240, "e2-claude-compat": 670, "e2-host-probe": 80}
 
 
 def command_for(step, python=None):
@@ -41,7 +41,6 @@ def command_for(step, python=None):
         # Includes versioned-file conflicts and exact-packet delivery regressions,
         # analysis consent/auth/output/process/activation contracts and
         # offline unit parsing. Never native login or a real model request.
-        # host_e2_activated_worker.py is explicit opt-in, never discovered here.
         "unit": prefix + ["-m", "unittest", "discover", "-s", "tests", "-v"],
         "cli": prefix + ["-m", "ai_desktop", "--help"],
         "skills": prefix + ["-m", "ai_desktop", "skills", "validate"],
@@ -58,8 +57,6 @@ def command_for(step, python=None):
         "e2-contract": prefix + ["-m", "unittest", "discover", "-s", "tests", "-p", "test_e2_*boundary*.py", "-v"],
         "e3-e4-contracts": prefix + ["-m", "unittest", "discover", "-s", "tests", "-p", "test_e3_e4*.py", "-v"],
         "e5-e6-contracts": prefix + ["-m", "unittest", "discover", "-s", "tests", "-p", "test_e5_*.py", "-v"],
-        "e7-install": prefix + ["-m", "unittest", "discover", "-s", "tests", "-p", "test_e7_*.py", "-v"],
-        "e7-host-cycle": prefix + ["-m", "unittest", "discover", "-s", "tests", "-p", "host_e7_lifecycle_checks.py", "-v"],
         "e5-host-cycle": prefix + ["-m", "unittest", "discover", "-s", "tests", "-p", "host_e5_workspace_checks.py", "-v"],
         "e5-btrfs-binding": prefix + ["-m", "unittest", "discover", "-s", "tests", "-p", "host_e5_btrfs_binding.py", "-v"],
         "task-host-cycle": prefix + ["-m", "unittest", "discover", "-s", "tests", "-p", "host_task_checks.py", "-v"],
@@ -71,8 +68,6 @@ def command_for(step, python=None):
         "executor-inspect": prefix + ["-m", "ai_desktop", "executor", "inspect"],
         "launcher": prefix + ["-m", "ai_desktop", "launcher", "version"],
         "agent": prefix + ["-m", "ai_desktop", "agent", "version"],
-        "controller-preview": prefix + ["-m", "ai_desktop", "controller", "preview"],
-        "controller-ask": prefix + ["-m", "ai_desktop", "controller", "ask"],
     }
     if step == "syntax":
         return None
@@ -166,7 +161,7 @@ def run(mode, ai_consent=False, fail_fast=False, writer=print, runner=subprocess
                 for ident in list(failures)[:40]:
                     writer("Failed test: " + ident)
             # Only 'ci' static/unit checks are echoed for debugging.
-            if mode == "ci" and step in ("syntax", "unit", "cli", "skills", "doctor", "compare", "compare-summary", "snapshot", "compare-exit", "validate-report", "offline-pipeline", "stdin-pipeline", "snapshot-save", "e1-boundary", "e2-contract", "e3-e4-contracts", "e5-e6-contracts", "e7-install", "e7-host-cycle"):
+            if mode == "ci" and step in ("syntax", "unit", "cli", "skills", "doctor", "compare", "compare-summary", "snapshot", "compare-exit", "validate-report", "offline-pipeline", "stdin-pipeline", "snapshot-save", "e1-boundary", "e2-contract", "e3-e4-contracts", "e5-e6-contracts"):
                 writer("\n".join(output.splitlines()[-MAX_OUTPUT:]))
             if fail_fast:
                 break

@@ -16,29 +16,7 @@ systemd = ["system", "user"]
 [files]
 read = []
 write = []
-deny = [
-    "~/.ssh/",
-    "~/.gnupg/",
-    "~/.claude/",
-    "~/.codex/",
-    "~/.aws/",
-    "~/.azure/",
-    "~/.kube/",
-    "~/.password-store/",
-    "~/.docker/",
-    "~/.netrc",
-    "~/.git-credentials",
-    "~/.npmrc",
-    "~/.pypirc",
-    "~/.env",
-    "~/.config/gh/",
-    "~/.config/gcloud/",
-    "~/.config/rclone/",
-    "~/.local/share/keyrings/",
-    "~/.config/ai-desktop/",
-    "~/.local/state/ai-desktop/",
-    "~/.local/share/ai-desktop/",
-]
+deny = []
 
 [commands]
 share_processes = false

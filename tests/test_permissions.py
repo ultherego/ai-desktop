@@ -303,6 +303,7 @@ class PolicyTests(unittest.TestCase):
         self.file("project/not-directory")
         self.assert_code(lambda: self.policy(write=["~/project/not-directory/*"]).write_workspace(0))
 
+    @patch.object(p, "MAX_ACCESS_BYTES", 8192)       # the fail-closed check, at the former threshold
     def test_write_authority_rechecks_policy_and_combined_metadata_budget(self):
         policy = self.policy(write=["~/project/*"])
         self.config.write_bytes(self.config.read_bytes().replace(b'write = ["~/project/*"]', b'write = []'))
@@ -364,6 +365,7 @@ class PolicyTests(unittest.TestCase):
             self.assertEqual(policy.access()["systemd"], ["user"])
             self.assertTrue(policy.access()["weather"])
 
+    @patch.object(p, "MAX_ACCESS_BYTES", 8192)       # the fail-closed check, at the former threshold
     def test_access_metadata_byte_limit_fails_closed_before_transfer(self):
         rules = tuple("~/project/" + str(i) + "-" + "ą" * 180 for i in range(24))
         self.assertLess(len(json.dumps(list(rules), ensure_ascii=False).encode("utf-8")), p.MAX_POLICY_BYTES)
@@ -735,7 +737,8 @@ class PolicyTests(unittest.TestCase):
                  ".git/config", ".config/ai-desktop/extra.txt", ".claude/data.json")
         content = "-----BEGIN OPENSSH PRIVATE KEY-----\nSYNTHETIC NOT A KEY\n"
         paths = tuple(str(self.file(name, content)) for name in names)
-        policy = self.policy(read=["~/"], write=["~/"], version=2)
+        # The owner switched the default protection off (files.protect = false): then no filter applies at all.
+        policy = self.policy(read=["~/"], write=["~/"], version=2, sections="protect = false\n")
         self.assertEqual(policy.write_workspace(0), str(self.home))
         selected = policy.expand_selected([(0, name) for name in names])
         self.assertEqual(selected, tuple(sorted(paths)))
@@ -900,7 +903,7 @@ class PolicyTests(unittest.TestCase):
         self.assertTrue(policy._excluded(str(self.config)))
         # These exclusions are configuration values, so an explicit v2 edit
         # can remove them without any hidden filename/content backstop.
-        policy = self.policy(read=["~/"], write=["~/"], deny=[], version=2)
+        policy = self.policy(read=["~/"], write=["~/"], deny=[], version=2, sections="protect = false\n")
         self.assertTrue(policy.can_write(str(self.config)))
         self.assertEqual(policy.select([str(self.config)]), (str(self.config),))
 

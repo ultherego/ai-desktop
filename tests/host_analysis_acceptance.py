@@ -21,12 +21,10 @@ from ai_desktop import analysis_session_admin as session_admin
 from ai_desktop.analysis_sandbox import BINARY, INSTALL, runtime_ready, trusted_file
 from ai_desktop.terminal_consent import PROMPTS
 from ai_desktop.skills import inspect_skill
-import host_e2_activated_worker as offline
+import installed_system as offline
 
-PACKAGED_SKILLS = ("arch-amdgpu", "arch-audio", "arch-bluetooth", "arch-btrfs", "arch-docker", "arch-firewall", "arch-ssh", "arch-flatpak", "arch-storage-health", "arch-power", "arch-dns-time", "arch-apparmor", "arch-network", "arch-pacman", "arch-systemd", "arch-zram",
-                   "cachyos-boot-snapshots", "cachyos-diagnostics", "cachyos-gaming", "cachyos-hardware", "cachyos-kernel",
-                   "cachyos-packages", "cachyos-scheduler", "code-development", "code-review", "concise-assistant",
-                   "desktop-documentation", "project-analysis")
+PACKAGED_SKILLS = ("arch", "cachyos", "code-development", "code-review", "concise-assistant",
+                   "desktop", "project-analysis")
 
 
 def _installed_skills_match():
@@ -150,7 +148,7 @@ def preflight():
     if (uid <= 0 or uid != os.getuid() or not os.isatty(0) or not os.isatty(1)
             or Path("/proc/1/comm").read_text().strip() != "systemd"):
         raise ValueError("host")
-    if offline._command(["/usr/bin/pacman", "-Q", "ai-desktop"]) != "ai-desktop 0.1.0-162":
+    if offline._command(["/usr/bin/pacman", "-Q", "ai-desktop"]) != "ai-desktop 0.1.0-164":
         raise ValueError("package")
     installed_matches()
     units = ["ai-desktop-analysis@" + str(uid) + suffix for suffix in (".socket", ".service")]

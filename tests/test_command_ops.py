@@ -34,15 +34,18 @@ class TemplateTests(unittest.TestCase):
                 ops.parse_template(bad)
         with self.assertRaises(ValueError):
             ops.parse_templates(["uname -r", "uname -r"])
-        with self.assertRaises(ValueError):
-            ops.parse_templates(["uname -%d" % i for i in range(ops.MAX_TEMPLATES + 1)])
+        # No count limit: a long list is fine (the policy file size bounds it).
+        self.assertEqual(len(ops.parse_templates(["uname -%d" % i for i in range(1000)])), 1000)
 
     def test_matching_is_exact_per_token_and_validates_placeholders(self):
         templates = ops.parse_templates(["uname -r", "systemctl status <unit> --no-pager", "journalctl -b -n <int>",
                                          "lsblk -d <word>"])
-        good = [["uname", "-r"], ["systemctl", "status", "sshd.service", "--no-pager"], ["journalctl", "-b", "-n", "50"],
+        # A unit with or without its type, as systemctl takes it; never something that starts like an option.
+        good = [["uname", "-r"], ["systemctl", "status", "sshd.service", "--no-pager"], ["systemctl", "status", "sshd", "--no-pager"],
+                ["systemctl", "status", "power-profiles-daemon", "--no-pager"], ["journalctl", "-b", "-n", "50"],
                 ["lsblk", "-d", "nvme0n1"]]
-        bad = [["uname"], ["uname", "-a"], ["uname", "-r", "x"], ["UNAME", "-r"], ["systemctl", "status", "sshd", "--no-pager"],
+        bad = [["uname"], ["uname", "-a"], ["uname", "-r", "x"], ["UNAME", "-r"], ["systemctl", "status", "--all", "--no-pager"],
+               ["systemctl", "status", "-sshd", "--no-pager"], ["systemctl", "status", ".hidden", "--no-pager"],
                ["systemctl", "status", "a b.service", "--no-pager"], ["systemctl", "status", "x.service;id", "--no-pager"],
                ["systemctl", "status", "x.service"], ["journalctl", "-b", "-n", "-1"], ["journalctl", "-b", "-n", "999999"],
                ["journalctl", "-b", "-n", "5 "], ["lsblk", "-f"], ["lsblk", "-d", "../etc"], ["lsblk", "-d", ""]]
@@ -177,10 +180,13 @@ class ReviewFindingsTests(unittest.TestCase):
     def test_the_contract_takes_as_many_change_templates_as_the_policy(self):
         from ai_desktop.assistant_contract import validate_access
         access = {"files": [], "systemd": [], "weather": False, "commands": ["uname -r"]}
-        names = ["app-%d restart" % number for number in range(ops.MAX_TEMPLATES + 1)]
-        self.assertEqual(len(validate_access({**access, "change_commands": names[:-1]})["change_commands"]), ops.MAX_TEMPLATES)
-        with self.assertRaises(ValueError):
-            validate_access({**access, "change_commands": names})
+        names = ["app-%d restart" % number for number in range(1000)]
+        self.assertEqual(len(validate_access({**access, "change_commands": names})["change_commands"]), 1000)
+        from ai_desktop.assistant_contract import MAX_COMMAND_BYTES
+        huge = ["app-%06d restart --with-a-long-option-name-to-fill-bytes" % number
+                for number in range(MAX_COMMAND_BYTES // 40)]
+        with self.assertRaises(ValueError):                              # only the byte size of the lists is bounded
+            validate_access({**access, "change_commands": huge})
 
     def test_nested_commands_require_a_literal_complete_operation(self):
         for strict in (False, True):
@@ -216,6 +222,23 @@ class ReviewFindingsTests(unittest.TestCase):
         step = ops.execute(shutil.which("sh"), ["sh"], output_limit=100, timeout=5,
                            command=lambda path, argv: [path, "-c", "exec >&- 2>&-; sleep 0.3"])
         self.assertEqual((step["status"], step["exit"]), ("ok", 0))
+
+    def test_named_paths_are_shown_read_only_over_the_hidden_home_and_never_through_a_link(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as temp:
+            real = os.path.realpath(temp)
+            command = ops.sandbox_command("/usr/bin/uname", ["uname"], binds=(real,))
+            if command is None:
+                skip_or_fail(self, "bubblewrap is not available")
+            index = command.index(real)
+            self.assertEqual(command[index - 1:index + 2], ["--ro-bind", real, real])
+            self.assertGreater(index, command.index("/home"))                       # mounted over the empty tmpfs
+            os.symlink(real, real + "-link")
+            try:
+                self.assertIsNone(ops.sandbox_command("/usr/bin/uname", ["uname"], binds=(real + "-link",)))
+            finally:
+                os.unlink(real + "-link")
+            self.assertIsNone(ops.sandbox_command("/usr/bin/uname", ["uname"], binds=("relative",)))
 
     def test_the_sandbox_hides_homes_and_the_user_runtime_dir_and_sets_no_session_bus_dir(self):
         command = ops.sandbox_command("/usr/bin/uname", ["uname", "-s"])

@@ -243,7 +243,7 @@ class SubscriptionBoundaryTests(unittest.TestCase):
                 self.assertFalse(boundary.privileges_locked(invalid))
 
     def test_local_mode_never_starts_real_claude_even_for_version(self):
-        for step in ("launcher", "agent", "e2-claude-compat", "controller-ask"):
+        for step in ("launcher", "agent", "e2-claude-compat"):
             self.assertNotIn(step, verify.STEPS["local"])
         self.assertIn("host_e2_*checks.py", verify.command_for("e2-host-probe"))
 

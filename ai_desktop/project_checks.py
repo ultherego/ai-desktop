@@ -89,7 +89,7 @@ def run(project, recipe, reader, *, permit=None):
         # This is a local hint for the specific checkout, never an executable fallback.
         if {"ai_desktop/cli.py", "scripts/verify.py", "packaging/arch/PKGBUILD"}.issubset(e.path for e in project.files):
             print("If this is your trusted AI Desktop checkout, run its full CI verification yourself "
-                  "in fish from the repository root (outside the sandbox):")
+                  "from the repository root in your terminal (outside the sandbox):")
             print("  python3 -B scripts/verify.py --mode ci --fail-fast")
         return Result(2)
     except (OSError, ValueError) as exc:

@@ -411,7 +411,9 @@ def _main(argv, *, reader, link):
             args.presence.start()
         question = args.question
         prompt_session = PromptSession()
-        prompt_session.commands = ask_commands.COMMANDS + ask_commands.skill_commands()
+        skill_commands = ask_commands.skill_commands()
+        prompt_session.commands = ask_commands.COMMANDS + skill_commands
+        prompt_session.with_text = frozenset(name for name, _ in skill_commands)
         prompt_session.paste_bytes = MAX_MESSAGE_BYTES
         controls = ask_commands.Controls(session=prompt_session)   # "Other ID" starts the next prompt with /model
         if args.preview and args.session:

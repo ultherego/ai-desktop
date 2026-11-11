@@ -6,7 +6,7 @@ import unicodedata
 from .task_contract import CHECKS, TEST_SUITES
 
 
-MAX_ACCESS_BYTES = 8192
+MAX_ACCESS_BYTES = 320 * 1024     # the policy's file scopes and all its command templates (up to 256 KiB)
 MAX_PLAN_BYTES = 256 * 1024
 MAX_ANSWER_BYTES = 32 * 1024
 MAX_COMMANDS_IN_PLAN = 32
@@ -49,6 +49,9 @@ def _text(value, limit, *, multiline=False):
     return value
 
 
+MAX_COMMAND_BYTES = 256 * 1024     # the policy file's own size limit (permissions.MAX_POLICY_BYTES)
+
+
 def validate_access(value):
     """Copy only configured labels and finite source capabilities, without I/O."""
     if (type(value) is not dict or not {"files", "systemd", "weather"} <= set(value)
@@ -79,18 +82,22 @@ def validate_access(value):
             raise ValueError("assistant-access")
         result["project_test"] = True
     if "commands" in value:
-        if (type(value["commands"]) is not list or not 1 <= len(value["commands"]) <= 128
+        if (type(value["commands"]) is not list or not value["commands"]
                 or any(type(item) is not str for item in value["commands"])
                 or len(set(value["commands"])) != len(value["commands"])):
             raise ValueError("assistant-access")
         result["commands"] = [_text(item, 120) for item in value["commands"]]
     if "change_commands" in value:
         if ("commands" not in result or type(value["change_commands"]) is not list
-                or not 1 <= len(value["change_commands"]) <= 128
+                or not value["change_commands"]
                 or any(type(item) is not str for item in value["change_commands"])
                 or len(set(value["change_commands"])) != len(value["change_commands"])):
             raise ValueError("assistant-access")
         result["change_commands"] = [_text(item, 120) for item in value["change_commands"]]
+    # No count limit: the templates fit the owner's policy file, so the advertised lists are bounded by its size.
+    if sum(len(item.encode("utf-8")) + 1 for key in ("commands", "change_commands")
+           for item in result.get(key, ())) > MAX_COMMAND_BYTES:
+        raise ValueError("assistant-access")
     if "write" in value:
         if type(value["write"]) is not list or not 1 <= len(value["write"]) <= MAX_FILE_SCOPES:
             raise ValueError("assistant-access")
@@ -185,6 +192,16 @@ def parse_plan(raw, access):
         if type(value) is not dict:
             raise ValueError("assistant-plan")
         check = "action"
+        if value.get("action") == "manual":
+            from .manuals import PAGE, SECTION
+            check = "shape"
+            if (not {"action", "page", "section"} <= set(value) <= {"action", "page", "section", "needle"}
+                    or type(value["page"]) is not str or not PAGE.fullmatch(value["page"])
+                    or type(value["section"]) is not str or not SECTION.fullmatch(value["section"])
+                    or "needle" in value and (type(value["needle"]) is not str or not 2 <= len(value["needle"]) <= 64
+                                              or "\n" in value["needle"])):
+                raise ValueError("assistant-plan")
+            return dict(value)
         if value.get("action") == "web":
             check = "shape"
             # "continue": the search result comes back as a discovery step and the model plans local work after it

@@ -1,5 +1,6 @@
-// Optional example for kitty. Pick free shortcuts before adding them to your binds block.
+// Optional example. xdg-terminal-exec (package xdg-terminal-exec) opens your preferred terminal; replace it with
+// your terminal's own command if you like. Pick free shortcuts before adding them to your binds block.
 binds {
-    Mod+Shift+A { spawn "kitty" "-e" "/usr/bin/ai-desktop" "ask"; }
-    Mod+Shift+P { spawn "kitty" "-e" "/usr/bin/ai-desktop" "panel"; }
+    Mod+Shift+A { spawn "xdg-terminal-exec" "/usr/bin/ai-desktop" "ask"; }
+    Mod+Shift+P { spawn "xdg-terminal-exec" "/usr/bin/ai-desktop" "panel"; }
 }

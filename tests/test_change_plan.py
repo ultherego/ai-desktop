@@ -427,11 +427,12 @@ class DefaultExampleTests(ChangeBase):
             with self.subTest(line=line), self.assertRaises(ValueError):
                 permissions.load_policy()
 
-    def test_more_templates_than_the_ceiling_are_refused(self):
-        self.commands = json.dumps(["uname -s"] + ["ps -p %d" % i for i in range(128)])
+    def test_many_templates_are_accepted_and_reach_the_access_description(self):
+        # No count limit: only the policy file size bounds the templates.
+        self.commands = json.dumps(["uname -s"] + ["ps -p %d" % i for i in range(400)])
         self.write_policy()
-        with self.assertRaises(ValueError):
-            permissions.load_policy()
+        policy = permissions.load_policy()
+        self.assertEqual(len(policy.access()["commands"]), 401)
 
 
 class PolicyProblemTests(ChangeBase):

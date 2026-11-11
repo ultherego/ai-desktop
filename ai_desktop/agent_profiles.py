@@ -31,20 +31,38 @@ ACCESSES = ("read-only", "changes")
 SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 _PROFILE_KEYS = frozenset(("provider", "model", "effort", "instructions", "access", "skills"))
 PRESET_SKILLS = MappingProxyType({
-    "default": ("concise-assistant", "cachyos-diagnostics", "arch-systemd", "arch-pacman", "cachyos-packages",
-                "arch-btrfs", "cachyos-kernel", "cachyos-boot-snapshots", "cachyos-hardware", "arch-amdgpu",
-                "arch-audio", "arch-bluetooth", "arch-network", "arch-zram", "arch-docker", "cachyos-gaming",
-                "cachyos-scheduler", "arch-firewall", "arch-ssh", "arch-flatpak", "arch-storage-health", "arch-power", "arch-dns-time", "arch-apparmor", "desktop-documentation", "code-development", "code-review", "project-analysis"),
-    "diagnostic": (
-        "cachyos-diagnostics", "arch-systemd", "arch-pacman", "cachyos-packages", "arch-btrfs",
-        "cachyos-kernel", "cachyos-boot-snapshots", "cachyos-hardware", "arch-amdgpu", "arch-audio",
-        "arch-bluetooth", "arch-network", "arch-zram", "arch-docker", "cachyos-gaming",
-        "cachyos-scheduler", "arch-firewall", "arch-ssh", "arch-flatpak", "arch-storage-health", "arch-power", "arch-dns-time", "arch-apparmor", "desktop-documentation",
-    ),
+    "default": ("concise-assistant", "arch", "cachyos", "desktop", "code-development", "code-review",
+                "project-analysis"),
+    "diagnostic": ("arch", "cachyos", "desktop"),
     "programmer": ("code-development",),
     "reviewer": ("code-review",),
     "analyst": ("project-analysis",),
 })
+# Candidate 164 merged the per-topic system Skills into two area Skills with topic guides (as Omarchy does). A saved
+# profile that still names an old one gets the area Skill instead, so it keeps working after the update.
+_AREA_TOPICS = {
+    "arch": ("amdgpu", "apparmor", "audio", "bluetooth", "btrfs", "dns-time", "docker", "firewall", "flatpak",
+             "network", "pacman", "power", "ssh", "storage-health", "systemd", "zram"),
+    "cachyos": ("boot-snapshots", "diagnostics", "gaming", "hardware", "kernel", "packages", "scheduler"),
+}
+LEGACY_SKILLS = MappingProxyType({**{area + "-" + topic: area for area, topics in _AREA_TOPICS.items() for topic in topics},
+                                  "desktop-documentation": "desktop"})
+
+
+def renamed_skills(names):
+    """Old packaged per-topic names replaced by their area Skill, in order and without repeats."""
+    result = []
+    try:
+        from . import skills
+        own = set(skills.user_names()) if any(name in LEGACY_SKILLS for name in names) else set()
+    except (OSError, ValueError):
+        own = set()
+    for name in names:
+        # An own Skill that happens to carry a former packaged name (made before that name was refused) stays itself.
+        name = name if name in own else LEGACY_SKILLS.get(name, name)
+        if name not in result:
+            result.append(name)
+    return tuple(result)
 
 
 class ProfileError(ValueError):
@@ -100,7 +118,7 @@ class Profile:
 def _profile(value):
     if type(value) is not dict or set(value) != _PROFILE_KEYS or type(value["skills"]) is not list:
         raise ProfileError("profile")
-    return Profile(**{**value, "skills": tuple(value["skills"])})
+    return Profile(**{**value, "skills": renamed_skills(value["skills"])})
 
 
 @dataclass(frozen=True)
@@ -524,6 +542,10 @@ def catalog_for(selected):
                 raise ProfileError("skill") from None
             lines.append("- " + name + ": " + snapshot["description"])
             lines.append("  bundle-sha256: " + snapshot["sha256"])
+            for guide, item in snapshot.get("guides", {}).items():
+                # An environment's guide (e.g. a compositor) is offered only where that environment is installed.
+                if skills.guide_installed(item):
+                    lines.append("  - " + name + "/" + guide + ": " + item["description"])
             for reference, item in snapshot["references"].items():
                 lines.append("  - " + name + "/" + reference + ": " + item["description"]
                              + " (" + item["version"] + "; " + ", ".join(item["tools"]) + ")")

@@ -1,20 +1,20 @@
 # Terminal launchers, Niri bindings and the DMS bar
 
-The Arch package installs **AI Desktop** and **AI Desktop Panel** as desktop entries. Find them in your application launcher. Both request a terminal and start the same installed `ai-desktop ask` or `ai-desktop panel` you use in fish. DMS uses its configured terminal to open these entries.
+The Arch package installs **AI Desktop** and **AI Desktop Panel** as desktop entries. Find them in your application launcher. Both request a terminal and start the same installed `ai-desktop ask` or `ai-desktop panel` you use in your terminal. Your desktop opens them in its configured terminal (any terminal works: Konsole, GNOME Terminal, Terminator and others).
 
-## Runtime transition
+## Clients
 
 The launchers and widget use the selected service and independently installed client; they do not require both Claude and Codex. System packages are selected directly; HOME/native/npm sources use the same explicitly registered runtime copy as the terminal. See [client installation and migration](AGENT_INSTALL.md). The widget still reads local account/usage metadata; selecting an approved executable does not reuse your ordinary CLI account or enlarge the widget's authority. Explicit native account/quota operations use the same bound-client compatibility checks as the terminal. DMS is optional for terminal conversations and client selection.
 
-## Niri with kitty
+## Keyboard shortcut in Niri
 
-The package installs an example at `/usr/share/ai-desktop/niri-bindings.kdl`. Pick two free shortcuts and add the corresponding lines inside your existing Niri `binds` block. The example uses `Mod+Shift+A` for chat and `Mod+Shift+P` for the panel. Validate your edited configuration with `niri validate`. Installing AI Desktop does not edit the compositor configuration.
+The package installs an example at `/usr/share/ai-desktop/niri-bindings.kdl`. It opens your preferred terminal through `xdg-terminal-exec` (package `xdg-terminal-exec`); with another compositor or terminal use its own command, for example `konsole -e ai-desktop ask`. Pick two free shortcuts and add the corresponding lines inside your existing Niri `binds` block. The example uses `Mod+Shift+A` for chat and `Mod+Shift+P` for the panel. Validate your edited configuration with `niri validate`. Installing AI Desktop does not edit the compositor configuration.
 
 ## Optional DMS bar widget
 
 The widget depends only on DMS. The package ships it in `/usr/share/ai-desktop/dms/AiDesktop` and never changes your DMS configuration by itself. Link it into the directory DMS scans with:
 
-```fish
+```sh
 ai-desktop widget install
 ```
 
@@ -22,9 +22,7 @@ It checks that DMS is installed (`/usr/bin/dms`); without DMS it changes nothing
 
 Enable **AI Desktop** under **Settings → Plugins**, then add the widget in the DankBar editor. Restart the shell with `dms restart` if it has already cached the plugin directory. The panel opens when you click the bar widget. **Open chat** and **Open panel** use the installed desktop entries.
 
-After a package update, `dms ipc call plugins reload aiDesktop` requests a widget reload. DMS can exit 0 even when its reply says `PLUGIN_RELOAD_FAILED`; success requires the exact reply `PLUGIN_RELOAD_SUCCESS: aiDesktop`, followed by `dms ipc call plugins status aiDesktop` returning `loaded`. A screenshot of a running card does not override an earlier failed reload. For diagnosis, `dms ipc call plugin-scan status aiDesktop` reads the plugin state/type/load error without scanning or restarting the shell. If version `0.1.0-73` reports `QuotaCard is not a type`, check that both `Widget.qml` and `QuotaCard.qml` are readable in the DMS plugin directory. With the packaged files in place, `dms restart` starts a fresh QML engine. Version `0.1.0-74` imports the card explicitly and uses fresh component and script URLs so a running shell can load the new layout.
-
-On DMS 2.0 and 2.1, use package `0.1.0-75` or later. If a previous build reports an unknown button property named `variant`, install the updated package and reload the widget.
+After a package update, `dms ipc call plugins reload aiDesktop` requests a widget reload. DMS can exit 0 even when its reply says `PLUGIN_RELOAD_FAILED`; success requires the exact reply `PLUGIN_RELOAD_SUCCESS: aiDesktop`, followed by `dms ipc call plugins status aiDesktop` returning `loaded`. A screenshot of a running card does not override an earlier failed reload. For diagnosis, `dms ipc call plugin-scan status aiDesktop` reads the plugin state/type/load error without scanning or restarting the shell. If the widget reports `QuotaCard is not a type` or an unknown property, check that both `Widget.qml` and `QuotaCard.qml` are readable in the DMS plugin directory, then run `dms restart` to start a fresh QML engine.
 
 Click the horizontal provider indicator to open **Usage**. If a current five-hour reading exists, the bar shows its percentage. The popout groups each account into a card. Its gauges show independent five-hour and seven-day usage, local reset times, remaining time and the observation timestamp. Live gauges turn yellow at 75% and red at 90%. Expired readings are marked as historical and missing readings have no fill. Click the body of a Claude or Codex usage card to select the service for new conversations. Keyboard users can focus the card and press Enter or Space. Connecting, reconnecting and refreshing limits stay inside the Codex card and act on that account; the card does not redirect to browser usage. On a shorter screen, scroll the list to reach the remaining accounts. The chat and panel launchers stay in the footer.
 

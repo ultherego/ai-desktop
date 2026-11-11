@@ -10,10 +10,8 @@ from unittest.mock import patch
 from ai_desktop import agent_profiles as profiles, analysis_sandbox, conversation_sessions, execution, skills
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGED = {"arch-amdgpu", "arch-audio", "arch-bluetooth", "arch-btrfs", "arch-docker", "arch-firewall", "arch-ssh", "arch-flatpak", "arch-storage-health", "arch-power", "arch-dns-time", "arch-apparmor", "arch-network", "arch-pacman", "arch-systemd", "arch-zram",
-                   "cachyos-boot-snapshots", "cachyos-diagnostics", "cachyos-gaming", "cachyos-hardware", "cachyos-kernel",
-                   "cachyos-packages", "cachyos-scheduler", "code-development", "code-review", "concise-assistant",
-                   "desktop-documentation", "project-analysis"}
+PACKAGED = {"arch", "cachyos", "code-development", "code-review", "concise-assistant", "desktop",
+            "project-analysis"}
 
 
 class RepositoryContentTests(unittest.TestCase):
@@ -23,10 +21,11 @@ class RepositoryContentTests(unittest.TestCase):
 
     def test_cachyos_skills_stay_about_cachyos_and_name_no_desktop_or_person(self):
         desktops = re.compile(r"\b(niri|hyprland|sway|plasma|kde|gnome|xfce|quickshell|dms)\b", re.I)
-        for path in (*(ROOT / "skills").glob("cachyos-*/SKILL.md"), *(ROOT / "skills").glob("arch-*/SKILL.md")):
+        for path in (*(ROOT / "skills").glob("cachyos/SKILL.md"), *(ROOT / "skills").glob("cachyos/guides/*.md"),
+                     *(ROOT / "skills").glob("arch/SKILL.md"), *(ROOT / "skills").glob("arch/guides/*.md")):
             text = path.read_text(encoding="utf-8")
             self.assertIsNone(desktops.search(text), path)
-        for path in (ROOT / "skills").glob("*/SKILL.md"):
+        for path in (ROOT / "skills").rglob("*.md"):
             text = path.read_text(encoding="utf-8")
             self.assertIsNone(re.search(r"/home/[a-z]|@[a-z0-9][a-z0-9-]*\.[a-z]{2,}", text), path)
 
@@ -103,13 +102,36 @@ class UserSkillTests(unittest.TestCase):
                 skills.create(name)
         self.assertFalse(self.root.exists())
 
-    def test_general_skills_stay_available_and_a_user_copy_replaces_them(self):
+    def test_a_packaged_skill_always_wins_and_a_user_skill_of_that_name_is_reported(self):
+        # Each update replaces the program's Skills; the owner's own must use other names.
         self.assertEqual(skills.locate("code-review"), skills.ROOT)
         target = self.root / "code-review/SKILL.md"
         target.parent.mkdir(parents=True)
         target.write_text("---\nname: code-review\ndescription: moj\n---\n\ntresc wlasna\n")
-        self.assertEqual(skills.locate("code-review"), self.root)
-        self.assertIn("tresc wlasna", profiles.instructions_for(profiles.Profile(skills=("code-review",))))
+        self.assertEqual(skills.locate("code-review"), skills.ROOT)
+        self.assertNotIn("tresc wlasna", profiles.instructions_for(profiles.Profile(skills=("code-review",))))
+        self.assertEqual(skills.shadowed(), ("code-review",))
+        self.assertTrue(target.exists())                                    # never removed or rewritten
+        with self.assertRaises(ValueError) as caught:
+            skills.create("arch")
+        self.assertIn("comes with AI Desktop", str(caught.exception))
+        own = self.root / "moj-pulpit/SKILL.md"
+        own.parent.mkdir(parents=True)
+        own.write_text("---\nname: moj-pulpit\ndescription: moj\n---\n\ntresc wlasna\n")
+        self.assertEqual(skills.locate("moj-pulpit"), self.root)
+
+    def test_a_former_packaged_name_is_refused_and_an_own_skill_of_that_name_is_not_renamed(self):
+        # Installer audit: profiles map arch-docker to arch, so an own Skill named arch-docker would silently be lost.
+        with self.assertRaises(ValueError):
+            skills.create("arch-docker")
+        with self.assertRaises(ValueError):
+            skills.create("desktop-documentation")
+        self.assertEqual(profiles.renamed_skills(("arch-docker", "code-review")), ("arch", "code-review"))
+        own = self.root / "arch-docker/SKILL.md"
+        own.parent.mkdir(parents=True)
+        own.write_text("---\nname: arch-docker\ndescription: moj\n---\n\ntresc\n")
+        self.assertEqual(skills.user_names(), ("arch-docker",))
+        self.assertEqual(profiles.renamed_skills(("arch-docker", "cachyos-kernel")), ("arch-docker", "cachyos"))
 
     def test_a_symlink_or_shared_writable_user_skill_is_refused(self):
         outside = self.root.parent / "outside.md"
