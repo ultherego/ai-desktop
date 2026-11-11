@@ -36,6 +36,7 @@ from .project_task_consent import ProjectTaskConsent, TASK_BYTES, TASK_REQUESTS,
 from .question_input import PromptSession, paste_token
 from . import task_workspace, workspace_trash
 from .terminal_consent import confirm
+from .terminal_style import size_label
 
 Binding = collections.namedtuple("Binding", "material_id sha256")
 ROOT_HINTS = {
@@ -540,7 +541,8 @@ class ProjectSession(Session):
             except (OSError, ValueError):
                 raise EditRefused("The project policy changed. Start a new project session.") from None
             plan, existing, created = build_edit_plan(self.project, snapshot, decision)
-            versions = {}
+            versions, excerpts = {}, {}
+            limit = snapshot.policy.limits().read_file_size
             for path, name in zip(decision["files"], existing):
                 try:
                     _, raw = permissions.read_bounded(snapshot.policy, self.project.root + "/" + path,
@@ -551,6 +553,16 @@ class ProjectSession(Session):
                 if loop.fully_read(path) and version != loop.delivered_versions.get(path):
                     raise EditRefused("File %s changed since the analysis. Ask again to work on the current version." % _safe(path, 80))
                 versions[name] = version
+                if len(raw) > limit:
+                    # S3: too large to send whole; only the lines Claude already received (this version) go out.
+                    spans = loop.delivered.get(path) if loop.delivered_versions.get(path) == version else None
+                    if not spans:
+                        raise EditRefused("File %s (%s) is larger than files.read_file_size (%s), so it is not sent whole. "
+                                          "Ask Claude to read the part to change first; the edit then sends only those "
+                                          "lines." % (_safe(path, 80), size_label(len(raw)), size_label(limit)))
+                    excerpts[self.project.root + "/" + path] = {"version": version, "size": len(raw), "fragments": [
+                        {"first": first, "last": last, "start": start, "end": end,
+                         "text": raw[start:end].decode("utf-8")} for first, last, start, end in spans]}
             blocker = self._edit_blocker(snapshot, plan)
             if blocker:
                 raise EditRefused(blocker)
@@ -562,7 +574,8 @@ class ProjectSession(Session):
             return self._remember_edit(text, "proposed change rejected by the app")
         # Content Claude has not seen yet would leave the computer in the edit request: that needs its own yes.
         # A new file, or files Claude already read whole in this task, add nothing new: no second question.
-        unsent = [path for path in decision["files"] if not loop.fully_read(path)]
+        unsent = [path for path in decision["files"] if not loop.fully_read(path)
+                  and self.project.root + "/" + path not in excerpts]       # excerpts were already delivered
         summary = " · ".join(part for part in (
             "new: " + ", ".join(_safe(p, 80) for p in decision["create"]) if created else "",
             "to change: " + ", ".join(_safe(p, 80) for p in decision["files"]) if existing else "",
@@ -618,7 +631,8 @@ class ProjectSession(Session):
             if untested:
                 print("Warning: " + untested)
         try:
-            code, fact = self._run_edit(request_text, snapshot, plan, versions, packet, test_consent=test_consent)
+            code, fact = self._run_edit(request_text, snapshot, plan, versions, packet, test_consent=test_consent,
+                                        excerpts=excerpts or None)
         finally:
             if test_consent is not None:
                 test_consent.close()
@@ -745,7 +759,7 @@ class ProjectSession(Session):
         print("Restore: " + shlex.join(["ai-desktop", "task", "restore", "--workspace", workspace, "--plan", plan]))
         print()
 
-    def _run_edit(self, text, snapshot, plan, versions, packet, *, test_consent=None):
+    def _run_edit(self, text, snapshot, plan, versions, packet, *, test_consent=None, excerpts=None):
         args = ask_cli.build_parser().parse_args(["--v"] if self.args.details else [])
         args.format = self.args.format
         permit = prepared = None
@@ -763,11 +777,14 @@ class ProjectSession(Session):
             permit = QuestionConsent(text, snapshot, plan_ready=True)
             permit.approve()
             prepared = ask_edit.prepare(plan, snapshot, args, self.reader, question_consent=permit,
-                                        expected_versions=versions, project_context=envelope["project"], test_root=self.project.root)
+                                        expected_versions=versions, project_context=envelope["project"], test_root=self.project.root,
+                                        excerpts=excerpts)
             self.pacer.record()
             sent = prepared.source["files"]
-            transfer = {"files": [item["path"] for item in sent if item["content"] is not None],
-                        "bytes": sum(len(item["content"].encode("utf-8")) for item in sent if item["content"] is not None),
+            transfer = {"files": [item["path"] for item in sent if item.get("content") is not None or "excerpts" in item],
+                        "bytes": sum(len(item["content"].encode("utf-8")) if item.get("content") is not None else
+                                     sum(len(part["text"].encode("utf-8")) for part in item.get("excerpts", ()))
+                                     for item in sent),
                         "state": "not known whether it arrived"}      # recorded before the hand-off, like the read steps
             self.edit_transfers.append(transfer)
             def check_edit_scope():
@@ -804,7 +821,8 @@ class ProjectSession(Session):
             print("Another terminal is saving in this directory right now. Nothing was written.")
             return 2, "change NOT saved: another terminal was saving in this directory; next: ask again when it is done"
         except (ask_edit.EditDenied, ExecutionDenied) as exc:
-            print("The change was not prepared (the consent, policy or file state changed). Nothing was saved.")
+            print("Nothing was saved. " + exc.hint if getattr(exc, "hint", None) else
+                  "The change was not prepared (the consent, policy or file state changed). Nothing was saved.")
         except AnalysisDenied as exc:
             print(failure_hint(getattr(exc, "reason", None), HINTS.get(getattr(exc, "reason", None), "Could not get an answer. Check ai-desktop status."),
                                **({"diagnostic": exc.diagnostic} if exc.diagnostic is not None else {})))

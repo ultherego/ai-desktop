@@ -263,6 +263,8 @@ class OutcomeReasonTests(Fixture):
         outcome = {}
         self.assertEqual(self.finish(outcome), 0)
         self.assertEqual(outcome["reason"], "saved")
+        # The exact saved task, so a wide write scope's long history needs no list to pick from.
+        self.assertRegex(self.output.getvalue(), r"Undo: ai-desktop task rollback --workspace \S+ --plan [0-9a-f]{12}\n")
         outcome = {}
         self.assertEqual(self.finish(outcome, write=False), 2)
         self.assertEqual(outcome["reason"], "write-declined")

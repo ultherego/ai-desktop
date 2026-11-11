@@ -248,7 +248,9 @@ def finish_task(before, source, response, args, reader, *, write_guard=None, con
         print("The save was interrupted. Check ai-desktop task status and task rollback for this directory.")
         raise
     print("TASK: PASS test=" + args.test if args.details else "Changes saved.")
-    print("Undo: " + shlex.join(["ai-desktop", "task", "rollback", "--workspace", args.workspace]))
+    # The exact saved task: with a wide write scope (e.g. ~/**) the workspace history lists many other changes.
+    print("Undo: " + shlex.join(["ai-desktop", "task", "rollback", "--workspace", args.workspace,
+                                 "--plan", plan.sha256[:PLAN_PREFIX]]))
     outcome["reason"] = "saved"
     return 0
 
@@ -329,14 +331,25 @@ def restore_deleted(args, reader):
     return 0 if ok else 2
 
 
+PLAN_PREFIX = 12          # hex digits that name one saved task in the undo hint; a longer one or the whole ID also works
+
+
+def _plan_matches(record, wanted):
+    """A saved task named by its whole ID or by a unique prefix of at least PLAN_PREFIX hex digits."""
+    return (record["plan"] == wanted or len(wanted) >= PLAN_PREFIX
+            and all(char in "0123456789abcdef" for char in wanted) and record["plan"].startswith(wanted))
+
+
 def rollback_task(args, records, reader):
     detached = [record for record in records if record["status"] == "detached"]
     if detached:
         print(workspace.DETACHED_HISTORY_HINT)
-        if args.plan and any(record["plan"] == args.plan for record in detached):
+        if args.plan and any(_plan_matches(record, args.plan) for record in detached):
             return 2
     candidates = [record for record in records if record["status"] != "detached" and
-                  (record["plan"] == args.plan if args.plan else record["status"] != "rolled-back")]
+                  (_plan_matches(record, args.plan) if args.plan else record["status"] != "rolled-back")]
+    if args.plan and len(candidates) > 1:
+        raise ValueError("ambiguous plan")             # a prefix naming two tasks never picks one
     if not candidates:
         if args.plan:
             raise ValueError("unknown plan")
@@ -513,6 +526,7 @@ _REFUSALS = {
                        "so it is not used. It must belong to you with permissions 700.",
     "plan": "Unknown task. Choose one from ai-desktop task status.",
     "unknown plan": "Unknown task. Choose one from ai-desktop task status.",
+    "ambiguous plan": "That ID names more than one task. Give more of it, or choose from the list without --plan.",
     "expired consent": "The approval expired before the save. Nothing was saved. Run the task again.",
     "consent": "The save was not approved. Nothing was saved.",
     "text": "A file is not plain UTF-8 text, or it mixes line endings, so it cannot be changed safely.",

@@ -101,6 +101,18 @@ class ScanTests(Base):
         self.assertEqual(project.search_text("LEAK").hits, ())
         self.assertEqual(project.search_text("token").hits, ())
 
+    def test_a_file_limit_keeps_the_files_nearest_the_root(self):
+        for i in range(40):
+            self.put("deep/tree/m%02d.txt" % i)
+        self.put("settings.conf")
+        self.put("zz-notes/readme.txt")
+        with patch.object(ps, "MAX_FILES", 10):
+            project = self.project().scan()
+        paths = [entry.path for entry in project.files]
+        self.assertEqual(project.reason, "files")
+        self.assertIn("settings.conf", paths)                     # the top level comes before any subdirectory
+        self.assertIn("zz-notes/readme.txt", paths)               # then each first level, before the deep tree
+
     def test_limits_end_the_scan_incomplete_with_a_reason(self):
         for i in range(60):
             self.put("f%03d.txt" % i)

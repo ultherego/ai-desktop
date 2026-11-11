@@ -23,7 +23,7 @@ from ai_desktop.terminal_consent import PROMPTS
 from ai_desktop.skills import inspect_skill
 import host_e2_activated_worker as offline
 
-PACKAGED_SKILLS = ("arch-amdgpu", "arch-audio", "arch-bluetooth", "arch-btrfs", "arch-docker", "arch-network", "arch-pacman", "arch-systemd", "arch-zram",
+PACKAGED_SKILLS = ("arch-amdgpu", "arch-audio", "arch-bluetooth", "arch-btrfs", "arch-docker", "arch-firewall", "arch-ssh", "arch-flatpak", "arch-storage-health", "arch-power", "arch-dns-time", "arch-apparmor", "arch-network", "arch-pacman", "arch-systemd", "arch-zram",
                    "cachyos-boot-snapshots", "cachyos-diagnostics", "cachyos-gaming", "cachyos-hardware", "cachyos-kernel",
                    "cachyos-packages", "cachyos-scheduler", "code-development", "code-review", "concise-assistant",
                    "desktop-documentation", "project-analysis")
@@ -150,7 +150,7 @@ def preflight():
     if (uid <= 0 or uid != os.getuid() or not os.isatty(0) or not os.isatty(1)
             or Path("/proc/1/comm").read_text().strip() != "systemd"):
         raise ValueError("host")
-    if offline._command(["/usr/bin/pacman", "-Q", "ai-desktop"]) != "ai-desktop 0.1.0-160":
+    if offline._command(["/usr/bin/pacman", "-Q", "ai-desktop"]) != "ai-desktop 0.1.0-162":
         raise ValueError("package")
     installed_matches()
     units = ["ai-desktop-analysis@" + str(uid) + suffix for suffix in (".socket", ".service")]

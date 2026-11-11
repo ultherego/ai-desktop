@@ -15,7 +15,7 @@ COMMANDS = (
     ("/help", "list commands"),
     ("/model", "change the model"),
     ("/effort", "change the reasoning level"),
-    ("/skills", "turn Skills on or off in this conversation"),
+    ("/skills", "turn Skills on or off for this agent"),
     ("/agent", "change the role (or select a provider by name)"),
     ("/provider", "switch the recipient of this conversation"),
     ("/settings", "show and change the settings"),
@@ -28,6 +28,19 @@ _ALIASES = {"/pomoc": "/help", "/?": "/help", "/sila": "/effort", "/ustawienia":
             "/koniec": "/exit", "/quit": "/exit", "/q": "/exit"}
 _SHAPE = re.compile(r"/[^/\s]*\Z")           # `/etc/fstab what is it?` is a question, `/model` is a command
 EXIT = "exit"
+
+
+class AskWith(str):
+    """`/SKILL question`: the question to send, with that Skill loaded before the first plan (as in Claude Code)."""
+
+
+def skill_commands():
+    """("/NAME", description) of every installed Skill, for the `/` list after the built-in commands."""
+    from . import skills
+    try:
+        return tuple(("/" + name, "use the %s Skill for the question that follows" % name) for name in skills.names())
+    except (OSError, ValueError):
+        return ()
 PAGE = 8
 _NEXT, _PREVIOUS, _APPLY = "Next page", "Previous page", "Apply"
 _AGAIN = "The next question will ask for consent again because the settings changed. The conversation continues."
@@ -185,8 +198,39 @@ class Controls:
         elif name == "/skills":
             self._skills(value, conversation)
         else:
+            asked = self._use_skill(name[1:], value, consent)
+            if asked is not None:
+                return asked
             print("Unknown command %s. List: /help. To send this as a question, start with a space." % word)
         return True
+
+    def _use_skill(self, name, question, consent):
+        """An installed Skill typed as a command: on for this conversation if it was not, loaded with the question."""
+        from . import skills
+        try:
+            if name not in skills.names():
+                return None
+            agent, profile, chosen = self._assigned()
+        except (profiles.ProfileError, OSError, ValueError, KeyError):
+            return None
+        if name not in chosen:
+            selected = dict(execution.current() or profiles.resolve(profile=agent))
+            try:
+                selected["instructions"] = profiles.catalog_for(replace(profile, skills=tuple(chosen) + (name,)))
+                execution.select(selected)
+            except (profiles.ProfileError, OSError, ValueError):
+                print("The %s Skill could not be loaded, or with the others it is over %d KiB." % (
+                    name, profiles.MAX_EXECUTION_INSTRUCTIONS // 1024))
+                return True
+            self.skills = tuple(chosen) + (name,)
+            print("Skill %s is on for this conversation (permanently: /skills)." % name)
+        if consent is not None:
+            consent.request_skill(name)
+        if not question:
+            print("Type the question for the %s Skill after its name, e.g. /%s what is wrong?" % (name, name))
+            return True
+        print("Skill %s is loaded for this question." % name)
+        return AskWith(question)
 
     def during_turn(self, line, conversation=None):
         """A `/` command typed while the model works. Read-only ones are shown at once; a menu opens at once and only
@@ -479,8 +523,13 @@ class Controls:
         except (OSError, ValueError, KeyError):
             print("Could not read the agent settings. Check ai-desktop agents list.")
             return
+        always = profiles.with_presets(name, profiles.Profile()).skills       # built-in Skills of this agent
         chosen = list(profile.skills if self.skills is None else self.skills)
+        chosen = list(always) + [item for item in chosen if item not in always]
         if value:
+            if value in always:
+                print("%s is a built-in Skill of the %s agent and is always on." % (value, name))
+                return
             if value not in available:
                 print("There is no Skill %s. Available: %s" % (value, ", ".join(available)))
                 return
@@ -491,7 +540,10 @@ class Controls:
                 print("Skills: " + (", ".join(chosen) or "none") + " · available: " + ", ".join(available))
                 print("Switch one: /skills NAME")
                 return
-            chosen = result
+            kept = [item for item in always if item not in result]
+            if kept:
+                print("Built-in Skills stay on: " + ", ".join(kept))
+            chosen = list(always) + [item for item in result if item not in always]
         self._set_skills(name, profile, chosen, conversation)
 
     def _set_skills(self, name, profile, chosen, conversation):
@@ -504,7 +556,13 @@ class Controls:
                   % (profiles.MAX_EXECUTION_INSTRUCTIONS // 1024))
             return
         self.skills = tuple(chosen)
-        print("Skills: " + (", ".join(chosen) or "none") + " (this conversation; permanently: ai-desktop agents).")
+        try:
+            # The choice is the profile's own, as the owner expects from Apply; the conversation uses it at once.
+            profiles.Store().mutate(lambda config: config.put(name, replace(config.profiles[name], skills=tuple(chosen))))
+            where = "saved in the %s agent" % name
+        except (profiles.ProfileError, OSError, ValueError, KeyError, AttributeError):
+            where = "this conversation only: the agent settings could not be saved (ai-desktop agents)"
+        print("Skills: " + (", ".join(chosen) or "none") + " (" + where + ").")
         self._rebind(conversation)
 
     @staticmethod

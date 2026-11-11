@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.0-162: Skills always on, `/SKILL question`
+
+- The Skills that come with a built-in agent are always on, also new ones from an update; `/skills` now saves your choice in the agent instead of only this conversation.
+- `/arch-firewall what does it block?` sends the question with that Skill already loaded, as in Claude Code. The `/` list shows the installed Skills.
+- `ai-desktop project` on a very large directory indexes the files nearest its top first, so a file at the top is not missed when the file limit is reached.
+
+## 0.1.0-161: exact undo, large files in `project`
+
+- After a save the undo line names that change (`ai-desktop task rollback --workspace … --plan …`), so you no longer pick it from a list of every change in the directory.
+- Seven new Skills from the official Arch Wiki and manual pages: firewall (ufw, nftables), SSH, Flatpak, disk health and firmware (S.M.A.R.T., TRIM, fwupd), power profiles and CPU frequency, DNS and time (systemd-resolved, timesyncd) and AppArmor. New profiles get them automatically; in an existing profile turn them on with `/skills`.
+- `ai-desktop project` can edit a file larger than `read_file_size` too: only the lines Claude already read are sent, and the change is applied to the whole file locally.
+
 ## 0.1.0-160: large files and many files in an ordinary conversation
 
 - Claude can now find which files of a directory contain a phrase (for example a setting among 20,000 files), not only match file names. It gets the names of the matching files and then reads the relevant lines as before; the contents of the other files never leave the computer.

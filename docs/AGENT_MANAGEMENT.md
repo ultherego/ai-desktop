@@ -54,7 +54,7 @@ New configurations expose the default, diagnostic, programmer and reviewer catal
 
 | Profile | Skill | Access |
 |---|---|---|
-| `default` | 21 general Arch/CachyOS, diagnostics and development Skills, including `concise-assistant` | `changes` |
+| `default` | 28 general Arch/CachyOS, diagnostics and development Skills, including `concise-assistant` | `changes` |
 | `diagnostic` | CachyOS diagnostic, desktop documentation and Arch procedures (17 for an empty selection) | `read-only` |
 | `programmer` | `code-development` | `changes` |
 | `reviewer` | `code-review` | `read-only` |
