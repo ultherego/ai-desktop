@@ -8,7 +8,7 @@ Supported system packages are used directly. Clients installed in your home dire
 
 ## Installation from the signed repository (recommended)
 
-The package is published in a signed pacman repository on GitHub Releases; the steps are in the [README](../README.md#install). pacman checks the signature of the package and of the repository database against the AI Desktop key you trusted with `pacman-key --lsign-key`; a package or database signed by any other key is refused. `sudo pacman -Syu` then updates AI Desktop with the rest of the system. The policy template and the settings reference are installed in `/usr/share/doc/ai-desktop/`.
+The package is published in a signed pacman repository on GitHub Releases; the steps are in the [README](../README.md#install). The repository section sets `SigLevel = Required DatabaseRequired TrustedOnly`, so pacman requires the signature of the package and of the repository database and accepts only the AI Desktop key you trusted with `pacman-key --lsign-key`; a missing signature or one by any other key is refused. (The common global default `DatabaseOptional` would accept a database without a signature, which is why the section sets its own level.) If you added the repository without that line, add it under `[ai-desktop]`. `sudo pacman -Syu` then updates AI Desktop with the rest of the system. The policy template and the settings reference are installed in `/usr/share/doc/ai-desktop/`.
 
 ## Building from source (CachyOS / Arch x86_64)
 

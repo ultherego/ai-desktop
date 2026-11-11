@@ -75,6 +75,12 @@ class SigningKeyTests(unittest.TestCase):
         self.assertEqual(uids, ["AI Desktop package signing"])                  # no e-mail address in the key
         self.assertIn("pacman-key --lsign-key " + fingerprints[0], (ROOT / "README.md").read_text())
 
+    def test_the_readme_repository_section_requires_a_signed_database(self):
+        # External audit before 1.0: without its own SigLevel the section inherits DatabaseOptional, which accepts a
+        # database with no signature at all although the release signs it.
+        readme = (ROOT / "README.md").read_text()
+        self.assertIn("[ai-desktop]\\nSigLevel = Required DatabaseRequired TrustedOnly\\nServer = ", readme)
+
 
 class WorkflowTests(unittest.TestCase):
     def setUp(self):

@@ -26,6 +26,8 @@ Evidence for each candidate (CachyOS checks, GitHub jobs, what was not exercised
 - [ ] The package for distribution does not contain `claude-code` or `codex`.
 - [ ] Install, update and `pacman -R` done according to [INSTALLATION.md](INSTALLATION.md); the list of remaining data is correct.
 - [ ] `ai-desktop doctor`, `ai-desktop status` and one real question through `ai-desktop ask` work.
+- [ ] A fresh installation following README only (signing key, repository section with `SigLevel = Required DatabaseRequired TrustedOnly`, `pacman -Syu ai-desktop`, first start) works on a system without earlier AI Desktop configuration.
+- [ ] The `v1.0.0` tag ran `.github/workflows/release.yml`: the package, `ai-desktop.db` and `ai-desktop.files` on the release `repo` verify against `packaging/signing-key.asc`, and pacman refuses the database without its signature.
 
 ## Client and task-approval gates
 
