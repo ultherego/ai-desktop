@@ -20,6 +20,7 @@ PAGE_STATUSES = ("ok", "declined", "refused", "failed")
 MAX_DIRECTORIES = 4            # directories in one list step
 CEILING_ENTRIES = 512          # entries of one list/find step
 CEILING_TOTAL_ENTRIES = 1024   # entries of the whole document
+MAX_DISCOVERY_ROUNDS = 32      # = permissions.MAX_DISCOVERY_ROUNDS (an internal bound, not a setting)
 CEILING_DIAGNOSTIC_BYTES = 256 * 1024
 CEILING_SKILL_BYTES = 192 * 1024
 CEILING_BYTES = CEILING_DIAGNOSTIC_BYTES + CEILING_SKILL_BYTES
@@ -256,7 +257,7 @@ def validate_discovery(value):
                 or type(value["remaining"]) is not dict or set(value["remaining"]) != {"rounds", "corrections", "commands"}):
             raise ValueError()
         remaining = value["remaining"]
-        for name, ceiling in (("rounds", 8), ("corrections", 4), ("commands", MAX_COMMAND_ROUNDS)):
+        for name, ceiling in (("rounds", MAX_DISCOVERY_ROUNDS), ("corrections", 4), ("commands", MAX_COMMAND_ROUNDS)):
             if (type(remaining[name]) is not int or isinstance(remaining[name], bool)
                     or not 0 <= remaining[name] <= ceiling):
                 raise ValueError()

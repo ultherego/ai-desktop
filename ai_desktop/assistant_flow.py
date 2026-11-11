@@ -494,6 +494,13 @@ def _budget_stop(policy, name):
         print("Refused: selected Skills and references exceed their separate %d B budget." % MAX_KNOWLEDGE_BYTES)
         raise file_context.FileReadDenied("input")
     limits = policy.limits() if policy is not None else permissions.Limits()
+    if name not in permissions.LIMIT_SPECS:
+        # An internal bound (steps of one question), not a setting: the model kept looking without reaching an answer.
+        print("Refused: this question used all %d steps the program allows for looking around (%s). "
+              "Ask a narrower question; a partial result is not sent as if it were complete."
+              % (getattr(limits, name, 0), name))
+        print(recipient("The local result was not sent to Claude."))
+        raise file_context.FileReadDenied("input")
     print("Refused: the file discovery budget ran out: " + name + "=" + str(getattr(limits, name))
           + " ([files] of permissions.toml; ceiling in the code: " + str(permissions.LIMIT_SPECS[name][2])
           + "). A partial result is not sent as if it were complete.")

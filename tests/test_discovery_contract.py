@@ -161,7 +161,7 @@ class DiscoveryContractTests(unittest.TestCase):
             {"path": "ż" * 250 + str(i), "type": "file", "size": 0} for i in range(512)]
         with self.assertRaises(ValueError):
             dc.validate_discovery(value)
-        for rounds, corrections in ((9, 0), (0, 5), (-1, 0), (True, 0)):
+        for rounds, corrections in ((dc.MAX_DISCOVERY_ROUNDS + 1, 0), (0, 5), (-1, 0), (True, 0)):
             value = document()
             value["remaining"] = {"rounds": rounds, "corrections": corrections, "commands": 0}
             with self.subTest(rounds=rounds), self.assertRaises(ValueError):

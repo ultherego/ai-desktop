@@ -27,6 +27,12 @@ MIN_FILE_SIZE = 4 * 1024
 MAX_FILE_SIZE = 64 * 1024 * 1024          # hard ceiling in code (also the ceiling of the request schema)
 MAX_ACCESS_BYTES = 320 * 1024     # = assistant_contract.MAX_ACCESS_BYTES: every template of the policy fits
 MAX_RULES = 64
+# Internal bounds, not settings (maintainer, 2026-11-11: technical limits stay in the program). The real bound of what a
+# question sends is the byte budget (discovery_bytes); these only stop a model that keeps looping.
+MAX_DISCOVERY_ROUNDS = 32              # list/find/page steps of one question (= discovery_contract ceiling)
+MAX_SEARCH_RESULTS = 512               # matches of one find step (= discovery_contract.CEILING_ENTRIES)
+# Former settings: an older permissions.toml may still hold them; they are accepted and have no effect.
+RETIRED_LIMITS = ("search_results", "discovery_rounds")
 MAX_DIRECTORY_ENTRIES = 1024
 MAX_TOTAL_ENTRIES = 4096
 MAX_DEPTH = 8
@@ -132,9 +138,9 @@ class Limits:
     test_copy_total_size: int = 64 * 1024 * 1024
     listing_entries: int = 128        # entries per list/find step
     discovery_bytes: int = 131072     # bytes of all discovery steps sent to the model during one question
-    search_results: int = 40          # matches per find step
+    search_results: int = MAX_SEARCH_RESULTS   # matches per find step; the byte budget decides how many fit
     search_scan: int = 20000          # directory entries a question may examine while searching/listing
-    discovery_rounds: int = 4         # list/find steps (extra model requests) per question
+    discovery_rounds: int = MAX_DISCOVERY_ROUNDS   # list/find/page steps per question; an internal safety bound
     plan_corrections: int = 2         # corrected read plans (extra model requests) per question
     command_rounds: int = 24          # commands the assistant may propose per question (0 = none run)
     command_output: int = 8192        # bytes of one command's output that go back to the model
@@ -151,9 +157,7 @@ LIMIT_SPECS = {
     "test_copy_total_size": ("size", 1024, 128 * 1024 * 1024),
     "listing_entries": ("count", 16, 512),
     "discovery_bytes": ("size", 2048, 262144),
-    "search_results": ("count", 5, 200),
     "search_scan": ("count", 100, 100000),
-    "discovery_rounds": ("count", 1, 8),
     "plan_corrections": ("count", 0, 4),
     "command_rounds": ("count", 0, MAX_COMMAND_ROUNDS),
     "command_output": ("size", 1024, 131072),
@@ -1042,7 +1046,8 @@ def load_policy(*, optional=False):
         absent = [key for key in ("read", "deny") if key not in value["files"]]
         if absent:
             raise _Problem("Missing from [files]: " + ", ".join(absent) + ".")
-        stray = sorted(set(value["files"]) - {"read", "deny", "write", "file_size", "part_size", "protect", *LIMIT_SPECS})
+        stray = sorted(set(value["files"]) - {"read", "deny", "write", "file_size", "part_size", "protect", *LIMIT_SPECS,
+                                              *RETIRED_LIMITS})
         if stray:
             raise _Problem("Unknown key in [files]: " + ", ".join(_shown(key) for key in stray) + ".")
         rules = []
