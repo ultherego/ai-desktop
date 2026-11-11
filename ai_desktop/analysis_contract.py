@@ -139,6 +139,8 @@ SYSTEM_PROMPT = (
     "For a large text file, use bounded content operations instead of requesting the whole file. "
     "Search: {\"action\":\"search-content\",\"file\":{\"id\":\"f0\",\"path\":\"large.log\"},"
     "\"needle\":\"literal text\",\"cursor\":0}. Continue with the returned search.next cursor. "
+    "Manual: {\"action\":\"manual\",\"page\":\"pacman\",\"section\":\"8\",\"needle\":\"--overwrite\"} returns excerpts of the "
+    "installed manual page (the installed version; needle optional); check a flag there before relying on it. "
     "Read lines: {\"action\":\"read-range\",\"file\":{\"id\":\"f0\",\"path\":\"large.log\"},"
     "\"first\":120,\"last\":160}. file may be the scope id alone only for an exact-file scope. "
     "Use only discovered paths or paths named by the user; wildcards and directories are not accepted. "

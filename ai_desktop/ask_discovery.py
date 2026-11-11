@@ -8,6 +8,7 @@ model may read: the captured policy still does that. Nothing here retries silent
 from dataclasses import replace
 import json
 import re
+import unicodedata
 
 from . import directory_context, permissions
 from .skill_runtime import MAX_KNOWLEDGE_BYTES, observe_command
@@ -137,6 +138,27 @@ class DiscoveryLedger:
     def can_afford(self, steps):
         """True when `steps` more commands each still get a usable slice of output and a command round."""
         return self.commands_left >= steps and (self._budget() - 600) // 2 >= 256 * steps
+
+    def manual(self, plan):
+        """One installed manual page as data for the next round; a missing page is recorded, never an error."""
+        from . import manuals
+        self.take_round()
+        try:
+            found = manuals.excerpt(plan["page"], plan["section"], plan.get("needle"))
+            step = {"op": "manual", "page": plan["page"], "section": plan["section"], "status": "ok",
+                    "lines": found["lines"], "fragments": found["fragments"], "complete": found["complete"]}
+        except ValueError:
+            step = {"op": "manual", "page": plan["page"], "section": plan["section"], "status": "missing",
+                    "lines": 0, "fragments": [], "complete": False}
+        for character in "".join(item["text"] for item in step["fragments"]):
+            if character not in "\n\t" and unicodedata.category(character) in ("Cc", "Cf", "Cs"):
+                step["fragments"] = [dict(item, text="".join(c for c in item["text"] if c in "\n\t"
+                                     or unicodedata.category(c) not in ("Cc", "Cf", "Cs"))) for item in step["fragments"]]
+                break
+        if document_bytes({"steps": [step], "remaining": self.document()["remaining"]}) > self._budget():
+            raise BudgetExhausted("discovery_bytes")
+        self.steps.append(step)
+        return step
 
     def add_skill(self, name, text):
         """A Skill the model asked for, as the owner's data in the next round. A path it names counts like a typed one."""

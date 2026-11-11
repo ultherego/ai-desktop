@@ -192,6 +192,16 @@ def parse_plan(raw, access):
         if type(value) is not dict:
             raise ValueError("assistant-plan")
         check = "action"
+        if value.get("action") == "manual":
+            from .manuals import PAGE, SECTION
+            check = "shape"
+            if (not {"action", "page", "section"} <= set(value) <= {"action", "page", "section", "needle"}
+                    or type(value["page"]) is not str or not PAGE.fullmatch(value["page"])
+                    or type(value["section"]) is not str or not SECTION.fullmatch(value["section"])
+                    or "needle" in value and (type(value["needle"]) is not str or not 2 <= len(value["needle"]) <= 64
+                                              or "\n" in value["needle"])):
+                raise ValueError("assistant-plan")
+            return dict(value)
         if value.get("action") == "web":
             check = "shape"
             # "continue": the search result comes back as a discovery step and the model plans local work after it

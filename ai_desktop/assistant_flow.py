@@ -568,7 +568,7 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                         corrected(error)
                         continue
                     break
-                if following["action"] not in ("list", "find", "run", "skill", "read", "read-range", "search-content", "answer", "edit", "delete", "project-test"):
+                if following["action"] not in ("list", "find", "run", "skill", "read", "read-range", "search-content", "manual", "answer", "edit", "delete", "project-test"):
                     raise PlanError("action")
                 return following
 
@@ -649,6 +649,21 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                         else:
                             ledger.tree_rows = None          # a change shows its own card, not a tree
                         _run_command(snapshot, ledger, plan, permit, args, reader)
+                    plan = next_plan()
+                    continue
+                if plan["action"] == "manual":
+                    # Installed documentation, read by the program itself: public data, no network, no files policy.
+                    progress("collect")
+                    try:
+                        found = ledger.manual(plan)
+                        print(paint("  %s Manual %s(%s)%s · %s" % (
+                            symbol("ok" if found["status"] == "ok" else "skip"), plan["page"], plan["section"],
+                            (" \u201c" + plan["needle"] + "\u201d") if plan.get("needle") else "",
+                            "%d excerpt(s)" % len(found["fragments"]) if found["status"] == "ok" else "not installed"),
+                            "muted"))
+                    except ask_discovery.BudgetExhausted as exhausted:
+                        if not ledger.soft_stop(exhausted.name):
+                            _budget_stop(snapshot.policy, exhausted.name)
                     plan = next_plan()
                     continue
                 if plan["action"] in ("read-range", "search-content"):
