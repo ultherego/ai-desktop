@@ -342,7 +342,9 @@ class HelpTests(unittest.TestCase):
             for command in self.INTERNAL + self.LEGACY:
                 self.assertNotRegex(text, r"(?m)^  %s\s" % command)
             self.assertIn("ai-desktop --help-all", text)
-            self.assertLessEqual(len(text.splitlines()), 26)
+            self.assertLessEqual(len(text.splitlines()), 30)
+            self.assertIn("ai-desktop settings save on|off", text)               # why the start list may be empty
+            self.assertRegex(text, r"Saving conversations now: (on|off)")
 
     def test_the_full_help_lists_every_command_and_still_has_no_host_effects(self):
         code, text = self.text(["--help-all"])

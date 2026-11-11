@@ -124,6 +124,8 @@ def build_parser():
 SHORT_HELP = """AI Desktop: controlled tools for CachyOS
 
 Run ai-desktop in a terminal to start a conversation; ai-desktop -c continues the last one.
+At the start a list offers the saved conversations of the current agent, or a new one (all of them: ai-desktop sessions).
+Conversations are saved after the first answer unless saving is off: ai-desktop settings save on|off.
   ask        Ask a question; optionally attach chosen context
   material   Analyze one local text file (up to 32 MiB by default)
   project    Work with a project directory: read-only analysis; changes and deletions only after your approval
@@ -177,6 +179,11 @@ def main(argv=None):
         argv = ["ask"] if sys.stdin.isatty() and sys.stdout.isatty() else ["status"]
     if argv in (["--help"], ["-h"]):                  # the short, task-oriented help; every command still works
         print(SHORT_HELP, end="")
+        from .local_settings import saving
+        try:
+            print("Saving conversations now: " + ("on" if saving() else "off (no list at the start)") + ".")
+        except (OSError, ValueError):
+            pass
         return 0
     if argv == ["--help-all"]:                        # the complete listing; text only, no host effects
         print(build_parser().format_help(), end="")
