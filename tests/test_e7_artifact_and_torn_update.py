@@ -21,6 +21,9 @@ def source_tree(destination, *, checkout=ROOT):
     for name in ("ai_desktop", "skills", "packaging"):
         shutil.copytree(checkout / name, destination / name,
                         ignore=shutil.ignore_patterns("__pycache__", "claude-code", "codex", "*.pkg.tar.*"))
+    for name in ("config/permissions.example.toml", "docs/PERMISSIONS.md"):      # installed under /usr/share/doc
+        (destination / name).parent.mkdir(exist_ok=True)
+        shutil.copy2(checkout / name, destination / name)
     return destination
 
 

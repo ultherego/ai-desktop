@@ -988,7 +988,7 @@ def main(argv=None, *, reader=input, clock=time.monotonic, sleep=time.sleep, win
             print(_read_hint(exc))
             return 2
         if policy is None:
-            print("No permissions.toml: this directory needs a files.read scope. See config/permissions.example.toml.")
+            print("No permissions.toml: this directory needs a files.read scope. See /usr/share/doc/ai-desktop/permissions.example.toml.")
             return 2
         try:
             project = Project(policy, os.path.abspath(os.path.expanduser(args.path))).scan()

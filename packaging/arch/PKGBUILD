@@ -89,6 +89,12 @@ package() {
         install -Dm644 "${desktop}/${src}" "${pkgdir}/usr/share/ai-desktop/${src}" || return 1
     done
 
+    # The policy template and the settings reference, readable after an installation from the repository.
+    for src in config/permissions.example.toml docs/PERMISSIONS.md; do
+        [[ -f "${root}/${src}" && ! -L "${root}/${src}" ]] || return 1
+        install -Dm644 "${root}/${src}" "${pkgdir}/usr/share/doc/ai-desktop/${src##*/}" || return 1
+    done
+
     install -d -m755 "${pkgdir}/usr/bin"
     # Linux shebangs pass everything after the interpreter path as ONE
     # argument: '#!/usr/bin/python3 -I -B' is not two Python flags.

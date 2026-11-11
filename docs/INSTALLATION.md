@@ -6,7 +6,11 @@ AI Desktop uses a compatible **independently installed Claude Code or Codex clie
 
 Supported system packages are used directly. Clients installed in your home directory through the official installer or npm are registered explicitly as an administrator-approved copy; AI Desktop does not run a mutable HOME executable under its service account. Before credentials or model input are released, the selected native client and its private resources are bound to the operation and checked in an offline namespace. A compatible client update needs no AI Desktop rebuild; a registered client needs an explicit refresh to approve the new bytes. Your ordinary CLI login is not imported: connect an AI Desktop account separately. See [client installation and compatibility](AGENT_INSTALL.md).
 
-## Installation (CachyOS / Arch x86_64)
+## Installation from the signed repository (recommended)
+
+The package is published in a signed pacman repository on GitHub Releases; the steps are in the [README](../README.md#install). pacman checks the signature of the package and of the repository database against the AI Desktop key you trusted with `pacman-key --lsign-key`; a package or database signed by any other key is refused. `sudo pacman -Syu` then updates AI Desktop with the rest of the system. The policy template and the settings reference are installed in `/usr/share/doc/ai-desktop/`.
+
+## Building from source (CachyOS / Arch x86_64)
 
 Keep the Claude/Codex installation you use: supported Arch/AUR packages, official native installers and current npm installations are covered. The example below uses the Arch Codex package. If you already installed through `curl` and a shell, omit `openai-codex` from the package command and register your existing client after installing AI Desktop. Local inference needs no cloud client. See [installation variants and migration](AGENT_INSTALL.md).
 

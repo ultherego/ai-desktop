@@ -1,0 +1,118 @@
+name: Release
+
+# A version tag (v1.0.0 or v1.0.0-1, matching pkgver/pkgrel in packaging/arch/PKGBUILD) builds the package in an
+# Arch container, signs it and the repository database with the project key, and publishes:
+#   - the package on the release of that tag,
+#   - the pacman repository on the release "repo" (Server = https://github.com/OWNER/REPO/releases/download/repo).
+# Secrets: PACKAGE_SIGNING_KEY (armored private key), optional PACKAGE_SIGNING_PASSPHRASE.
+# The private key must belong to the public key committed in packaging/signing-key.asc.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verification gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+      - name: Central verification gate
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          python -m pip install 'rich>=13.7,<15' 'cryptography>=44'
+          python -B scripts/verify.py --mode ci --fail-fast
+
+  package:
+    name: Build, sign and publish
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    container: archlinux:base-devel
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.ref_name }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Build tools
+        run: pacman -Syu --noconfirm --needed git github-cli python python-rich python-cryptography bubblewrap xdg-dbus-proxy libseccomp sudo
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: The tag matches the package version
+        run: |
+          version=$(bash -c 'source packaging/arch/PKGBUILD && printf "%s %s" "$pkgver" "$pkgrel"')
+          read -r pkgver pkgrel <<<"$version"
+          if [[ "$TAG" != "v$pkgver" && "$TAG" != "v$pkgver-$pkgrel" ]]; then
+            echo "Tag $TAG does not match pkgver=$pkgver pkgrel=$pkgrel" >&2
+            exit 1
+          fi
+      - name: Build the package
+        run: |
+          useradd -m builder
+          chown -R builder: .
+          su builder -c "cd packaging/arch && makepkg -f --cleanbuild"
+      - name: Import the project signing key
+        env:
+          SIGNING_KEY: ${{ secrets.PACKAGE_SIGNING_KEY }}
+          SIGNING_PASSPHRASE: ${{ secrets.PACKAGE_SIGNING_PASSPHRASE }}
+        run: |
+          export GNUPGHOME="$RUNNER_TEMP/gnupg"
+          install -d -m700 "$GNUPGHOME"
+          [[ -n "$SIGNING_KEY" ]] || { echo "Secret PACKAGE_SIGNING_KEY is missing" >&2; exit 1; }
+          printf '%s\n' "$SIGNING_KEY" | gpg --batch --import
+          expected=$(gpg --batch --show-keys --with-colons packaging/signing-key.asc | awk -F: '/^fpr/{print $10; exit}')
+          imported=$(gpg --batch --list-secret-keys --with-colons | awk -F: '/^fpr/{print $10; exit}')
+          [[ -n "$expected" && "$expected" == "$imported" ]] || { echo "The secret key is not packaging/signing-key.asc" >&2; exit 1; }
+          if [[ -n "$SIGNING_PASSPHRASE" ]]; then
+            install -m600 /dev/null "$GNUPGHOME/passphrase"
+            printf '%s' "$SIGNING_PASSPHRASE" > "$GNUPGHOME/passphrase"
+            printf 'pinentry-mode loopback\npassphrase-file %s\n' "$GNUPGHOME/passphrase" > "$GNUPGHOME/gpg.conf"
+            echo allow-loopback-pinentry > "$GNUPGHOME/gpg-agent.conf"
+          fi
+          grep -q "$expected" README.md || { echo "README.md does not show the signing key fingerprint" >&2; exit 1; }
+          echo "GNUPGHOME=$GNUPGHOME" >> "$GITHUB_ENV"
+          echo "SIGNING_FPR=$expected" >> "$GITHUB_ENV"
+      - name: Build the signed repository
+        run: scripts/release_repo.sh "$RUNNER_TEMP/repo" "$SIGNING_FPR" packaging/arch/*.pkg.tar.zst
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config --global --add safe.directory "$PWD"
+          repo="$RUNNER_TEMP/repo"
+          package=$(cd "$repo" && ls ai-desktop-*.pkg.tar.zst)
+          # The release of this tag carries the package itself.
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --verify-tag --title "AI Desktop $TAG" \
+            --notes "See CHANGELOG.md. Install from the signed pacman repository as described in README.md."
+          gh release upload "$TAG" "$repo/$package" "$repo/$package.sig" --clobber
+          # The pacman repository: new package first, then the database, then the old packages go.
+          gh release view repo >/dev/null 2>&1 || gh release create repo --latest=false --title "pacman repository" \
+            --notes "Signed pacman repository of AI Desktop. Add it to /etc/pacman.conf as described in README.md."
+          gh release upload repo "$repo/$package" "$repo/$package.sig" --clobber
+          gh release upload repo "$repo/ai-desktop.db" "$repo/ai-desktop.db.sig" \
+            "$repo/ai-desktop.files" "$repo/ai-desktop.files.sig" --clobber
+          gh release view repo --json assets --jq '.assets[].name' | while read -r asset; do
+            case "$asset" in
+              "$package"|"$package.sig") ;;
+              ai-desktop-*.pkg.tar.zst|ai-desktop-*.pkg.tar.zst.sig) gh release delete-asset repo "$asset" --yes ;;
+            esac
+          done
