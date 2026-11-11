@@ -114,8 +114,10 @@ class CiAnalysisGuardTests(unittest.TestCase):
                             snapshot = skills.bundle(skill)
                             for reference in snapshot["references"]:
                                 self.assertIn(skill + "/" + reference + ":", selected["instructions"])
-                            for guide in snapshot["guides"]:
-                                self.assertIn(skill + "/" + guide + ":", selected["instructions"])
+                            for guide, item in snapshot["guides"].items():
+                                # An environment's guide is listed only where that environment is installed.
+                                listed = skill + "/" + guide + ":" in selected["instructions"]
+                                self.assertEqual(listed, skills.guide_installed(item), guide)
                 # Installed-source checks are real: neither missing nor unsafe
                 # resources can silently fall back to the source checkout.
                 reference = installed / "arch/references/package-queries.md"

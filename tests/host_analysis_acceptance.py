@@ -24,7 +24,7 @@ from ai_desktop.skills import inspect_skill
 import host_e2_activated_worker as offline
 
 PACKAGED_SKILLS = ("arch", "cachyos", "code-development", "code-review", "concise-assistant",
-                   "desktop-documentation", "project-analysis")
+                   "desktop", "project-analysis")
 
 
 def _installed_skills_match():

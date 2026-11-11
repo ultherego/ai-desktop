@@ -10,7 +10,7 @@ from unittest.mock import patch
 from ai_desktop import agent_profiles as profiles, analysis_sandbox, conversation_sessions, execution, skills
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGED = {"arch", "cachyos", "code-development", "code-review", "concise-assistant", "desktop-documentation",
+PACKAGED = {"arch", "cachyos", "code-development", "code-review", "concise-assistant", "desktop",
             "project-analysis"}
 
 

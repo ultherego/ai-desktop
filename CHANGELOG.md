@@ -7,6 +7,9 @@
 - **`preset = "diagnostics"`** in `[commands]` switches on about 140 read-only commands for all these topics, kept up to date with the program: no need to know every command or flag. Your own commands add to it, `commands.deny` removes from it. It is off until you add the line, because it reads logs, process lists and network names.
 - **Secrets protected by default** (`files.protect`, policy version 2): SSH keys, GnuPG, password stores, cloud and client logins, browser and mail profiles, keyrings, Borg/borgmatic, Wi-Fi/VPN credentials, also under `~/**`. Naming one of them in `files.read` lifts it for exactly that; `/permissions` shows the list. The example `permissions.toml` no longer needs its long `deny` list.
 - References can state a version range (`>=7.0.0`), compared the way pacman compares versions.
+- **Skill `desktop` with guides for 20 desktops, compositors and shells** (everything the CachyOS installer offers, plus DMS and Noctalia). Only the guides of what is installed on your computer are offered. Replaces `desktop-documentation`.
+- The grey input field keeps its full width and height after scrolling the history.
+- Fixes found in the CachyOS check: a manual page excerpt no longer ends the question, a late web search, a repeated Skill request or one Skill round too many are corrected instead of ending the question, Enter on `/ar` completes `/arch `, and the preset reads `/` and `/boot` directly (`findmnt /`, `btrfs filesystem usage /`).
 
 ## 0.1.0-163: no limit on command templates, unit names without `.service`
 

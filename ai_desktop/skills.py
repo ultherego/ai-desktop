@@ -174,11 +174,34 @@ def _guide_files(root, name, *, secure=True):
     return _resource_files(root, name, "guides", MAX_GUIDES, MAX_GUIDE_BYTES, parse_guide, secure=secure)
 
 
+_PROGRAM_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}\Z")
+
+
 def parse_guide(data, name):
+    """A topic guide. An optional `programs:` line (comma-separated executable names) ties it to an environment: the
+    catalog offers it only where one of them is installed in the fixed system directories (guide_installed)."""
     description, _ = parse_skill(data, name)
     lines = data.splitlines()
-    body = "\n".join(lines[lines.index("---", 1) + 1:]).strip()     # the body only: name and description are in the catalog
-    return {"description": description, "content": body, "sha256": hashlib.sha256(data.encode()).hexdigest()}
+    end = lines.index("---", 1)
+    programs = ()
+    for line in lines[1:end]:
+        if line.split(":", 1)[0].strip() == "programs":
+            programs = tuple(item.strip() for item in line.split(":", 1)[1].split(","))
+            if not programs or any(not _PROGRAM_NAME.fullmatch(item) for item in programs):
+                raise ValueError("Invalid guide programs")
+    body = "\n".join(lines[end + 1:]).strip()     # the body only: name and description are in the catalog
+    return {"description": description, "content": body, "programs": programs,
+            "sha256": hashlib.sha256(data.encode()).hexdigest()}
+
+
+def guide_installed(item):
+    """A guide without `programs` always applies; otherwise one of its programs must be a root-owned executable in the
+    fixed system directories (the same check as for commands). Metadata only: nothing is run."""
+    programs = item.get("programs", ())
+    if not programs:
+        return True
+    from .command_ops import resolve
+    return any(resolve(program) is not None for program in programs)
 
 
 def _resource_files(root, name, folder, max_files, max_bytes, parse, *, secure=True):

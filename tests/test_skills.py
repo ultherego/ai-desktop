@@ -33,7 +33,7 @@ class SkillTests(unittest.TestCase):
         self.assertIn("read-only", bundle["guides"]["diagnostics"]["content"])
 
     def test_area_guides_and_references_fit_their_limits_and_never_share_a_name(self):
-        for area in ("arch", "cachyos"):
+        for area in ("arch", "cachyos", "desktop"):
             bundle = skills.bundle(area)
             self.assertTrue(bundle["guides"])
             self.assertFalse(set(bundle["guides"]) & set(bundle["references"]))
@@ -41,6 +41,36 @@ class SkillTests(unittest.TestCase):
                 self.assertIn(area + "/" + name, bundle["text"])                 # every guide is listed in SKILL.md
                 self.assertLessEqual(len(guide["content"].encode()), skills.MAX_GUIDE_BYTES)
             self.assertTrue(skills.resource_text(bundle, area + "/" + next(iter(bundle["guides"]))).startswith("Guide: "))
+
+    def test_an_environment_guide_is_offered_only_where_its_program_is_installed(self):
+        # One package for every desktop: the catalog lists a compositor's guide only where that compositor is installed.
+        guide = "---\nname: %s\ndescription: d\nprograms: %s\n---\n\nbody\n"
+        parsed = skills.parse_guide(guide % ("wm", "wm-one, wm-two"), "wm")
+        self.assertEqual(parsed["programs"], ("wm-one", "wm-two"))
+        self.assertNotIn("programs", parsed["content"])
+        for bad in ("", "a b", "../x", "x,"):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                skills.parse_guide(guide % ("wm", bad), "wm")
+        self.assertTrue(skills.guide_installed({"programs": ()}))
+        from ai_desktop import command_ops
+        with patch.object(command_ops, "resolve", side_effect=lambda name: "/usr/bin/" + name if name == "wm-two" else None):
+            self.assertTrue(skills.guide_installed(parsed))
+            self.assertFalse(skills.guide_installed(dict(parsed, programs=("wm-one",))))
+        bundle = skills.bundle("desktop")
+        absent = {name for name, item in bundle["guides"].items() if item["programs"]}
+        with patch.object(command_ops, "resolve", return_value=None), patch.object(skills, "user_root", return_value=ROOT / "x"):
+            catalog = agent_profiles.catalog_for(agent_profiles.Profile(skills=("desktop",)))
+        self.assertTrue(absent)
+        for name in absent:
+            self.assertNotIn("desktop/" + name + ":", catalog)
+        with patch.object(command_ops, "resolve", side_effect=lambda name: "/usr/bin/" + name), \
+                patch.object(skills, "user_root", return_value=ROOT / "x"):
+            catalog = agent_profiles.catalog_for(agent_profiles.Profile(skills=("desktop",)))
+        for name in absent:
+            self.assertIn("desktop/" + name + ":", catalog)
+
+    def test_the_old_desktop_documentation_name_becomes_the_desktop_area(self):
+        self.assertEqual(agent_profiles.renamed_skills(("desktop-documentation", "desktop", "arch")), ("desktop", "arch"))
 
     def test_packaged_preset_skills_validate_and_fit_full_instruction_budget(self):
         names = tuple(dict.fromkeys(name for group in agent_profiles.PRESET_SKILLS.values() for name in group))

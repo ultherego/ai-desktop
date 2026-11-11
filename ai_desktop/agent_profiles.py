@@ -31,9 +31,9 @@ ACCESSES = ("read-only", "changes")
 SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 _PROFILE_KEYS = frozenset(("provider", "model", "effort", "instructions", "access", "skills"))
 PRESET_SKILLS = MappingProxyType({
-    "default": ("concise-assistant", "arch", "cachyos", "desktop-documentation", "code-development", "code-review",
+    "default": ("concise-assistant", "arch", "cachyos", "desktop", "code-development", "code-review",
                 "project-analysis"),
-    "diagnostic": ("arch", "cachyos", "desktop-documentation"),
+    "diagnostic": ("arch", "cachyos", "desktop"),
     "programmer": ("code-development",),
     "reviewer": ("code-review",),
     "analyst": ("project-analysis",),
@@ -45,7 +45,8 @@ _AREA_TOPICS = {
              "network", "pacman", "power", "ssh", "storage-health", "systemd", "zram"),
     "cachyos": ("boot-snapshots", "diagnostics", "gaming", "hardware", "kernel", "packages", "scheduler"),
 }
-LEGACY_SKILLS = MappingProxyType({area + "-" + topic: area for area, topics in _AREA_TOPICS.items() for topic in topics})
+LEGACY_SKILLS = MappingProxyType({**{area + "-" + topic: area for area, topics in _AREA_TOPICS.items() for topic in topics},
+                                  "desktop-documentation": "desktop"})
 
 
 def renamed_skills(names):
@@ -536,7 +537,9 @@ def catalog_for(selected):
             lines.append("- " + name + ": " + snapshot["description"])
             lines.append("  bundle-sha256: " + snapshot["sha256"])
             for guide, item in snapshot.get("guides", {}).items():
-                lines.append("  - " + name + "/" + guide + ": " + item["description"])
+                # An environment's guide (e.g. a compositor) is offered only where that environment is installed.
+                if skills.guide_installed(item):
+                    lines.append("  - " + name + "/" + guide + ": " + item["description"])
             for reference, item in snapshot["references"].items():
                 lines.append("  - " + name + "/" + reference + ": " + item["description"]
                              + " (" + item["version"] + "; " + ", ".join(item["tools"]) + ")")
