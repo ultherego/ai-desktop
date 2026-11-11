@@ -19,6 +19,10 @@ class FakeStore:
     def load(self):
         return type("Snapshot", (), {"config": self.config})()
 
+    def mutate(self, operation):
+        self.config = operation(self.config)
+        return type("Snapshot", (), {"config": self.config})()
+
 
 class Conversation:
     def __init__(self):
@@ -118,7 +122,7 @@ class ControlsTests(unittest.TestCase):
                 self.assertEqual(conversation.bound, [])
                 self.assertNotIn("will ask for consent", output)
 
-    def test_skills_toggle_for_this_conversation_without_touching_the_saved_agent(self):
+    def test_skills_toggle_applies_now_and_is_saved_in_the_agent(self):
         output = self.run_line("/skills b")[1]
         self.assertIn("a, b", output)
         self.assertIn("- a: opis a", execution.current()["instructions"])
@@ -128,8 +132,34 @@ class ControlsTests(unittest.TestCase):
         self.run_line("/skills a")
         self.assertNotIn("- a:", execution.current()["instructions"])
         self.assertIsNone(self.controls.load_skill("a"))                   # switched off: the model cannot fetch it
-        self.assertEqual(profiles.Store().load().config.profiles["default"].skills, ("a",))
+        # Apply is the agent's own choice, kept for the next conversation too.
+        self.assertEqual(profiles.Store().load().config.profiles["default"].skills, ("b",))
         self.assertEqual(execution.current()["access"], "changes")      # never a wider permission
+
+    def test_a_built_in_skill_cannot_be_switched_off(self):
+        with patch.object(profiles, "PRESET_SKILLS", {"default": ("a",)}):
+            output = self.run_line("/skills a")[1]
+            self.assertIn("built-in Skill of the default agent and is always on", output)
+            self.run_line("/skills b")
+        self.assertEqual(profiles.Store().load().config.profiles["default"].skills, ("a", "b"))
+
+    def test_a_skill_name_as_a_command_sends_the_question_with_that_skill_loaded(self):
+        from ai_desktop.question_consent import ConversationConsent
+        consent = ConversationConsent()
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            result = self.controls.handle("/b co blokuje?", None, consent=consent)
+        self.assertIsInstance(result, commands.AskWith)
+        self.assertEqual(result, "co blokuje?")
+        self.assertIn("Skill b is on for this conversation", out.getvalue())   # b was not assigned: this conversation only
+        self.assertEqual(profiles.Store().load().config.profiles["default"].skills, ("a",))
+        self.assertEqual(list(consent.reusable_skills(self.controls.load_skill)), [("b", "tresc b")])
+        self.assertEqual(list(consent.reusable_skills(self.controls.load_skill)), [])   # once, for that question
+
+    def test_a_skill_command_without_a_question_or_an_unknown_name_sends_nothing(self):
+        self.assertIn("Type the question for the a Skill", self.run_line("/a")[1])
+        self.assertIn("Unknown command /zzz", self.run_line("/zzz")[1])
+        self.assertIn(("/a", "use the a Skill for the question that follows"), commands.skill_commands())
 
     def test_an_unknown_skill_or_one_that_does_not_fit_changes_nothing(self):
         before = execution.current()
@@ -254,3 +284,26 @@ class SuggestionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BuiltInSkillsTests(unittest.TestCase):
+    """The packaged Skills of a built-in agent are always on; the owner's own Skills come after them."""
+
+    def test_presets_are_merged_first_and_only_when_installed(self):
+        with patch("ai_desktop.skills.names", return_value=("arch-pacman", "arch-systemd", "mine")):
+            with patch.object(profiles, "PRESET_SKILLS", {"default": ("arch-systemd", "arch-pacman", "missing")}):
+                merged = profiles.with_presets("default", profiles.Profile(skills=("mine", "arch-pacman")))
+                custom = profiles.with_presets("custom", profiles.Profile(skills=("mine",)))
+        self.assertEqual(merged.skills, ("arch-systemd", "arch-pacman", "mine"))
+        self.assertEqual(custom.skills, ("mine",))                          # a profile the owner created keeps its own
+
+    def test_resolve_uses_the_built_in_skills_even_if_the_saved_profile_lacks_them(self):
+        config = profiles.defaults().put("default", profiles.Profile(skills=("b",)))
+        with patch.object(profiles, "Store", return_value=FakeStore(config)), \
+                patch.object(profiles, "PRESET_SKILLS", {"default": ("a",)}), \
+                patch("ai_desktop.skills.names", return_value=("a", "b")), \
+                patch("ai_desktop.skills.inspect_skill", side_effect=lambda root, name, **_: ("opis " + name, "tresc " + name)), \
+                patch("ai_desktop.skills._reference_files", return_value={}):
+            resolved = profiles.resolve(store=profiles.Store())
+        self.assertIn("- a: opis a", resolved["instructions"])
+        self.assertIn("- b: opis b", resolved["instructions"])

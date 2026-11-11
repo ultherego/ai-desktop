@@ -27,6 +27,12 @@ class ConversationConsent:
     def __init__(self):
         self._binding = None
         self._skill_hashes = {}
+        self._requested = []
+
+    def request_skill(self, name):
+        """The owner typed /NAME: the next question starts with that procedure loaded (once, from its current bytes)."""
+        if type(name) is str and name not in self._requested and len(self._requested) < MAX_REUSED_SKILLS:
+            self._requested.append(name)
 
     def remember_skills(self, steps):
         """Keep only fingerprints of procedures accepted in this live conversation, most recent first on reuse."""
@@ -39,7 +45,15 @@ class ConversationConsent:
             del self._skill_hashes[next(iter(self._skill_hashes))]
 
     def reusable_skills(self, loader):
+        requested, self._requested = self._requested, []
+        for name in requested:
+            body = loader(name)
+            if body is not None:
+                self._skill_hashes.pop(name, None)
+                yield name, body
         for name, digest in reversed(tuple(self._skill_hashes.items())):
+            if name in requested:
+                continue
             body = loader(name)
             if body is not None and hashlib.sha256(body.encode()).digest() == digest:
                 yield name, body

@@ -411,7 +411,7 @@ def _main(argv, *, reader, link):
             args.presence.start()
         question = args.question
         prompt_session = PromptSession()
-        prompt_session.commands = ask_commands.COMMANDS
+        prompt_session.commands = ask_commands.COMMANDS + ask_commands.skill_commands()
         prompt_session.paste_bytes = MAX_MESSAGE_BYTES
         controls = ask_commands.Controls(session=prompt_session)   # "Other ID" starts the next prompt with /model
         if args.preview and args.session:
@@ -499,6 +499,9 @@ def _main(argv, *, reader, link):
                 _refresh_status()
                 if local == ask_commands.EXIT:
                     return 0
+                if isinstance(local, ask_commands.AskWith):
+                    question = str(local)
+                    break
                 if local:
                     continue
                 if question.strip():
@@ -540,7 +543,7 @@ def _main(argv, *, reader, link):
                 # The same history, paste markers and /agent rule as the idle prompt (one editor, two moments).
                 terminal_input.start(terminal_frame.current(), sys.stdout,
                                      resolver=lambda line: controls.during_turn(line, conversation),
-                                     commands=ask_commands.COMMANDS, session=prompt_session)
+                                     commands=prompt_session.commands, session=prompt_session)
             from . import live_answer
             showing = (live_answer.turn(render=lambda text: render_answer(text, output_format=args.format), rule=rule)
                        if reader is input and args.format == "auto" and sys.stdout.isatty() else nullcontext(None))
@@ -688,6 +691,9 @@ def _main(argv, *, reader, link):
                 _refresh_status()
                 if local == ask_commands.EXIT:
                     return code
+                if isinstance(local, ask_commands.AskWith):
+                    question = str(local)
+                    break
                 if local:
                     continue
                 break

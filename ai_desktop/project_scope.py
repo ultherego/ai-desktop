@@ -135,11 +135,13 @@ class Project:
             state["stop"] = state["stop"] or stop
 
         def visit(absolute, relative, depth):
+            """Index one directory's files; return its subdirectories for a later, deeper level."""
+            below = []
             if state["stop"]:
-                return
+                return below
             if depth > MAX_DEPTH:
                 mark("depth", f"a directory exceeded the maximum depth of {MAX_DEPTH}")
-                return
+                return below
             try:
                 with permissions.open_directory(absolute, uid) as (directory, recheck):
                     with os.scandir(directory) as entries:
@@ -149,13 +151,13 @@ class Project:
                             state["scanned"] += 1
                             if state["scanned"] > entry_limit:
                                 mark("entries", f"the scan exceeded its budget of {entry_limit} directory entries", stop=True)
-                                return
+                                return below
                             if len(names) > MAX_DIR_ENTRIES:
                                 mark("entries", f"a single directory exceeded {MAX_DIR_ENTRIES} entries")
-                                return
+                                return below
                     for name in sorted(names):
                         if state["stop"]:
-                            return
+                            return below
                         try:
                             target = permissions.absolute_path(absolute + "/" + name)
                         except ValueError:
@@ -170,7 +172,7 @@ class Project:
                         info = os.stat(name, dir_fd=directory, follow_symlinks=False)
                         child = name if not relative else relative + "/" + name
                         if stat.S_ISDIR(info.st_mode):
-                            visit(target, child, depth + 1)
+                            below.append((target, child, depth + 1))
                         elif stat.S_ISLNK(info.st_mode):
                             counts["links"] += 1
                         elif stat.S_ISREG(info.st_mode):
@@ -180,7 +182,7 @@ class Project:
                                 counts["denied"] += 1
                             elif len(found) >= MAX_FILES:
                                 mark("files", f"the index exceeded its limit of {MAX_FILES} files", stop=True)
-                                return
+                                return below
                             else:
                                 found.append(Entry(child, info.st_size,
                                                    (info.st_dev, info.st_ino, info.st_mtime_ns), permissions._fingerprint(info)))
@@ -190,6 +192,7 @@ class Project:
             except (ValueError, OSError):
                 counts["other"] += 1
                 mark("unreadable", "a directory could not be read or changed during the scan")
+            return below
 
         policy.recheck()
         try:
@@ -199,7 +202,12 @@ class Project:
             raise ProjectError("PROJECT_ROOT") from None
         if not stat.S_ISDIR(info.st_mode):
             raise ProjectError("PROJECT_ROOT")
-        visit(self.root, "", 0)
+        # Level by level: when a limit stops the scan, the files nearest the root are the ones indexed, never the
+        # whole of the first deep subdirectory at the cost of the project's own top-level files.
+        from collections import deque
+        pending = deque([(self.root, "", 0)])
+        while pending and not state["stop"]:
+            pending.extend(visit(*pending.popleft()))
         policy.recheck()
         self.files = tuple(sorted(found, key=lambda e: e.path))
         self._by_path = {e.path: e for e in self.files}

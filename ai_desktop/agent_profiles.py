@@ -531,6 +531,22 @@ def catalog_for(selected):
     return _text("\n\n".join(parts), MAX_EXECUTION_INSTRUCTIONS)
 
 
+def with_presets(name, selected):
+    """The built-in Skills of a built-in profile are always on: the installed preset Skills come first, then the
+    owner's own additions. A Skill that is not installed is left out rather than failing the role."""
+    preset = PRESET_SKILLS.get(name, ())
+    if not preset or type(selected) is not Profile:
+        return selected
+    from . import skills
+    try:
+        installed = set(skills.names())
+    except (OSError, ValueError):
+        return selected
+    always = tuple(skill for skill in preset if skill in installed)
+    merged = always + tuple(skill for skill in selected.skills if skill not in always)
+    return selected if merged == selected.skills else replace(selected, skills=merged)
+
+
 def resolve(profile=None, model=None, effort=None, *, store=None, provider=None, catalog=True):
     """Freeze the selected role and installed Skill bytes before a task starts."""
     store = store or Store()
@@ -542,7 +558,7 @@ def resolve(profile=None, model=None, effort=None, *, store=None, provider=None,
     name = config.active if profile is None else slug(profile)
     if name not in config.profiles:
         raise ProfileError("missing")
-    selected = config.profiles[name]
+    selected = with_presets(name, config.profiles[name])
     if model is not None or effort is not None:
         selected = replace(selected, **({"model": model} if model is not None else {}),
                            **({"effort": effort} if effort is not None else {}))
