@@ -145,11 +145,11 @@ Data that was sent cannot be withdrawn.
 ## What we do not guarantee
 
 - **Protection against another process of the same user**, root, a compromised kernel or a malicious system.
-- **Protection of the client token against the client itself.** The official client has access to its own login profile. A compromised client could send it to an allowed
+- **Protection of the client token against the client itself.** The official Claude Code client has access to its own login profile (no documented alternative exists for subscription logins, and Anthropic's terms forbid intermediating the token); Codex receives only a short-lived access token from the service, never the refresh token. A compromised client could send it to an allowed
   host. The proxy does not see TLS content and does not filter paths or data. On top of SUID/SGID blocking, a system-call filter refuses kernel interfaces a chat client never needs (mounting, namespaces, modules, `ptrace` and reading other processes' memory, `bpf`, kernel keys, `userfaultfd`, clock and reboot calls; `io_uring` reports as unavailable). It is a deny list modelled on systemd's `SystemCallFilter` groups, not an allow list of every call.
 - **Safety of the `allow` list.** The sandbox hides daemon sockets under `/run` unless you list them in `host_sockets` and gives D-Bus only through a filter of read methods, but a command able to change state through a socket you opted in, such as Docker's, is not stopped,
   and it runs without asking. List only read-only commands here.
-- **Recognition of secrets.** In `version = 2` there is no hidden name filter or private key scanner. A secret in an allowed tree without `deny` can go to the provider.
+- **Recognition of secrets.** In `version = 2` a documented list of common secret locations is protected by default (`files.protect`, see docs/CONFIGURATION.md; `/permissions` prints it) even under a broad read rule, but there is no content scanner: a secret stored anywhere else in an allowed tree, without `deny`, can go to the provider. An owner who names a protected location in `files.read`, or sets `protect = false`, takes that protection off on purpose.
 - **Vendor authenticity or a frozen operating system.** Client snapshots bind the checked executable and supported private resources to an operation. They do not certify the package vendor, snapshot system runtime libraries or protect against a hostile administrator. Metadata-only discovery does not authorize execution.
 - **Correctness of changes.** A test on a copy concerns only the chosen check, `text` does not examine syntax or behaviour.
 - **Atomicity.** A multi-file task and a package update are not one transaction. There is no guarantee in case of power loss.

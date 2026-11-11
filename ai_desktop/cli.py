@@ -13,6 +13,7 @@ from . import agent, audit, compare, controller, diagnose, doctor, e2_handoff_cl
 
 PUBLIC_COMMANDS = ("ask", "material", "project", "task", "status", "stop", "settings",
                    "agents", "agent", "account", "usage", "local", "panel", "sessions", "skills", "login", "doctor", "clients",
+                   "commands",
                    "widget")
 
 
@@ -142,6 +143,7 @@ Run ai-desktop in a terminal to start a conversation; ai-desktop -c continues th
   login      Log in to the default Claude or Codex account
   doctor     Check requirements without starting AI
   clients    Inspect installed clients and manage their isolated copies
+  commands   The commands permissions.toml allows (read or change), with package versions
 
 Full command list, including internal and developer tools: ai-desktop --help-all
 Help for a command: ai-desktop COMMAND --help
@@ -196,6 +198,9 @@ def main(argv=None):
     if argv[0] == "local":
         from . import local_provider
         return local_provider.main(argv[1:])
+    if argv[0] == "commands":
+        from . import commands_cli
+        return commands_cli.main(argv[1:])
     if argv[0] == "clients":
         from . import clients_cli
         return clients_cli.main(argv[1:])
