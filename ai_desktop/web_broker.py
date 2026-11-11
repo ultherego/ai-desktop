@@ -34,7 +34,8 @@ _NAT64 = ipaddress.ip_network("64:ff9b::/96")
 
 
 class WebError(ValueError):
-    """A refusal with a short code: url, address, tls, network, response, type, size, redirects, timeout."""
+    """A refusal with a short code: url, address, tls, network, response, status (not 2xx, e.g. a bot check that needs
+    JavaScript), type, size, redirects, timeout."""
 
     def __init__(self, code):
         super().__init__(code)
@@ -178,6 +179,9 @@ def fetch(url, *, context=None):
                 chain.append(current)
                 current = clean_url(urljoin(current, location.strip()))   # a redirect to http or a private host stops
                 continue
+            if not 200 <= response.status < 300:
+                # 403 from a bot check (a page that needs a browser with JavaScript), 404, 5xx: not the page asked for.
+                raise WebError("status")
             content_type = response.getheader("Content-Type", "").split(";", 1)[0].strip().lower()
             encoding = response.getheader("Content-Encoding", "identity").strip().lower()
             if encoding not in ("", "identity"):
@@ -344,7 +348,7 @@ def open_page(url, *, cancelled=None):
         raise WebError("response") from None
     if code != 0 or type(value) is not dict:
         reason = value.get("error") if type(value) is dict else None
-        raise WebError(reason if reason in ("url", "address", "tls", "network", "response", "type", "size",
+        raise WebError(reason if reason in ("url", "address", "tls", "network", "response", "status", "type", "size",
                                             "redirects") else "response")
     return validate_page(value)
 

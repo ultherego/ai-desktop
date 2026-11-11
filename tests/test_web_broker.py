@@ -85,6 +85,12 @@ class FetchTests(unittest.TestCase):
             self.fetch([Response(302, [("Location", "/again")]) for _ in range(w.MAX_REDIRECTS + 1)])
         self.assertEqual(caught.exception.code, "redirects")
 
+    def test_an_error_status_or_a_bot_check_is_not_a_page(self):
+        for status in (403, 404, 500, 503):
+            with self.subTest(status=status), self.assertRaises(w.WebError) as caught:
+                self.fetch([Response(status, [("Content-Type", "text/html")], b"<title>Just a moment...</title>")])
+            self.assertEqual(caught.exception.code, "status")
+
     def test_compressed_or_oversized_bodies_are_refused_and_a_long_one_is_cut(self):
         with self.assertRaises(w.WebError) as caught:
             self.fetch([Response(200, [("Content-Type", "text/html"), ("Content-Encoding", "gzip")], b"x")])
