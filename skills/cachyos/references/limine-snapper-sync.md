@@ -1,7 +1,7 @@
 ---
 name: limine-snapper-sync
 description: How limine-snapper-sync turns Snapper snapshots into Limine boot entries and how to check them.
-tools: limine-snapper-sync, limine
+tools: limine-snapper-sync
 source: https://gitlab.com/Zesko/limine-snapper-sync
 section: Description; Boot Configuration; Tool Configuration; Troubleshooting
 checked: 2026-11-11
