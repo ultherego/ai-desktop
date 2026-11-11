@@ -94,6 +94,9 @@ class WorkflowTests(unittest.TestCase):
             self.assertRegex(action, r"@[0-9a-f]{40}\Z")                       # a commit, never a moving tag
         self.assertNotRegex(self.text, r"echo[^\n]*\$\{?SIGNING_(KEY|PASSPHRASE)")      # a secret is never printed
 
+    def test_a_zero_version_is_published_as_a_pre_release(self):
+        self.assertIn('[[ "$TAG" == v0.* ]] && kind=(--prerelease --latest=false)', self.text)
+
     def test_the_database_goes_up_after_its_package_and_old_packages_only_after_both(self):
         upload_package = self.text.index('gh release upload repo "$repo/$package"')
         upload_database = self.text.index('"$repo/ai-desktop.db"')

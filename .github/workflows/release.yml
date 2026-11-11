@@ -101,7 +101,10 @@ jobs:
           repo="$RUNNER_TEMP/repo"
           package=$(cd "$repo" && ls ai-desktop-*.pkg.tar.zst)
           # The release of this tag carries the package itself.
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --verify-tag --title "AI Desktop $TAG" \
+          # A 0.x version is a test build: marked as a pre-release, never as the latest release.
+          kind=(--latest)
+          [[ "$TAG" == v0.* ]] && kind=(--prerelease --latest=false)
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --verify-tag "${kind[@]}" --title "AI Desktop $TAG" \
             --notes "See CHANGELOG.md. Install from the signed pacman repository as described in README.md."
           gh release upload "$TAG" "$repo/$package" "$repo/$package.sig" --clobber
           # The pacman repository: new package first, then the database, then the old packages go.
