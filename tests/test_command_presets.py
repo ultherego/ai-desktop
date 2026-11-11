@@ -45,6 +45,16 @@ class PresetTests(unittest.TestCase):
         self.assertEqual(len(policy.access()["commands"]), len(DIAGNOSTICS) + 1)   # uptime is in both: once
         self.assertFalse(policy.allows_command(["journalctl", "-b"]))           # commands.deny removes from the preset
 
+    def test_root_and_boot_filesystem_reads_work_with_a_narrow_read_scope(self):
+        # CachyOS check (candidate 164): "/" and "/boot" are rarely in files.read, so "findmnt ..." refused them.
+        policy = load('version = 2\n[files]\nread = ["~/Projects/**"]\ndeny = []\n[commands]\npreset = "diagnostics"\n')
+        for argv in (["findmnt", "/"], ["findmnt", "/boot"], ["findmnt", "/boot/efi"], ["btrfs", "filesystem", "usage", "/"],
+                     ["btrfs", "device", "stats", "/"], ["btrfs", "scrub", "status", "/"]):
+            with self.subTest(argv=argv):
+                self.assertTrue(policy.allows_command(argv))
+        self.assertFalse(policy.allows_command(["findmnt", "/home"]))         # the sandbox shows an empty /home
+        self.assertFalse(policy.allows_command(["findmnt", "-no", "SOURCE", "/etc"]))  # other paths: files.read decides
+
     def test_an_unknown_preset_is_refused(self):
         with self.assertRaises(ValueError):
             load(BASE % ("", "", '[commands]\npreset = "everything"\n'))

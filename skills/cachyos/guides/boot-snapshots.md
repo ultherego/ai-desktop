@@ -19,7 +19,7 @@ Gather the last visible message, the latest change, whether an older entry can b
 
 ## Reading and limits
 
-Use only data made available by the controller: entry configuration, the relevant log and a confirmed map of root, `/boot` and the ESP. `findmnt` in the sandbox can show the sandbox's view. Describe tools that need an administrator, an interactive chroot or a restart as a manual plan; lack of access does not justify escalation or a policy change.
+Use only data made available by the controller: entry configuration, the relevant log and a confirmed map of root, `/boot` and the ESP. `findmnt /`, `findmnt /boot`, `findmnt /efi` and `findmnt /boot/efi` (exactly so, without options) show root and the boot partitions; `findmnt` in the sandbox can show the sandbox's view, and `/home` there is empty. Describe tools that need an administrator, an interactive chroot or a restart as a manual plan; lack of access does not justify escalation or a policy change.
 
 ## Conditions for restoring a snapshot
 

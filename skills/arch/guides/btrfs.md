@@ -11,7 +11,7 @@ Establish the mount point, the number of devices, the symptom and the latest cha
 
 ## Reading and interpretation
 
-Use only reads allowed by the controller. `btrfs filesystem usage MOUNTPOINT`, `btrfs filesystem show MOUNTPOINT`, `btrfs device stats MOUNTPOINT` and a narrow excerpt of the kernel journal may need permissions or data from the user. The sandbox's view of mounts does not prove the host layout. A denied access is missing evidence, not a Btrfs failure.
+Use only reads allowed by the controller. For the root filesystem write the path as `/` with no extra options (`btrfs filesystem usage /`, `btrfs device stats /`, `findmnt /`): a path in other forms must be inside the owner's file scopes. `btrfs filesystem usage MOUNTPOINT`, `btrfs filesystem show MOUNTPOINT`, `btrfs device stats MOUNTPOINT` and a narrow excerpt of the kernel journal may need permissions or data from the user. The sandbox's view of mounts does not prove the host layout. A denied access is missing evidence, not a Btrfs failure.
 
 | Observation | Next step |
 |---|---|

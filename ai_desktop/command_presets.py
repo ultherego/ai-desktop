@@ -32,6 +32,12 @@ DIAGNOSTICS = (
     "btrfs filesystem usage ...", "btrfs filesystem show ...", "btrfs filesystem df ...", "btrfs device stats ...",
     "btrfs subvolume list ...", "btrfs subvolume show ...", "btrfs scrub status ...", "btrfs balance status ...",
     "snapper list ...", "snapper list-configs",
+    # The root filesystem and the boot partitions by fixed path: a path among "..." words must lie in files.read, which
+    # seldom holds "/" or "/boot". These read only mount and filesystem metadata; /home is left out because the
+    # sandbox shows an empty tmpfs there.
+    "findmnt /", "findmnt /boot", "findmnt /efi", "findmnt /boot/efi",
+    "btrfs filesystem usage /", "btrfs filesystem show /", "btrfs filesystem df /", "btrfs device stats /",
+    "btrfs subvolume list /", "btrfs subvolume show /", "btrfs scrub status /", "btrfs balance status /",
     "fwupdmgr get-devices ...", "fwupdmgr get-updates ...", "fwupdmgr get-history ...", "fwupdmgr check-reboot-needed ...",
     # network
     "ip ...", "ss -tulpn", "ss -tunap", "ss -s", "nmcli general status", "nmcli device status ...",
