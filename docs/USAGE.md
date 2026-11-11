@@ -153,7 +153,7 @@ ai-desktop skills show my-system     # preview
 ai-desktop agents                    # assign a Skill to an agent
 ```
 
-Your own Skill with the name of a general one takes priority. **Do not put secrets or data about yourself in it: the description and content of a Skill may go to the model.** A path written in a Skill counts as one given by you, so the model can read it without discovery; `deny` still decides.
+A packaged Skill always wins: each update replaces the program's Skills, so give your own a different name. An own Skill with a packaged name is ignored and reported by `/skills`, `ai-desktop skills` and `ai-desktop doctor`; `skills new` refuses packaged names. **Do not put secrets or data about yourself in it: the description and content of a Skill may go to the model.** A path written in a Skill counts as one given by you, so the model can read it without discovery; `deny` still decides.
 
 ## Agents and models
 
