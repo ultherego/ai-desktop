@@ -391,7 +391,7 @@ def transfer_files(plan, snapshot, reader):
         return CompletedTask(2)
     except (OSError, ValueError, ExecutionDenied):
         raise EditDenied("input") from None
-    print("%s done." % ("Moved" if operation == "move" else "Copied"))
+    print("Moved." if operation == "move" else "Copied.")
     print("Undo: " + shlex.join(["ai-desktop", "task", "restore", "--workspace", workspace, "--plan", plan_id]))
     conversation_state.note_action("%s %s -> %s (can be undone with ai-desktop task restore)" % (
         "Moved" if operation == "move" else "Copied", source, target))
