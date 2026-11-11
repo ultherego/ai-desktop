@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import http.client
 import ipaddress
 import json
+import os
 import math
 from pathlib import Path
 import re
@@ -181,12 +182,14 @@ class _PinnedHTTPS(http.client.HTTPSConnection):
 
 
 def _endpoint(kind, parameters):
-    if kind == "geocode" and type(parameters) is dict and set(parameters) == {"city"}:
+    if kind == "geocode" and type(parameters) is dict and set(parameters) == {"city", "language"}:
         city = validate_city(parameters["city"])
-        # "pl" stays on purpose: with "en" the geocoder no longer finds the main city for Polish names (e.g. "Example City"),
-        # while with "pl" English names ("Other City") still match.
+        # The user's own language (from the system locale): local city names are found in that language, while English
+        # names still match.
+        if type(parameters["language"]) is not str or not re.fullmatch(r"[a-z]{2}", parameters["language"]):
+            raise WeatherError("input")
         return "geocoding-api.open-meteo.com", "/v1/search?" + urlencode({
-            "name": city, "count": MAX_CANDIDATES, "language": "pl", "format": "json"})
+            "name": city, "count": MAX_CANDIDATES, "language": parameters["language"], "format": "json"})
     if kind == "current" and type(parameters) is dict and set(parameters) == {"latitude", "longitude"}:
         return "api.open-meteo.com", "/v1/forecast?" + urlencode({
             "latitude": _number(parameters["latitude"], -90, 90),
@@ -271,9 +274,20 @@ def _worker():
         return 2
 
 
+def language(environ=None):
+    """The two-letter language of the user's locale (LC_ALL, LC_MESSAGES, LANG), English when unset or C/POSIX."""
+    environ = os.environ if environ is None else environ
+    for name in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        value = environ.get(name, "")
+        if value:
+            match = re.match(r"([a-z]{2})(?:[_.@]|\Z)", value)
+            return match.group(1) if match else "en"
+    return "en"
+
+
 def geocode(city):
     """Return at most five candidates; the UI must resolve multiple matches."""
-    result = _request("geocode", {"city": validate_city(city)})
+    result = _request("geocode", {"city": validate_city(city), "language": language()})
     rows = result.get("results", [])
     if type(rows) is not list or len(rows) > MAX_CANDIDATES or result.get("error"):
         raise WeatherError("response")

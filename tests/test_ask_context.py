@@ -15,7 +15,7 @@ from ai_desktop.question_consent import QuestionConsent
 
 LOCATION = {"id": 1000001, "name": "Example City", "country": "Exampleland",
             "admin1": "Example Region", "latitude": 45.00012, "longitude": 10.00988}
-OTHER = {"id": 2, "name": "Other City", "country": "Otherland",
+OTHER = {"id": 2, "name": "Other City", "country": "USA",
          "admin1": "Other Region", "latitude": 40.0, "longitude": 30.0}
 WEATHER = {"kind": "weather", "source": "Open-Meteo",
            "source_url": "https://open-meteo.com/en/docs",

@@ -88,7 +88,7 @@ def main(argv=None):
         if weather:
             stage = "weather"
             prior.run("/usr/bin/ai-desktop", "ask", "--weather", "Example City", "--question",
-                      "Jaka jest aktualna pogoda w Example City? Podaj czas danych i źródło.", timeout=420)
+                      "What is the current weather in Example City? Give the data time and the source.", timeout=420)
             prior.check_stopped(uid, units)
         passed = True
     except (OSError, ValueError, RuntimeError, KeyError, subprocess.SubprocessError, KeyboardInterrupt):

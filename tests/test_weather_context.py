@@ -37,6 +37,18 @@ def dns(ip="8.8.8.8"):
 
 
 class WeatherTests(unittest.TestCase):
+    def test_the_city_is_looked_up_in_the_users_language_never_a_fixed_one(self):
+        for environ, expected in (({"LANG": "pl_PL.UTF-8"}, "pl"), ({"LANG": "de_DE.UTF-8"}, "de"),
+                                  ({"LC_ALL": "fr_FR.UTF-8", "LANG": "de_DE.UTF-8"}, "fr"), ({"LANG": "C.UTF-8"}, "en"),
+                                  ({}, "en"), ({"LANG": "POSIX"}, "en")):
+            with self.subTest(environ=environ):
+                self.assertEqual(weather.language(environ), expected)
+        host, path = weather._endpoint("geocode", {"city": "Example City", "language": "de"})
+        self.assertIn("language=de", path)
+        for bad in ("deu", "DE", "", "d\n", 1):
+            with self.subTest(bad=bad), self.assertRaises(weather.WeatherError):
+                weather._endpoint("geocode", {"city": "Example City", "language": bad})
+
     def test_city_validation_and_request_parameters_before_any_worker(self):
         with patch("ai_desktop.process_io.bounded_process") as process:
             for city in ("", "a", "x" * 121, "Example City\nHost: evil", "\x1b", "\u202eExample City", "\ud800", [], None):
@@ -53,9 +65,10 @@ class WeatherTests(unittest.TestCase):
         second = dict(LOCATION, id=2, country="USA", latitude=40.0, longitude=30.0)
         upstream = {"results": [dict(LOCATION, postcodes=["PRIVATE"], elevation=120), second]}
         with patch.object(weather, "_request", return_value=upstream) as request:
-            result = weather.geocode(" Example City ")
+            with patch.object(weather, "language", return_value="en"):
+                result = weather.geocode(" Example City ")
         self.assertEqual(result, [LOCATION, second])
-        request.assert_called_once_with("geocode", {"city": "Example City"})
+        request.assert_called_once_with("geocode", {"city": "Example City", "language": "en"})
         self.assertNotIn("PRIVATE", json.dumps(result))
         for value, reason in (({}, "not-found"), ({"results": "wrong"}, "response"),
                               ({"results": [LOCATION] * 6}, "response"),
@@ -120,7 +133,7 @@ class WeatherTests(unittest.TestCase):
                 weather._json(raw)
 
     def test_endpoint_city_is_encoded_and_no_user_can_supply_an_authority(self):
-        host, path = weather._endpoint("geocode", {"city": "Example City &latitude=0"})
+        host, path = weather._endpoint("geocode", {"city": "Example City &latitude=0", "language": "en"})
         self.assertEqual(host, "geocoding-api.open-meteo.com")
         self.assertIn("name=Example+City+%26latitude%3D0", path)
         self.assertIn("count=5", path)
@@ -173,7 +186,7 @@ class WeatherTests(unittest.TestCase):
             connection = Mock()
             connection.getresponse.return_value = response
             with patch.object(weather, "_PinnedHTTPS", return_value=connection), self.assertRaises(weather.WeatherError) as error:
-                weather._https_json("geocode", {"city": "Example City"})
+                weather._https_json("geocode", {"city": "Example City", "language": "en"})
             self.assertEqual(error.exception.reason, reason)
             connection.close.assert_called_once()
             self.assertEqual(connection.request.call_count, 1)
@@ -183,7 +196,7 @@ class WeatherTests(unittest.TestCase):
         response = self.response(headers=[("Content-Type", "application/json; charset=utf-8"), ("Transfer-Encoding", "chunked")])
         connection.getresponse.return_value = response
         with patch.object(weather, "_PinnedHTTPS", return_value=connection):
-            self.assertEqual(weather._https_json("geocode", {"city": "Example City"}), {"results": []})
+            self.assertEqual(weather._https_json("geocode", {"city": "Example City", "language": "en"}), {"results": []})
         response.read.assert_called_once_with(weather.MAX_BODY + 1)
         headers = connection.request.call_args.kwargs["headers"]
         self.assertEqual(set(headers), {"Accept", "Accept-Encoding", "Connection", "User-Agent"})
@@ -191,7 +204,7 @@ class WeatherTests(unittest.TestCase):
 
     def test_worker_is_isolated_environment_bounded_and_error_text_never_leaks(self):
         with patch("ai_desktop.process_io.bounded_process", return_value=(0, b'{"results":[]}', b"SECRET")) as process:
-            self.assertEqual(weather._request("geocode", {"city": "Example City"}), {"results": []})
+            self.assertEqual(weather._request("geocode", {"city": "Example City", "language": "en"}), {"results": []})
         args, kwargs = process.call_args
         self.assertEqual(args[0][1:4], ["-I", "-B", "-c"])
         self.assertEqual(kwargs["env"], {"PATH": "/usr/bin", "LANG": "C.UTF-8"})
@@ -200,15 +213,15 @@ class WeatherTests(unittest.TestCase):
         for result, expected in (((2, b'{"error":"SECRET"}', b"SECRET"), "response"),
                                  ((2, b'{"error":"rate-limit"}', b""), "rate-limit")):
             with patch("ai_desktop.process_io.bounded_process", return_value=result), self.assertRaises(weather.WeatherError) as error:
-                weather._request("geocode", {"city": "Example City"})
+                weather._request("geocode", {"city": "Example City", "language": "en"})
             self.assertEqual(error.exception.reason, expected)
             self.assertNotIn("SECRET", str(error.exception))
         with patch("ai_desktop.process_io.bounded_process", side_effect=AnalysisDenied("timeout")), self.assertRaises(weather.WeatherError) as error:
-            weather._request("geocode", {"city": "Example City"})
+            weather._request("geocode", {"city": "Example City", "language": "en"})
         self.assertEqual(error.exception.reason, "timeout")
 
     def test_worker_fixed_grammar_rejects_extra_input_without_request(self):
-        stdin = Mock(buffer=io.BytesIO(b'{"kind":"geocode","parameters":{"city":"Example City"},"url":"https://localhost"}'))
+        stdin = Mock(buffer=io.BytesIO(b'{"kind":"geocode","parameters":{"city":"Example City","language":"en"},"url":"https://localhost"}'))
         stdout = io.StringIO()
         with patch.object(weather.sys, "stdin", stdin), patch.object(weather.sys, "stdout", stdout), patch.object(weather, "_https_json") as fetch:
             self.assertEqual(weather._worker(), 2)

@@ -208,7 +208,7 @@ class WebSearchResultTests(unittest.TestCase):
 
     def test_one_unusual_search_result_is_left_out_instead_of_refusing_the_answer(self):
         good = "https://www.python.org/about/"
-        for item in ({"title": "Exampleland", "url": "https://zażółć.pl/a"},
+        for item in ({"title": "Exampleland", "url": "https://bücher.example/a"},
                      {"title": "Port", "url": "https://python.org:8443/"},
                      {"title": "Underscore", "url": "https://my_host.example.com/"},
                      {"title": "Quote", "url": 'https://python.org/"a"'},

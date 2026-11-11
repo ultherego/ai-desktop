@@ -70,7 +70,6 @@ Limits (default → highest allowed):
 | `/run/docker.sock` | `docker` (root-equivalent: list only if you need it) |
 | `/run/podman/podman.sock` | `podman` as root (root-equivalent) |
 | `/run/containerd/containerd.sock` | `ctr`, `nerdctl` (root-equivalent) |
-| `/run/example-daemon.sock` | `exampletool` (example service) |
 | `/run/libvirt/libvirt-sock-ro` | `virsh` read-only queries |
 | `/run/systemd/resolve/io.systemd.Resolve` | `resolvectl` (also allows DNS lookups) |
 
@@ -78,13 +77,12 @@ Limits (default → highest allowed):
 
 ```toml
 [commands]
-host_sockets = ["/run/docker.sock", "/run/example-daemon.sock"]
+host_sockets = ["/run/docker.sock"]
 deny = ["docker rm", "docker rmi"]
 
 [commands.allow]
 general = ["uptime", "free -h"]
 docker = ["docker ps ...", "docker images"]
-gpu = ["exampletool status"]
 
 [commands.change]
 docker = ["docker run --rm ..."]
@@ -139,10 +137,10 @@ podman = ["podman --url=unix:///run/podman/podman.sock ps ...",
 
 ```toml
 [commands]
-host_sockets = ["/run/example-daemon.sock", "/run/libvirt/libvirt-sock-ro"]
+host_sockets = ["/run/libvirt/libvirt-sock-ro"]
 
 [commands.allow]
-services = ["exampletool status", "virsh -r -c qemu:///system list --all"]
+services = ["virsh -r -c qemu:///system list --all"]
 ```
 
 **Restarting a service.** Commands run as you, without `sudo`: a system service (`systemctl restart sshd`) needs root, so the model gives you the command instead. Your own user services can be changed:

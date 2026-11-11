@@ -91,22 +91,22 @@ class TuningScenarioTests(Harness):
     all of them after the opening turns have left the verbatim window."""
 
     TURNS = [
-        ("I want to tune a service. I use a settings tool.", "O jaką grę chodzi?",
+        ("I want to tune a service to use less memory.", "Which service?",
          {"add": [{"kind": "open", "text": "Which service and what goal (memory tuning)"}]}),
-        ("Example Game. Chcę zmniejszyć pobór mocy i zachować podobne FPS.", "Rozumiem.",
-         {"add": [{"kind": "success", "text": "Cel: niższy pobór mocy, FPS podobne (Example Game)"}]}),
-        ("Ustawienie bazowe: 250 W, 92 FPS, napięcie 1050 mV.", "Zapisane jako baza.",
-         {"add": [{"kind": "baseline", "text": "Baza: 250 W, 92 FPS, 1050 mV"}]}),
-        ("Próba A: 220 W, 91 FPS, stabilna.", "Zapisane.",
-         {"add": [{"kind": "trial", "text": "Próba A: 220 W, 91 FPS, stabilna"}]}),
-        ("Próba B: 200 W, gra się zawiesiła.", "Zapisane.",
-         {"add": [{"kind": "trial", "text": "Próba B: 200 W, zawieszenie gry"}]}),
-        ("Poprawka: 220 W dotyczyło próby B, a próba A miała 230 W.", "Poprawiam.",
-         {"add": [{"kind": "correction", "text": "Próba A: 230 W, 91 FPS, stabilna", "supersedes": ["m4.1"]},
-                  {"kind": "correction", "text": "Próba B: 220 W, zawieszenie gry", "supersedes": ["m5.1"]}]}),
-        ("Spróbuj 190 W.", "Propozycja: 190 W.",
-         {"add": [{"kind": "proposal", "text": "Propozycja: 190 W w próbie C"}]}),
-        ("Nie, odrzucam 190 W.", "Odrzucone.", {"mark": [{"id": "m7.1", "status": "rejected"}]}),
+        ("The example service. Less memory, similar response time.", "Understood.",
+         {"add": [{"kind": "success", "text": "Goal: less memory, similar response time (example service)"}]}),
+        ("Baseline: 900 MB, 120 ms, 8 workers.", "Saved as the baseline.",
+         {"add": [{"kind": "baseline", "text": "Baseline: 900 MB, 120 ms, 8 workers"}]}),
+        ("Trial A: 700 MB, 125 ms, stable.", "Saved.",
+         {"add": [{"kind": "trial", "text": "Trial A: 700 MB, 125 ms, stable"}]}),
+        ("Trial B: 500 MB, the service stopped.", "Saved.",
+         {"add": [{"kind": "trial", "text": "Trial B: 500 MB, service stopped"}]}),
+        ("Correction: 700 MB was trial B, trial A used 750 MB.", "Correcting.",
+         {"add": [{"kind": "correction", "text": "Trial A: 750 MB, 125 ms, stable", "supersedes": ["m4.1"]},
+                  {"kind": "correction", "text": "Trial B: 700 MB, service stopped", "supersedes": ["m5.1"]}]}),
+        ("Try 400 MB.", "Proposal: 400 MB.",
+         {"add": [{"kind": "proposal", "text": "Proposal: 400 MB in trial C"}]}),
+        ("No, I reject 400 MB.", "Rejected.", {"mark": [{"id": "m7.1", "status": "rejected"}]}),
     ]
 
     def model(self, payload, number):
@@ -114,15 +114,15 @@ class TuningScenarioTests(Harness):
             _, text, ops = self.TURNS[number - 1]
             return answer(text, ops)
         if number == 20:
-            stable = [e for e in entries(payload).values() if e["status"] == "active" and "stabilna" in e["text"]]
-            return answer("Ostatnia stabilna: " + "; ".join(e["text"] for e in stable))
-        return answer("Dalej %d." % number, {})
+            stable = [e for e in entries(payload).values() if e["status"] == "active" and "stable" in e["text"]]
+            return answer("Last stable: " + "; ".join(e["text"] for e in stable))
+        return answer("Next %d." % number, {})
 
     def test_after_twenty_turns_the_provider_gets_goal_baseline_and_the_corrected_result(self):
         replies = []
         for index in range(20):
             question = self.TURNS[index][0] if index < len(self.TURNS) else (
-                "Wróćmy do ostatniego stabilnego ustawienia. Która to była próba?" if index == 19 else "Krok %d" % index)
+                "Back to the last stable setting: which trial was it?" if index == 19 else "Step %d" % index)
             replies += [question] + ([] if replies else [YES])
         result = self.run_ui(replies + [""], self.model)
         self.assertEqual(result.code, 0, result.out)
@@ -131,19 +131,19 @@ class TuningScenarioTests(Harness):
         last = self.payloads[-1]
         asked = [turn["question"] for turn in last["conversation"]]
         self.assertEqual(len(asked), 19)
-        self.assertTrue(find(last, "memory tuning"))   # the goal is also in the task memory
-        self.assertEqual(len(find(last, "Baza: 250 W, 92 FPS")), 1)
+        self.assertTrue(find(last, "memory tuning"))                          # the goal is also in the task memory
+        self.assertEqual(len(find(last, "Baseline: 900 MB, 120 ms")), 1)
         corrected = {item["text"]: item for item in entries(last).values()}
-        self.assertEqual(corrected["Próba A: 230 W, 91 FPS, stabilna"]["status"], "active")
-        old_a = corrected["Próba A: 220 W, 91 FPS, stabilna"]
+        self.assertEqual(corrected["Trial A: 750 MB, 125 ms, stable"]["status"], "active")
+        old_a = corrected["Trial A: 700 MB, 125 ms, stable"]
         self.assertEqual(old_a["status"], "superseded")                # the superseded value is marked, not true
-        self.assertEqual(old_a["by"], corrected["Próba A: 230 W, 91 FPS, stabilna"]["id"])
-        self.assertEqual(corrected["Próba B: 200 W, zawieszenie gry"]["status"], "superseded")
-        self.assertEqual(corrected["Próba B: 220 W, zawieszenie gry"]["status"], "active")
-        self.assertEqual(corrected["Propozycja: 190 W w próbie C"]["status"], "rejected")
+        self.assertEqual(old_a["by"], corrected["Trial A: 750 MB, 125 ms, stable"]["id"])
+        self.assertEqual(corrected["Trial B: 500 MB, service stopped"]["status"], "superseded")
+        self.assertEqual(corrected["Trial B: 700 MB, service stopped"]["status"], "active")
+        self.assertEqual(corrected["Proposal: 400 MB in trial C"]["status"], "rejected")
         self.assertEqual(last["memory"]["dropped"], 0)
         # The visible answer was computed by the stand-in from the approved payload only.
-        self.assertIn("Ostatnia stabilna: Próba A: 230 W, 91 FPS, stabilna", result.out)
+        self.assertIn("Last stable: Trial A: 750 MB, 125 ms, stable", result.out)
         self.assertNotIn("@@MEMORY", result.out)                        # the memory line is never shown
         self.assertEqual(result.out.count("How can I help?"), 0)     # the greeting belongs to the terminal reader
 
@@ -180,13 +180,13 @@ class TuningScenarioTests(Harness):
 
 class MemoryRobustnessTests(Harness):
     def test_missing_or_invalid_update_keeps_the_users_own_words(self):
-        replies = ["Cel: obniżyć temperaturę GPU.", YES, "Baza: 71 °C.", "Dalej", ""]
+        replies = ["Goal: lower the response time.", YES, "Baseline: 120 ms.", "Next", ""]
         outputs = ["Dobrze.", "Zapisane\n@@MEMORY {zepsuty json", "OK"]
         result = self.run_ui(replies, lambda payload, n: json.dumps({"action": "answer", "text": outputs[n - 1]}))
         self.assertEqual(result.code, 0, result.out)
         texts = [item["text"] for item in entries(self.payloads[-1]).values()]
-        self.assertTrue(any("temperatur" in text for text in texts))     # first message: deterministic goal
-        self.assertTrue(any("71" in text for text in texts))             # invalid update -> user's message kept
+        self.assertTrue(any("response time" in text for text in texts))  # first message: deterministic goal
+        self.assertTrue(any("120 ms" in text for text in texts))         # invalid update -> the user's message kept
         self.assertNotIn("@@MEMORY", result.out)
 
     def test_budget_exhaustion_is_reported_and_counted_not_silent(self):
@@ -195,7 +195,7 @@ class MemoryRobustnessTests(Harness):
             replies += ["Wynik %d: wartość %d." % (index, index)] + ([] if replies else [YES])
 
         def model(payload, number):
-            return answer("OK", {"add": [{"kind": "value", "text": "Wartość %d: %d W " % (number, number) + "x" * (cm.ENTRY_BYTES - 50)}]})
+            return answer("OK", {"add": [{"kind": "value", "text": "Value %d: %d MB " % (number, number) + "x" * (cm.ENTRY_BYTES - 50)}]})
         result = self.run_ui(replies + [""], model)
         last = self.payloads[-1]
         self.assertLessEqual(len(last["memory"]["entries"]), cm.MAX_ENTRIES)
@@ -292,12 +292,12 @@ class SessionResumeTests(Harness):
         def model(payload, number):
             if number == 1:
                 conversation_state.note_sources(["/home/u/secret.conf"])
-                return answer("Zapisane %s" % MARKER, {"add": [{"kind": "baseline", "text": "Baza: 250 W"},
+                return answer("Zapisane %s" % MARKER, {"add": [{"kind": "baseline", "text": "Baseline: 900 MB"},
                                                               {"kind": "observation", "text": "Plik: " + MARKER}]})
             if number == 2:
-                return answer("Poprawiam.", {"add": [{"kind": "correction", "text": "Baza: 240 W", "supersedes": ["m1.2"]}]})
+                return answer("Poprawiam.", {"add": [{"kind": "correction", "text": "Baseline: 850 MB", "supersedes": ["m1.2"]}]})
             return answer("Dalej")
-        self.run_ui(["Cel: obniżyć pobór. Baza 250 W.", YES, "Poprawka: baza to 240 W.", ""], model,
+        self.run_ui(["Goal: use less memory. Baseline 900 MB.", YES, "Correction: the baseline is 850 MB.", ""], model,
                     conversation=first)
         first.close()
         record = self.store.read(ident)
@@ -307,11 +307,11 @@ class SessionResumeTests(Harness):
         # Same conversation resumed, access still allowed: the memory is back, with the correction.
         self.payloads.clear()
         resumed = self.conversation(ident)
-        self.run_ui(["Kontynuuj od ostatniego stabilnego wyniku.", YES, ""], lambda p, n: answer("OK"),
+        self.run_ui(["Continue from the last stable result.", YES, ""], lambda p, n: answer("OK"),
                     conversation=resumed)
         resumed.close()
         entries_now = entries(self.payloads[0])
-        self.assertTrue(any(e["text"] == "Baza: 240 W" and e["status"] == "active" for e in entries_now.values()))
+        self.assertTrue(any(e["text"] == "Baseline: 850 MB" and e["status"] == "active" for e in entries_now.values()))
         self.assertTrue(any(e["status"] == "superseded" for e in entries_now.values()))
 
         # Access revoked in between: the marker must not come back through history, memory or the resumed file.
@@ -321,7 +321,7 @@ class SessionResumeTests(Harness):
         out = self.run_ui(["Dalej po cofnięciu.", YES, ""], lambda p, n: answer("OK"), conversation=again)
         again.close()
         self.assertNotIn(MARKER, json.dumps(self.payloads[0]))
-        self.assertTrue(find(self.payloads[0], "obniżyć pobór"))         # the user's own goal survives
+        self.assertTrue(find(self.payloads[0], "use less memory"))       # the user's own goal survives
         self.assertIn("revoked", out.out)
 
     def test_an_old_four_turn_record_without_memory_still_opens_and_continues(self):

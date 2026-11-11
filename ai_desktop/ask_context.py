@@ -7,13 +7,13 @@ from .terminal_consent import confirm, fresh_input
 from .question_consent import QuestionConsent
 
 WEATHER_HINTS = {
-    "not-found": "City not found. Give its base name, for example --weather CITY.",
+    "not-found": "City not found. Give its base name, --weather CITY.",
     "network": "Could not connect to Open-Meteo. Check the network and try again.",
     "timeout": "Fetching the weather timed out. Try again later.",
     "rate-limit": "Open-Meteo limited the number of requests. Try again later.",
     "unavailable": "The weather source is unavailable. Try again later.",
     "stale": "The source returned out-of-date weather data. It was not passed to Claude.",
-    "input": "Invalid city. Give a name, for example --weather CITY.",
+    "input": "Invalid city. Give a name, --weather CITY.",
     "response": "Could not verify the weather data. It was not passed to Claude.",
 }
 
@@ -49,7 +49,7 @@ def _weather(city, args, reader, *, check=lambda: None, question_consent=None):
                   "Offline preview: no connection and no weather data.")
         return None
     while not city:
-        city = _read("City (for example Example City): ", reader)
+        city = _read("City (CITY): ", reader)
         _check_question(question_consent)
     # Validate before any terminal interpolation, DNS or HTTP request.
     weather_context.validate_city(city)
@@ -67,7 +67,7 @@ def _weather(city, args, reader, *, check=lambda: None, question_consent=None):
     candidates = weather_context.geocode(city)
     _check_source(check, question_consent)
     if not candidates:
-        print("City not found. Run again with --weather and a name, for example Example City.")
+        print("City not found. Run again with --weather and a name, CITY.")
         raise AnalysisDenied("input")
     if len(candidates) == 1:
         selected = candidates[0]

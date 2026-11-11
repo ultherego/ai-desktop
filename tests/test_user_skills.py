@@ -115,10 +115,10 @@ class UserSkillTests(unittest.TestCase):
         with self.assertRaises(ValueError) as caught:
             skills.create("arch")
         self.assertIn("comes with AI Desktop", str(caught.exception))
-        own = self.root / "moj-pulpit/SKILL.md"
+        own = self.root / "my-notes/SKILL.md"
         own.parent.mkdir(parents=True)
-        own.write_text("---\nname: moj-pulpit\ndescription: moj\n---\n\ntresc wlasna\n")
-        self.assertEqual(skills.locate("moj-pulpit"), self.root)
+        own.write_text("---\nname: my-notes\ndescription: moj\n---\n\ntresc wlasna\n")
+        self.assertEqual(skills.locate("my-notes"), self.root)
 
     def test_a_former_packaged_name_is_refused_and_an_own_skill_of_that_name_is_not_renamed(self):
         # Installer audit: profiles map arch-docker to arch, so an own Skill named arch-docker would silently be lost.

@@ -104,7 +104,7 @@ class ConversationLoopTests(unittest.TestCase):
         self.assertIn(outcome.summary, str(stored.saved["memory"]["entries"]))
 
     def test_prompt_returns_and_history_is_carried_under_one_consent_for_the_conversation(self):
-        r = self.run_ui([], ["I want to tune a service", "yes", "Jakie sa ustawienia?",
+        r = self.run_ui([], ["I want to tune a service", "yes", "What are the settings?",
                              "Sprawdz wynik", ""])
         self.assertEqual(r.code, 0, r.out)
         self.assertEqual(r.prompts, [Q, C, Q, Q, Q])
@@ -112,7 +112,7 @@ class ConversationLoopTests(unittest.TestCase):
         self.assertEqual(list(r.histories[0]), [])
         self.assertEqual([t["question"] for t in r.histories[1]], ["I want to tune a service"])
         self.assertEqual([t["question"] for t in r.histories[2]],
-                         ["I want to tune a service", "Jakie sa ustawienia?"])
+                         ["I want to tune a service", "What are the settings?"])
         self.assertEqual(r.histories[2][0]["answer"], "odpowiedz 1")
         later = json.loads(r.sent.call_args_list[2].args[0].payload)
         self.assertEqual(later["question"], "Sprawdz wynik")
