@@ -334,6 +334,10 @@ def delete_files(plan, snapshot, reader):
     return CompletedTask(0)
 
 
+OWNED_FOLDERS = ("AI Desktop changes files only in folders that belong to you and that other users cannot write to; "
+                 "check the folders on the way with ls -ld (chmod go-w removes write access for others)")
+
+
 def transfer_files(plan, snapshot, reader):
     """Move or copy a file or a whole folder inside one write scope after the owner's yes; nothing is overwritten and
     the step can be undone with `ai-desktop task restore`. Nothing is sent to the model (S10)."""
@@ -365,11 +369,18 @@ def transfer_files(plan, snapshot, reader):
                    "size": "it has more than %d entries" % workspace_transfer.MAX_FILES}
         print("Refused: cannot %s %s to %s: %s." % (operation, terminal_text(plan.get("from", "")),
                                                     terminal_text(plan.get("to", "")),
-                                                    reasons.get(refused.reason, "the workspace does not allow it")))
+                                                    reasons.get(refused.reason, OWNED_FOLDERS)))
         conversation_state.note_action("%s NOT done (%s): %s -> %s" % (operation.capitalize(), refused.reason,
                                                                         plan.get("from"), plan.get("to")))
         return CompletedTask(2)
-    except (OSError, ValueError, TypeError, KeyError, AttributeError, ExecutionDenied):
+    except ExecutionDenied:
+        # The workspace or a folder on the way belongs to someone else or others may write to it (e.g. mode 777).
+        print("Refused: cannot %s %s to %s: %s." % (operation, terminal_text(plan.get("from", "")),
+                                                    terminal_text(plan.get("to", "")), OWNED_FOLDERS))
+        conversation_state.note_action("%s NOT done (folder permissions): %s -> %s" % (
+            operation.capitalize(), plan.get("from"), plan.get("to")))
+        return CompletedTask(2)
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
         raise EditDenied("input") from None
     print()
     what = "folder (%d files, %d folders)" % (facts["files"], facts["folders"]) if facts["kind"] == "folder" else "file"
