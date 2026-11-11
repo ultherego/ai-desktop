@@ -32,7 +32,8 @@ import time
 from .analysis_contract import MAX_MESSAGE_BYTES
 from . import question_input
 from .question_input import (_without_locks, _KEYS, _PASTE_END, _PASTE_START, CONTROL_EDITS, UP_DOWN, HistoryWalk, QuestionInputError,
-                             _Line, _safe_text, edit_key, enter_choice, modified_key, opens_list, scroll_key)
+                             _Line, _safe_text, edit_key, enter_choice, modified_key, opens_list, scroll_key,
+                             waits_for_text)
 
 _ANSI = re.compile(r"\x1b\[[0-9;?<>]*[A-Za-z]")
 _current = None
@@ -500,6 +501,10 @@ class TypeAhead:
                 self.pick = 0
                 return
         self.pick = 0
+        if waits_for_text(self.session, self.line.text):
+            self.line.text = self.line.text.strip() + " "      # `/arch ` + Enter: wait for the question, queue nothing
+            self.line.cursor = len(self.line.text)
+            return
         text = self.line.text
         if self.line.text.endswith("\\") and self.line.cursor == len(self.line.text):
             self.line.text = self.line.text[:-1]       # backslash + Enter: a line break instead of sending

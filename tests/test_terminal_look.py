@@ -408,6 +408,8 @@ class LiveInputTests(unittest.TestCase):
         owner.session = session
         self.type(owner, "/ar\r")
         self.assertEqual((owner.line.text, seen), ("/arch ", []))
+        self.type(owner, "\r")                                                 # a second Enter: still nothing queued
+        self.assertEqual((owner.line.text, seen), ("/arch ", []))
         self.type(owner, "firewall?\r")
         self.assertEqual(seen, ["/arch firewall?"])
 

@@ -452,6 +452,11 @@ def enter_choice(session, text, found, pick):
     return chosen, True
 
 
+def waits_for_text(session, text):
+    """`/arch ` with nothing after it: a Skill command still waiting for its question is not sent."""
+    return text.strip() in getattr(session, "with_text", ()) and "\n" not in text
+
+
 def opens_list(text, pick):
     """A bare `/` sent with the first entry highlighted opens the full commands menu instead of running that entry."""
     return text == "/" and pick == 0
@@ -784,6 +789,11 @@ def read_question(*, max_bytes=MAX_QUESTION_BYTES, followup=False, prompt=None, 
                     if not send:
                         redraw()
                         continue
+                if waits_for_text(session, line.text):
+                    line.text = line.text.strip() + " "
+                    line.cursor = len(line.text)
+                    redraw()
+                    continue
                 _hide_suggestions(session, output)
                 if attach and line.text.endswith("\\") and line.cursor == len(line.text):
                     line.text = line.text[:-1]                      # backslash + Enter: a line break instead of sending

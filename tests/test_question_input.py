@@ -541,7 +541,7 @@ class PromptSessionTerminalTests(unittest.TestCase):
         # CachyOS check (candidate 164): `/arc` + Enter sent `/arch` with no question; it now becomes `/arch ` to type on.
         body = ("session.commands = (('/help', 'list'), ('/arch', 'skill'))\n"
                 "session.with_text = frozenset({'/arch'})\n" + self.READS.format(attach=True, count=3))
-        output = self.run_script(body, [b"/arc\rfirewall?\r", b"/arch\rx\r", b"/he\r"])
+        output = self.run_script(body, [b"/arc\r\rfirewall?\r", b"/arch\rx\r", b"/he\r"])
         self.assertEqual([r[0] for r in self.results(output)], ["/arch firewall?", "/arch x", "/help"])
 
     def test_a_prefilled_command_starts_the_next_prompt_once(self):

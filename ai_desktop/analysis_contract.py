@@ -160,7 +160,7 @@ SYSTEM_PROMPT = (
     "(<unit>, <int>, <word> are slots for one word; a template ending in ... also accepts further plain words after its "
     "fixed ones, and a path among them must lie inside access.files). Propose a command with the plan {\"action\":\"run\",\"argv\":"
     "[\"program\",\"argument\"]} (a list of words, no shell, pipes or redirection; give the program as a bare name). "
-    "Each word is one plain word without spaces, and a command has at most 10 words; there is no shell, so a script such as "
+    "Each word is one plain word without spaces (letters, digits and ._:=,@%+/- only; no |()*?[]: one command per pattern), and a command has at most 10 words; there is no shell, so a script such as "
     "sh -c \"while true; do ...; done\" cannot run. To keep a process running use a program that waits, for example sleep infinity. "
     "Such a command runs at once, without asking the user: the owner has already allowed it. It works read-only, without network. "
     "Run several commands with one plan {\"action\":\"run\",\"commands\":[[\"lscpu\"],[\"free\",\"-h\"]]} (up to 32 in a plan, without test and undo); you get all results at once, and when the question needs more and remaining.commands allows, send another plan. "
