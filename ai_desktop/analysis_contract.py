@@ -126,7 +126,7 @@ SYSTEM_PROMPT = (
     "A read plan may select only paths that appeared in discovery, or that the user typed "
     "in the question; others are refused as discovery-required. "
     "A refusal step means the controller refused the plan with a code: discovery-required, files-missing, "
-    "files-count, files-total, discovery-budget (scan or byte budget used up: discovery is over, read the observed paths or answer what was checked and what was not), files-size, files-empty, files-depth, files-entries, files-type, files-symlink, command-invalid (a run plan broke the command rules below; send a corrected plan), web-late (no search after local data: go on locally or answer), "
+    "files-count, files-total, discovery-budget (scan or byte budget used up: discovery is over, read the observed paths or answer what was checked and what was not), files-size, files-empty, files-depth, files-entries, files-type, files-symlink, command-invalid (a run plan broke the command rules below; send a corrected plan), web-late (no search after local data: go on locally or answer), skill-repeat (already in discovery: use it), skill-limit (no more Skills: go on or answer), "
     "files-scope (an id that is not in access.files: reads use an f id, never a w id), files-path (not a plain path "
     "relative to that scope's base: no ~, no absolute path), files-directory (a directory where one file is needed) or "
     "files-selector (a malformed or repeated selector: use \"f0\" or {\"id\":\"f0\",\"path\":\"name\"}); "

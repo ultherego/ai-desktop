@@ -203,6 +203,20 @@ class SkillsOnDemandTests(Base):
                     "remaining": {"rounds": 1, "corrections": 0, "commands": 0}}
         directory_context.recheck_discovery(directory_context.DiscoverySnapshot(policy, document, ()))
 
+    def test_a_repeated_or_one_too_many_skill_request_is_a_correction_not_the_end_of_the_question(self):
+        # CachyOS check (candidate 164): a fourth Skill round, or asking again for a loaded one, ended with plan-action.
+        from ai_desktop import assistant_contract as plans
+        ask = lambda *names: json.dumps({"action": "skill", "names": list(names)})
+        bodies = {name: "procedure " + name for name in ("a/one", "a/two", "a/three", "a/four")}
+        self.run_flow([ask("a/one"), ask("a/one"), ANSWER_PLAN], skills=bodies.get)
+        self.assertEqual(self.steps(2)[-1], {"op": "refusal", "code": "skill-repeat", "selectors": [], "limit": None})
+        self.assertIn("already loaded", self.output.getvalue())
+        self.run_flow([ask("a/one"), ask("a/two"), ask("a/three"), ask("a/four"), ANSWER_PLAN], skills=bodies.get)
+        self.assertEqual(self.steps(4)[-1]["code"], "skill-limit")
+        self.write_policy("plan_corrections = 0\n")
+        with self.assertRaises(plans.PlanError):
+            self.run_flow([ask("a/one"), ask("a/one")], skills=bodies.get)
+
     def test_assigned_procedure_works_without_file_or_command_permissions(self):
         self.config.unlink()
         self.run_flow([json.dumps({"action": "skill", "names": ["example"]}), ANSWER_PLAN], skills=lambda n: self.BODY)

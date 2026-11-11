@@ -614,14 +614,23 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                     raise AccessDenied()
                 if plan["action"] == "skill":
                     # On demand: until the model asks, only the name and description of a Skill leave this computer.
-                    skill_rounds += 1
-                    if skills is None or skill_rounds > MAX_SKILL_ROUNDS:
+                    if skills is None:
                         raise PlanError("action")
                     previous = {step["name"]: step["text"] for step in ledger.steps if step["op"] == "skill"}
                     wanted = [name for name in plan["names"] if name not in loaded or
                               "/" in name and skills(name) != previous.get(name)]
-                    if not wanted:
-                        raise PlanError("action")      # nothing new: another round would only repeat the same request
+                    if not wanted or skill_rounds >= MAX_SKILL_ROUNDS:
+                        # Nothing new, or the Skill rounds are used up: a correction (CachyOS check, candidate 164),
+                        # so the model goes on with what it has instead of the question ending.
+                        code = "skill-repeat" if not wanted else "skill-limit"
+                        if not ledger.correction(ask_discovery.Recoverable(code, [], None)):
+                            raise PlanError("action")
+                        print(paint("  %s %s; the model continues with what it has." % (symbol("skip"), (
+                            "The requested Skill is already loaded" if not wanted
+                            else "No more Skills can be loaded for this question")), "muted"))
+                        plan = next_plan()
+                        continue
+                    skill_rounds += 1
                     progress("collect")
                     for name in wanted:
                         loaded.add(name)
