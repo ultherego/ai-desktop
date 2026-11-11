@@ -223,6 +223,23 @@ class ReviewFindingsTests(unittest.TestCase):
                            command=lambda path, argv: [path, "-c", "exec >&- 2>&-; sleep 0.3"])
         self.assertEqual((step["status"], step["exit"]), ("ok", 0))
 
+    def test_named_paths_are_shown_read_only_over_the_hidden_home_and_never_through_a_link(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as temp:
+            real = os.path.realpath(temp)
+            command = ops.sandbox_command("/usr/bin/uname", ["uname"], binds=(real,))
+            if command is None:
+                skip_or_fail(self, "bubblewrap is not available")
+            index = command.index(real)
+            self.assertEqual(command[index - 1:index + 2], ["--ro-bind", real, real])
+            self.assertGreater(index, command.index("/home"))                       # mounted over the empty tmpfs
+            os.symlink(real, real + "-link")
+            try:
+                self.assertIsNone(ops.sandbox_command("/usr/bin/uname", ["uname"], binds=(real + "-link",)))
+            finally:
+                os.unlink(real + "-link")
+            self.assertIsNone(ops.sandbox_command("/usr/bin/uname", ["uname"], binds=("relative",)))
+
     def test_the_sandbox_hides_homes_and_the_user_runtime_dir_and_sets_no_session_bus_dir(self):
         command = ops.sandbox_command("/usr/bin/uname", ["uname", "-s"])
         if command is None:

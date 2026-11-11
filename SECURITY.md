@@ -59,7 +59,7 @@ Ordinary `doctor` and panel status remain metadata-only. `doctor --clients` expl
 | Proxy | service, outside the client sandbox | Passes only TLS on port 443 to `api.anthropic.com`, `claude.ai`, `platform.claude.com`, to public addresses. |
 | Local model server | your configured loopback service | Receives the approved prompt, history and authorized material. The user who operates the service controls its logging. |
 | Model | at the provider | Returns text and proposals. This is untrusted data. |
-| Commands from `allow` | your user, in a separate sandbox | Read-only file system, hidden `/home` and `/root`, an empty `/run` apart from plain state files and a read-only filtered D-Bus, no network. Other daemon sockets (e.g. Docker) only when listed in `host_sockets`. |
+| Commands from `allow` | your user, in a separate sandbox | Read-only file system, hidden `/home` and `/root`, an empty `/run` apart from plain state files and a read-only filtered D-Bus, no network. Other daemon sockets (e.g. Docker) only when listed in `host_sockets`. A path inside your home directory that a command names (e.g. `niri validate -c ~/.config/niri/config.kdl`) and that `files.read` allows is shown read-only for that one command: the file, or its directory when nothing protected or denied lies in it. |
 | Commands from `change` | your user, **without a sandbox** | Run on the live system after you type `yes`. |
 | Tests on a copy | your user, in a sandbox | A copy in memory, without network, home directory or access to the project. |
 

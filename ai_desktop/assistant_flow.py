@@ -286,6 +286,8 @@ def _run_command(snapshot, ledger, plan, permit, args, reader):
     the model's next request."""
     from . import command_ops
     policy, argv = snapshot.policy, plan["argv"]
+    if policy is not None:
+        argv = policy.expand_home(argv)            # `~/x` as a shell would expand it; files.read still decides
     selected = current_execution()
     shown = lambda words: terminal_text(" ".join(words))
 
@@ -370,9 +372,10 @@ def _run_command(snapshot, ledger, plan, permit, args, reader):
             print("%s %s sandbox: read-only, no network" % (path, symbol("dot")))
         extra = {}
         share, sockets = policy.share_processes(), policy.host_sockets()
-        if share or sockets:                  # owner opt-ins; the default call is exactly what it always was
+        binds = policy.sandbox_binds(argv)
+        if share or sockets or binds:         # owner opt-ins and named paths; otherwise the call is what it always was
             extra["command"] = functools.partial(command_ops.sandbox_command, share_processes=share,
-                                                 host_sockets=sockets)
+                                                 host_sockets=sockets, binds=binds)
         step = command_ops.execute(path, argv, output_limit=room, timeout=policy.limits().command_timeout, **extra)
         permit.check()
         step = add(argv, "read", step["status"], step["exit"], step["output"], step["truncated"])

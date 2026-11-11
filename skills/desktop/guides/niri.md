@@ -27,7 +27,7 @@ Establish one symptom, its start and the latest change. AI Desktop reads without
 
 ## Investigation
 
-1. Syntax: `niri validate` parses the config and prints errors without a running session; `niri validate -c FILE` checks a specific file. Run it only when the exact command is allowed.
+1. Syntax: `niri validate` parses the config and prints errors without a running session; `niri validate -c FILE` checks a specific file. Run it only when the exact command is allowed. AI Desktop runs it only with `-c` and the file's path (e.g. `~/.config/niri/config.kdl`): the sandbox has no home directory, so it shows that file's directory read-only.
 2. Outputs: ask for `niri msg outputs` for names and modes, and compare with `output "NAME"` sections. If the mode is omitted or does not work, niri picks one automatically. `niri msg output` changes are temporary and are not saved.
 3. Binds: each bind is a hotkey with one action. `Mod` is `Super` on a TTY and `Alt` in a nested window. Symbols on a shifted key need the modifier spelled out (e.g. `Mod+Shift+Comma`). With several layouts, the bind matching the active layout's keysym fires.
 4. Window rules: ask for `niri msg windows`, `niri msg focused-window` or `niri msg pick-window` to get the real `app-id` and title; `match` values are regular expressions and `exclude` removes matches.

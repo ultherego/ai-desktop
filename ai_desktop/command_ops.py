@@ -322,7 +322,7 @@ def is_socket(path):
         return False
 
 
-def sandbox_command(path, argv, *, share_processes=False, host_sockets=()):
+def sandbox_command(path, argv, *, share_processes=False, host_sockets=(), binds=()):
     """Read-only, network-less view of the system for ONE command; no shell, clean environment.
     share_processes (owner opt-in) keeps the host's process table visible: the read-only bind of / already carries the
     host /proc, so the private PID namespace and its own /proc are simply not created."""
@@ -338,6 +338,10 @@ def sandbox_command(path, argv, *, share_processes=False, host_sockets=()):
     for item in host_sockets:
         if is_socket(item):                        # a directory or a link in its place is never shared
             run += ["--ro-bind-try", item, item]
+    for item in binds:                             # policy-checked paths (Policy.sandbox_binds), read-only over the tmpfs
+        if type(item) is not str or not item.startswith("/") or os.path.realpath(item) != item:
+            return None
+        run += ["--ro-bind", item, item]
     from . import dbus_filter
     bus = dbus_filter.current()
     if bus is not None:

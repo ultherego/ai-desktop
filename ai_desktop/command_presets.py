@@ -38,6 +38,8 @@ DIAGNOSTICS = (
     "findmnt /", "findmnt /boot", "findmnt /efi", "findmnt /boot/efi",
     "btrfs filesystem usage /", "btrfs filesystem show /", "btrfs filesystem df /", "btrfs device stats /",
     "btrfs subvolume list /", "btrfs subvolume show /", "btrfs scrub status /", "btrfs balance status /",
+    # desktop: offline configuration checks of the compositor (the file must lie in files.read; it is shown read-only)
+    "niri validate -c ...", "sway -C -c ...", "i3 -C -c ...",
     "fwupdmgr get-devices ...", "fwupdmgr get-updates ...", "fwupdmgr get-history ...", "fwupdmgr check-reboot-needed ...",
     # network
     "ip ...", "ss -tulpn", "ss -tunap", "ss -s", "nmcli general status", "nmcli device status ...",

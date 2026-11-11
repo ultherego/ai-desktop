@@ -28,7 +28,7 @@ Establish one symptom, when it started and the latest change. AI Desktop reads w
 
 ## Investigation
 
-1. Syntax: `sway -C` (`--validate`) checks the config and exits; add `-c FILE` to check a specific file. Run it only when the exact command is allowed.
+1. Syntax: `sway -C` (`--validate`) checks the config and exits; add `-c FILE` to check a specific file. Run it only when the exact command is allowed. AI Desktop runs it only with `-c` and the file's path (e.g. `~/.config/sway/config`): the sandbox has no home directory, so it shows that file's directory read-only.
 2. Outputs: ask for `swaymsg -t get_outputs` for names, modes and scale, and compare with `output NAME mode|position|scale|enable|disable` lines; `*` matches any output.
 3. Inputs and layouts: ask for `swaymsg -t get_inputs`. With several layouts, `bindsym` binds can break on the secondary layout; `bindsym --to-code` translates the keysyms into keycodes of the first configured layout.
 4. Binds and modes: ask for `swaymsg -t get_binding_modes` and `swaymsg -t get_binding_state` to see whether a mode is stuck.

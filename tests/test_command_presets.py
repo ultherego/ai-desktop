@@ -55,6 +55,33 @@ class PresetTests(unittest.TestCase):
         self.assertFalse(policy.allows_command(["findmnt", "/home"]))         # the sandbox shows an empty /home
         self.assertFalse(policy.allows_command(["findmnt", "-no", "SOURCE", "/etc"]))  # other paths: files.read decides
 
+    def test_a_compositor_check_sees_only_the_allowed_configuration_it_names(self):
+        # CachyOS check (candidate 164): `niri validate` could not run, and in the sandbox /home is empty anyway.
+        import tempfile
+        with tempfile.TemporaryDirectory(dir="/tmp") as temp:
+            home = os.path.realpath(temp)
+            config = os.path.join(home, ".config/niri")
+            os.makedirs(os.path.join(config, "dms"))
+            for name in ("config.kdl", "dms/binds.kdl"):
+                open(os.path.join(config, name), "w").close()
+            os.makedirs(os.path.join(home, ".ssh"))
+            open(os.path.join(home, ".ssh/config"), "w").close()
+            with patch.object(p, "_identity", return_value=(os.getuid(), home)):
+                policy = load('version = 2\n[files]\nread = ["~/**"]\ndeny = []\n[commands]\npreset = "diagnostics"\n')
+                argv = policy.expand_home(["niri", "validate", "-c", "~/.config/niri/config.kdl"])
+                self.assertEqual(argv[3], config + "/config.kdl")
+                self.assertTrue(policy.allows_command(argv))
+                self.assertEqual(policy.sandbox_binds(argv), (config,))               # with the files it includes
+                ssh = policy.expand_home(["niri", "validate", "-c", "~/.ssh/config"])
+                self.assertFalse(policy.allows_command(ssh))                          # protected: neither run nor shown
+                self.assertEqual(policy.sandbox_binds(ssh), ())
+                self.assertEqual(policy.sandbox_binds(["uname", "-a"]), ())
+                policy = load('version = 2\n[files]\nread = ["~/**"]\ndeny = ["~/.config/niri/dms/"]\n'
+                              '[commands]\npreset = "diagnostics"\n')
+                self.assertEqual(policy.sandbox_binds(argv), (config + "/config.kdl",))  # a denied file inside: file only
+                os.symlink(config + "/config.kdl", home + "/link.kdl")
+                self.assertEqual(policy.sandbox_binds(["niri", "validate", "-c", home + "/link.kdl"]), ())
+
     def test_an_unknown_preset_is_refused(self):
         with self.assertRaises(ValueError):
             load(BASE % ("", "", '[commands]\npreset = "everything"\n'))

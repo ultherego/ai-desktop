@@ -59,6 +59,8 @@ _WRITE_BLOCKED_COMPONENTS = frozenset({".ssh", ".git", ".local", ".ai-desktop-ta
                                      "oauth", "secrets", "backup", "backups"})
 
 
+_SANDBOX_HIDDEN = ("/home", "/root", "/tmp")    # empty tmpfs in a read command's sandbox (command_ops.sandbox_command)
+
 DEFAULT_PART_SIZE = 240 * 1024            # one portion of a whole-file analysis (one request)
 MIN_PART_SIZE = 30 * 1024
 MAX_PART_SIZE = 512 * 1024                # = the per-request data ceiling of the "map" phase (material_step.PART_DATA_BYTES)
@@ -755,6 +757,39 @@ class Policy:
     def allows_command(self, argv):
         """A read command the owner allows (see _open_words_allowed)."""
         return self._open_words_allowed(self._commands, argv, read_only=True)
+
+    def expand_home(self, argv):
+        """`~` and `~/x` among the words become the home directory, as a shell would expand them; nothing else changes.
+        The expanded path is then checked against files.read like any other."""
+        return [self.home + word[1:] if word == "~" or word.startswith("~/") else word for word in argv]
+
+    def sandbox_binds(self, argv):
+        """Paths an allowed read command names inside what the sandbox hides (/home, /root, /tmp), to show them there
+        read-only: a configuration validator such as `niri validate -c FILE` needs its file. Only existing paths the
+        owner allows reading, without symlinks. A file's directory too (configurations include their neighbours) when it
+        is not the home directory itself and nothing protected or denied lies in it; otherwise the file alone."""
+        from .command_ops import extra_words
+        binds = []
+        for word in extra_words(self._commands, argv) or ():
+            candidate = word.split("=", 1)[1] if word.startswith("-") and "=" in word else word
+            if (not candidate.startswith("/") or not any(_under(candidate, root) for root in _SANDBOX_HIDDEN)
+                    or not os.path.exists(candidate) or os.path.realpath(candidate) != candidate
+                    or not self.allows(candidate)):
+                continue
+            target = candidate
+            if os.path.isfile(candidate) and self._whole_directory(os.path.dirname(candidate)):
+                target = os.path.dirname(candidate)
+            if target not in binds:
+                binds.append(target)
+        return tuple(binds)
+
+    def _whole_directory(self, directory):
+        if (directory in (self.home, *_SANDBOX_HIDDEN) or os.path.realpath(directory) != directory
+                or not self.allows(directory)):
+            return False
+        if any(_under(location, directory) for location in self.protected_locations()):
+            return False
+        return not any(_under(rule.base, directory) for rule in self._deny)
 
     def allows_exact_command(self, argv):
         """A read command that may also run outside the sandbox (the test of a change): exact templates only."""
