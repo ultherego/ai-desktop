@@ -1,7 +1,7 @@
 ---
 name: mate
 description: Diagnoses the MATE desktop (mate-session, mate-panel, Marco, mate-settings-daemon) on Arch Linux from its version, dconf paths and session files. Use for a missing or broken panel, Marco or compositing problems, keyboard shortcuts, startup applications, monitor layout, saved sessions, or a safe configuration change.
-programs: mate-session, mate-panel, marco
+programs: mate-session, mate-panel
 ---
 
 # MATE diagnostics

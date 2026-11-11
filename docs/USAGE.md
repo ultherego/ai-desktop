@@ -47,7 +47,7 @@ Everywhere, `--v` shows details and the data being sent, and does not change con
 
 ### `ai-desktop ask`
 
-```fish
+```sh
 ai-desktop ask
 ai-desktop ask --question "Why does the unit not start?"
 ai-desktop ask --question "What is an inode?" --no-context
@@ -111,7 +111,7 @@ Local commands: `/files [DIR]`, `/search TEXT`, `/refresh`, `/log`, `/test RECIP
 
 A change to exactly the files you name, without `permissions.toml`: the choice is yours.
 
-```fish
+```sh
 ai-desktop task run "Fix the addition in calc.py" --workspace /path/to/project \
     --file calc.py --context test_calc.py --test python-unittest
 ```
@@ -126,7 +126,7 @@ Candidate 84 implements one bounded approval for project analysis stages and com
 
 After a write the program prints the ready command.
 
-```fish
+```sh
 ai-desktop task status   --workspace DIRECTORY              # states, including the trash
 ai-desktop task rollback --workspace DIRECTORY              # undo a write, separate consent
 ai-desktop task restore  --workspace DIRECTORY --plan ID    # bring deleted files back
@@ -146,7 +146,7 @@ The packaged Skills lead from a symptom through the needed reads and interpretat
 
 A Skill is a procedure, not a permission. The shared loader starts with assigned names and descriptions in all four modes: `ask`, `material`, `project` and `task`. The model requests needed procedures and individual bundled references; unrelated bodies stay out of its request. Bundles are frozen and rechecked for changes before handoff. References include official source URLs, a checked date, version applicability and a content hash; a rolling wiki snapshot must not be described as documentation verified for an installed version. Skill knowledge has a separate bounded budget from file-discovery output. Native client tools and automatic native Skill discovery remain disabled. Files and commands are decided by `permissions.toml`. The package contains only general Skills; what concerns your computer you keep on your side:
 
-```fish
+```sh
 ai-desktop skills new my-system      # creates ~/.config/ai-desktop/skills/my-system/SKILL.md
 ai-desktop skills                    # list of available Skills
 ai-desktop skills show my-system     # preview
@@ -159,7 +159,7 @@ A packaged Skill always wins: each update replaces the program's Skills, so give
 
 An agent is a saved set: service, model, reasoning level, access (`changes` or `read-only`), instructions and Skills. An agent adds no permissions. A `read-only` agent does not write, does not delete and does not get `change` commands.
 
-```fish
+```sh
 ai-desktop settings                                 # settings menu
 ai-desktop settings models                          # available models and levels
 ai-desktop settings set --model sonnet --effort high
@@ -175,7 +175,7 @@ Details: [AGENT_MANAGEMENT.md](AGENT_MANAGEMENT.md).
 
 Choose Codex independently of Claude. The adapter remains experimental. Install `openai-codex` through your package manager, or register your existing native/npm installation with `ai-desktop clients register codex`, then use the existing separate account flow:
 
-```fish
+```sh
 ai-desktop agent use codex
 ai-desktop doctor --clients
 ai-desktop codex status

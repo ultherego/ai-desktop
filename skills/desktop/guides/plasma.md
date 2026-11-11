@@ -1,7 +1,7 @@
 ---
 name: plasma
 description: Diagnoses KDE Plasma 6 on Arch Linux from its version, configuration files and user units. Use for a crashing or frozen plasmashell, missing panels or widgets, KWin problems, settings that do not apply, or a safe configuration change.
-programs: plasmashell, startplasma-wayland
+programs: knetattach, kaccess
 ---
 
 # KDE Plasma diagnostics

@@ -73,11 +73,21 @@ def names() -> tuple:
     return tuple(sorted(found))
 
 
+def user_names() -> tuple:
+    """Names of the owner's own Skills (directories with a SKILL.md in the private Skills directory)."""
+    root = user_root()
+    if not root.is_dir() or root.is_symlink():
+        return ()
+    return tuple(sorted(entry.name for entry in root.iterdir() if os.path.lexists(entry / "SKILL.md")))
+
+
 def create(name: str) -> Path:
     """Start one private Skill from the template; an existing one is never overwritten."""
     if type(name) is not str or not SLUG.fullmatch(name):
         raise ValueError("Invalid Skill name (lowercase letters, digits and hyphens)")
-    if name in packaged():
+    from .agent_profiles import LEGACY_SKILLS
+    if name in packaged() or name in LEGACY_SKILLS:
+        # A former packaged name too: saved profiles map it to its area Skill, so an own Skill of that name would be lost.
         raise ValueError("%s is a Skill that comes with AI Desktop and is replaced by each update; "
                          "choose another name for your own (e.g. my-%s)" % (name, name))
     directory = user_root() / name

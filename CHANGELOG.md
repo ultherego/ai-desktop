@@ -106,7 +106,7 @@ A review of the whole program found places where one failure ended more than it 
 
 ## 0.1.0-147: selecting, editing keys, resizing
 
-- Select text in the conversation with the mouse: drag with the left button, and releasing copies it to the clipboard (through the terminal, which also works inside Zellij or tmux, and with `wl-copy` on Wayland when it is installed). A double click selects a word or a path. Rows the window wrapped are copied as one line.
+- Select text in the conversation with the mouse: drag with the left button, and releasing copies it to the clipboard (through the terminal, which also works inside a terminal multiplexer, and with `wl-copy` on Wayland when it is installed). A double click selects a word or a path. Rows the window wrapped are copied as one line.
 - The input knows the usual editing keys: Ctrl/Alt+Left/Right move by words, Ctrl+Backspace, Alt+Backspace and Ctrl+W delete a word back, Ctrl+Delete and Alt+D a word forward, Ctrl+U and Ctrl+K to the start and end of the line, Home/End go to the start and end of the line (Ctrl+Home/End: of the whole message), Ctrl+Z undoes. The same keys work while an answer is being written.
 - Resizing the window no longer leaves empty rows between a question and what follows: the conversation stays right above the input, and earlier rows come back when the window grows.
 - A web search with `max` reasoning is no longer refused as `web-stream`: the transcript may now hold as much as the service keeps (512 KiB, 512 events).

@@ -46,8 +46,8 @@ What was checked on CachyOS, and what was not, is in the progress log of [docs/R
 
 AI Desktop uses a compatible **independently installed Claude Code or Codex client** and never downloads one. Supported system packages are used directly. A client installed in your home directory (official installer or npm) is registered once as an administrator-approved copy with `ai-desktop clients register claude` or `ai-desktop clients register codex`.
 
-```fish
-sudo pacman -S --needed base-devel git fish python bubblewrap xdg-dbus-proxy libseccomp sudo python-rich python-cryptography
+```sh
+sudo pacman -S --needed base-devel git python bubblewrap xdg-dbus-proxy libseccomp sudo python-rich python-cryptography
 git clone https://github.com/ultherego/ai-desktopv2.git ~/ai-desktop
 cd ~/ai-desktop
 python3 -B scripts/install_agents.py codex --install    # claude, codex, both or local
@@ -58,7 +58,7 @@ The full guide, with client selection, login, the access policy, updating and un
 
 ## Quick start
 
-```fish
+```sh
 ai-desktop agent use codex     # choose the service (claude, codex or local)
 ai-desktop doctor --clients   # check the selected client offline
 ai-desktop login --codex      # connect a separate AI Desktop account
@@ -91,7 +91,7 @@ Create your policy first from `config/permissions.example.toml`; see [docs/CONFI
 
 ## Tests
 
-```fish
+```sh
 python3 -B scripts/verify.py --mode ci --fail-fast     # syntax, unit tests, no AI provider
 ```
 

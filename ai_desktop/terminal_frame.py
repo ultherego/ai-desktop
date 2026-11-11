@@ -32,7 +32,7 @@ WL_COPY = "/usr/bin/wl-copy"
 
 
 def copy_to_clipboard(text, stream, *, environ=None):
-    """The selected text to the clipboard: OSC 52 through the terminal (and a multiplexer such as Zellij or tmux that
+    """The selected text to the clipboard: OSC 52 through the terminal (and a terminal multiplexer that
     passes it on), and wl-copy on Wayland when it is installed. Only the owner's own screen text is copied."""
     import base64
     import subprocess

@@ -1,7 +1,7 @@
 ---
 name: gnome
 description: Diagnoses the GNOME desktop on Arch Linux from its version, dconf settings, extensions and user units. Use for a crashing or frozen GNOME Shell, extensions that broke after an upgrade, settings that do not apply, or a safe dconf or extension change.
-programs: gnome-shell, gnome-extensions
+programs: gnome-control-center
 ---
 
 # GNOME diagnostics

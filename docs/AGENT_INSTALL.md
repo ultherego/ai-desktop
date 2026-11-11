@@ -24,7 +24,7 @@ Current Codex packages keep `bin/codex`, `codex-package.json`, `codex-path/` and
 
 The application can be installed before a provider. From a checkout owned by your regular user:
 
-```fish
+```sh
 python3 -B scripts/install_agents.py codex --install
 ```
 
@@ -32,7 +32,7 @@ Use `claude`, `both` or `local` instead as appropriate. Without `--install`, the
 
 For a client installed through `curl` and a shell, npm or another user-owned native installation:
 
-```fish
+```sh
 ai-desktop clients list
 ai-desktop clients register claude
 # Or: ai-desktop clients register codex
@@ -48,13 +48,13 @@ This copy is an explicit trust decision: it does not prove vendor authenticity. 
 
 Registrations are **system-wide**, with one active copy per provider. They take priority over a supported system package. A corrupt or incomplete registration is refused rather than silently bypassed. Review a replacement knowing it affects all users of that provider. Remove a registration explicitly to return to the system package, without removing the original client or account data:
 
-```fish
+```sh
 ai-desktop clients remove claude
 ```
 
 ## Inspect and check compatibility
 
-```fish
+```sh
 ai-desktop clients list
 ai-desktop doctor
 ai-desktop doctor --v
@@ -81,7 +81,7 @@ Version text alone is insufficient. Required command/configuration capabilities 
 
 Update the original client through its own installation method. Supported system packages are selected afresh for each operation. A registered copy retains its approved bytes after the original source updates; approve a replacement explicitly:
 
-```fish
+```sh
 ai-desktop clients list
 ai-desktop clients refresh claude
 # Or: ai-desktop clients refresh codex

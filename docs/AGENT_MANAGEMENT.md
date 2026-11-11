@@ -11,7 +11,7 @@ Candidate 0.1.0-81 uses independently installed Claude or Codex clients through 
 `ai-desktop settings` opens a menu in the terminal: arrows and Enter select, Esc goes back. The menu covers the service, agent, model, reasoning level, access, instructions and Skills.
 Changing settings does not log in or send anything.
 
-```fish
+```sh
 ai-desktop settings                                  # menu (also: settings menu)
 ai-desktop settings show                             # current settings
 ai-desktop settings models                           # available models and levels
@@ -36,7 +36,7 @@ The service is shared by all agents. After a service change, an agent returns to
 An agent is a saved role: service, model, level, access (`changes` or `read-only`), instructions up to 4 KiB and assigned Skills (role plus metadata catalog up to 104 KiB; selected procedures/references use a separate 192 KiB budget). The limit is 24 profiles. A `read-only` agent does not write, does not delete and does not get
 commands from the `change` list.
 
-```fish
+```sh
 ai-desktop agents setup                  # adds missing roles and Skills, does not change your settings
 ai-desktop agents                        # menu in the terminal, a list outside it
 ai-desktop agents list
@@ -66,7 +66,7 @@ The program runs only one role in the foreground. The client's native subagents 
 
 ## Skills
 
-```fish
+```sh
 ai-desktop skills                 # list; your own are marked
 ai-desktop skills show NAME
 ai-desktop skills validate
@@ -98,7 +98,7 @@ Memory gives no permissions. When access to a file is revoked, the answers and m
 
 Interactive terminal `ask` saves locally by default after the first completed turn or completed action. One-shot `--question` and non-terminal embedded invocations remain non-persistent unless an explicit session is selected. The first checkpoint is published as one complete private record; declining or cancelling before a completed turn creates no empty file. Each later completed turn updates that record atomically. The next `ai-desktop ask` offers conversations of the same agent. Use `--no-save` for a temporary in-memory conversation. `--session new` creates an explicit record, and `--session ID` resumes one (also for `material` and `project`). `--no-save` and `--session` cannot be combined.
 
-```fish
+```sh
 ai-desktop sessions          # menu, a list outside the terminal
 ai-desktop sessions list
 ai-desktop sessions show ID
@@ -131,7 +131,7 @@ In `version = 2` there is no hidden list of names. If `read` covers `~/.config/a
 
 Codex is selected and enabled independently of Claude. Treat this adapter as experimental. Install the system `openai-codex` package independently, then use its shared compatibility check and the existing AI Desktop account flow:
 
-```fish
+```sh
 ai-desktop agent use codex
 ai-desktop doctor --clients
 ai-desktop codex status
@@ -174,7 +174,7 @@ The server is a separate, owner-managed program. Its launch options, file access
 
 The existing subscription for each service is named `default`. Register a named account, complete its private browser login, then select it for new tasks:
 
-```fish
+```sh
 ai-desktop account add claude work --login
 ai-desktop account add codex personal --login
 ai-desktop account use claude work
@@ -198,9 +198,9 @@ The home panel shows the selected account for the active service. Choose **Subsc
 
 By default the terminal and widget read local observations. An approved conversation may deliver native quota events. A partial event preserves the other window and its observation time. Expired readings are labelled as historical.
 
-For an on-demand Codex account snapshot, use the native quota connection for a signed-in local slot. These fish commands use the default slot:
+For an on-demand Codex account snapshot, use the native quota connection for a signed-in local slot. These commands use the default slot:
 
-```fish
+```sh
 ai-desktop account connect-limits codex default
 ai-desktop usage --refresh --provider codex --account default
 ai-desktop usage --provider codex

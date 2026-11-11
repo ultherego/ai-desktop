@@ -52,8 +52,14 @@ LEGACY_SKILLS = MappingProxyType({**{area + "-" + topic: area for area, topics i
 def renamed_skills(names):
     """Old packaged per-topic names replaced by their area Skill, in order and without repeats."""
     result = []
+    try:
+        from . import skills
+        own = set(skills.user_names()) if any(name in LEGACY_SKILLS for name in names) else set()
+    except (OSError, ValueError):
+        own = set()
     for name in names:
-        name = LEGACY_SKILLS.get(name, name)
+        # An own Skill that happens to carry a former packaged name (made before that name was refused) stays itself.
+        name = name if name in own else LEGACY_SKILLS.get(name, name)
         if name not in result:
             result.append(name)
     return tuple(result)

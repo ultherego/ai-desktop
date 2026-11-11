@@ -120,6 +120,19 @@ class UserSkillTests(unittest.TestCase):
         own.write_text("---\nname: moj-pulpit\ndescription: moj\n---\n\ntresc wlasna\n")
         self.assertEqual(skills.locate("moj-pulpit"), self.root)
 
+    def test_a_former_packaged_name_is_refused_and_an_own_skill_of_that_name_is_not_renamed(self):
+        # Installer audit: profiles map arch-docker to arch, so an own Skill named arch-docker would silently be lost.
+        with self.assertRaises(ValueError):
+            skills.create("arch-docker")
+        with self.assertRaises(ValueError):
+            skills.create("desktop-documentation")
+        self.assertEqual(profiles.renamed_skills(("arch-docker", "code-review")), ("arch", "code-review"))
+        own = self.root / "arch-docker/SKILL.md"
+        own.parent.mkdir(parents=True)
+        own.write_text("---\nname: arch-docker\ndescription: moj\n---\n\ntresc\n")
+        self.assertEqual(skills.user_names(), ("arch-docker",))
+        self.assertEqual(profiles.renamed_skills(("arch-docker", "cachyos-kernel")), ("arch-docker", "cachyos"))
+
     def test_a_symlink_or_shared_writable_user_skill_is_refused(self):
         outside = self.root.parent / "outside.md"
         outside.write_text("---\nname: link\ndescription: x\n---\n\nsekret\n")

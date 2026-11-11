@@ -1,20 +1,20 @@
 # Terminal launchers, Niri bindings and the DMS bar
 
-The Arch package installs **AI Desktop** and **AI Desktop Panel** as desktop entries. Find them in your application launcher. Both request a terminal and start the same installed `ai-desktop ask` or `ai-desktop panel` you use in fish. DMS uses its configured terminal to open these entries.
+The Arch package installs **AI Desktop** and **AI Desktop Panel** as desktop entries. Find them in your application launcher. Both request a terminal and start the same installed `ai-desktop ask` or `ai-desktop panel` you use in your terminal. Your desktop opens them in its configured terminal (any terminal works: Konsole, GNOME Terminal, Terminator and others).
 
 ## Runtime transition
 
 The launchers and widget use the selected service and independently installed client; they do not require both Claude and Codex. System packages are selected directly; HOME/native/npm sources use the same explicitly registered runtime copy as the terminal. See [client installation and migration](AGENT_INSTALL.md). The widget still reads local account/usage metadata; selecting an approved executable does not reuse your ordinary CLI account or enlarge the widget's authority. Explicit native account/quota operations use the same bound-client compatibility checks as the terminal. DMS is optional for terminal conversations and client selection.
 
-## Niri with kitty
+## Keyboard shortcut in Niri
 
-The package installs an example at `/usr/share/ai-desktop/niri-bindings.kdl`. Pick two free shortcuts and add the corresponding lines inside your existing Niri `binds` block. The example uses `Mod+Shift+A` for chat and `Mod+Shift+P` for the panel. Validate your edited configuration with `niri validate`. Installing AI Desktop does not edit the compositor configuration.
+The package installs an example at `/usr/share/ai-desktop/niri-bindings.kdl`. It opens your preferred terminal through `xdg-terminal-exec` (package `xdg-terminal-exec`); with another compositor or terminal use its own command, for example `konsole -e ai-desktop ask`. Pick two free shortcuts and add the corresponding lines inside your existing Niri `binds` block. The example uses `Mod+Shift+A` for chat and `Mod+Shift+P` for the panel. Validate your edited configuration with `niri validate`. Installing AI Desktop does not edit the compositor configuration.
 
 ## Optional DMS bar widget
 
 The widget depends only on DMS. The package ships it in `/usr/share/ai-desktop/dms/AiDesktop` and never changes your DMS configuration by itself. Link it into the directory DMS scans with:
 
-```fish
+```sh
 ai-desktop widget install
 ```
 

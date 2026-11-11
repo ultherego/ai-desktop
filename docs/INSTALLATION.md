@@ -10,9 +10,9 @@ Supported system packages are used directly. Clients installed in your home dire
 
 Keep the Claude/Codex installation you use: supported Arch/AUR packages, official native installers and current npm installations are covered. The example below uses the Arch Codex package. If you already installed through `curl` and a shell, omit `openai-codex` from the package command and register your existing client after installing AI Desktop. Local inference needs no cloud client. See [installation variants and migration](AGENT_INSTALL.md).
 
-```fish
+```sh
 # 1. Application build tools and the selected system client (Codex example)
-sudo pacman -S --needed base-devel git fish python bubblewrap xdg-dbus-proxy libseccomp sudo python-rich python-cryptography openai-codex
+sudo pacman -S --needed base-devel git python bubblewrap xdg-dbus-proxy libseccomp sudo python-rich python-cryptography openai-codex
 
 # 2. Code and application installation; this does not download a provider client
 git clone https://github.com/ultherego/ai-desktopv2.git ~/ai-desktop
@@ -50,7 +50,7 @@ Update the application and your Claude/Codex installations independently. A regi
 
 When upgrading from 0.1.0-79/80, use a supported independent client: a system package or an explicitly registered existing installation. The application can be installed before registration. The new application package no longer owns or runs its old private vendor files; pacman handles removal of files from the old package manifest. Existing account profiles, policy, sessions and journals are retained. Ignored copies left in the source checkout are not packaged or used. Do not copy credentials into a user CLI profile or delete them to complete the migration.
 
-```fish
+```sh
 ai-desktop stop
 ai-desktop status
 cd ~/ai-desktop
