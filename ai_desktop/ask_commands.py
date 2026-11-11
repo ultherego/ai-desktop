@@ -20,6 +20,7 @@ COMMANDS = (
     ("/provider", "switch the recipient of this conversation"),
     ("/settings", "show and change the settings"),
     ("/permissions", "show what the program can access"),
+    ("/context", "show what of this conversation the next question sends"),
     ("/test", "run an offline suite in the current authorized project"),
     ("/exit", "end the conversation"),
 )
@@ -185,6 +186,8 @@ class Controls:
                 run_test(value)
             else:
                 print("Use /test RECIPE in an interactive conversation.")
+        elif name == "/context":
+            self._context(talk)
         elif name == "/permissions":
             self._permissions()
         elif name == "/model":
@@ -452,6 +455,35 @@ class Controls:
                 home = policy.home + "/"
                 shown = ["~/" + item[len(home):] if item.startswith(home) else item for item in protected]
                 print("Protected by default, even under a broad read rule (files.protect): " + ", ".join(shown))
+
+    @staticmethod
+    def _context(talk):
+        """S2 view: what the next request carries from this conversation and what stays only in the local thread."""
+        from .conversation_state import MAX_TRANSCRIPT
+        from .conversation_memory import MAX_ENTRIES, MEMORY_BYTES
+        from .execution import HISTORY_TOTAL_BYTES, MAX_HISTORY
+        if talk is None:
+            print("No conversation yet.")
+            return
+        sent = talk.history()
+        size = sum(len(pair["question"].encode()) + len(pair["answer"].encode()) for pair in sent)
+        state = talk.task_memory()
+        counts = {}
+        for item in state["entries"]:
+            counts[item["status"]] = counts.get(item["status"], 0) + 1
+        print("Turns in this conversation: %d (all of them stay in the local thread, up to %d)." % (
+            talk.number, MAX_TRANSCRIPT))
+        print("Sent word for word with the next question: the last %d turn(s), %d B (limit %d turns, %d B)." % (
+            len(sent), size, MAX_HISTORY, HISTORY_TOTAL_BYTES))
+        print("Task memory sent with it: %d entries (%s), limit %d entries / %d KiB." % (
+            len(state["entries"]), ", ".join("%s %d" % item for item in sorted(counts.items())) or "none",
+            MAX_ENTRIES, MEMORY_BYTES // 1024))
+        if state["dropped"]:
+            print("Left out of the task memory to fit its limit: %d older entries (outdated versions and working "
+                  "notes first; the model is told the memory is incomplete)." % state["dropped"])
+        older = talk.number - len(sent)
+        if older > 0:
+            print("Older turns not sent word for word: %d; what was decided in them is in the task memory." % older)
 
     @staticmethod
     def _rebind(conversation):
