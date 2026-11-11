@@ -21,14 +21,26 @@ class SkillTests(unittest.TestCase):
                     self.assertEqual(skills.main(arguments), 0)
                 outputs.append(output.getvalue())
         self.assertEqual(outputs[0], outputs[1])
-        self.assertIn("cachyos-diagnostics:", outputs[0])
+        self.assertIn("cachyos:", outputs[0])
         run.assert_not_called()
         spawn.assert_not_called()
 
     def test_project_skill(self):
-        description, text = inspect_skill(ROOT, "cachyos-diagnostics")
+        description, text = inspect_skill(ROOT, "cachyos")
         self.assertIn("CachyOS", description)
-        self.assertIn("read-only", text)
+        self.assertIn("cachyos/diagnostics", text)                          # the area Skill routes to its guides
+        bundle = skills.bundle("cachyos")
+        self.assertIn("read-only", bundle["guides"]["diagnostics"]["content"])
+
+    def test_area_guides_and_references_fit_their_limits_and_never_share_a_name(self):
+        for area in ("arch", "cachyos"):
+            bundle = skills.bundle(area)
+            self.assertTrue(bundle["guides"])
+            self.assertFalse(set(bundle["guides"]) & set(bundle["references"]))
+            for name, guide in bundle["guides"].items():
+                self.assertIn(area + "/" + name, bundle["text"])                 # every guide is listed in SKILL.md
+                self.assertLessEqual(len(guide["content"].encode()), skills.MAX_GUIDE_BYTES)
+            self.assertTrue(skills.resource_text(bundle, area + "/" + next(iter(bundle["guides"]))).startswith("Guide: "))
 
     def test_packaged_preset_skills_validate_and_fit_full_instruction_budget(self):
         names = tuple(dict.fromkeys(name for group in agent_profiles.PRESET_SKILLS.values() for name in group))

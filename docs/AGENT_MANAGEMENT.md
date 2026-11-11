@@ -54,7 +54,7 @@ New configurations expose the default, diagnostic, programmer and reviewer catal
 
 | Profile | Skill | Access |
 |---|---|---|
-| `default` | 28 general Arch/CachyOS, diagnostics and development Skills, including `concise-assistant` | `changes` |
+| `default` | the `arch` and `cachyos` area Skills, `desktop-documentation`, the development Skills and `concise-assistant` | `changes` |
 | `diagnostic` | CachyOS diagnostic, desktop documentation and Arch procedures (17 for an empty selection) | `read-only` |
 | `programmer` | `code-development` | `changes` |
 | `reviewer` | `code-review` | `read-only` |
@@ -74,7 +74,7 @@ ai-desktop skills menu            # assignments of the active agent
 ai-desktop skills new NAME        # ~/.config/ai-desktop/skills/NAME/SKILL.md
 ```
 
-A Skill is a procedure of up to 96 KiB, without executable tools or scripts. It may include bounded documentation under `references/`, loaded individually on demand. The package contains general Skills for CachyOS (`cachyos-*`) and Arch Linux (`arch-*`), for programming and analysis, and `desktop-documentation`, which points to desktop documentation; the CachyOS Skills deliberately do not describe desktops and compositors. Your own Skill lives outside the repository and the package, and with the same name it takes priority over the general one.
+A Skill is a procedure of up to 96 KiB, without executable tools or scripts. It may include bounded documentation under `references/`, loaded individually on demand. The package contains two area Skills, `arch` (general Arch Linux) and `cachyos` (what CachyOS adds), each a short `SKILL.md` with its rules and a table of topic guides (`guides/`, e.g. `arch/firewall`, `cachyos/kernel`) and source-backed references (`references/`), all loaded on demand; plus Skills for programming and analysis and `desktop-documentation`, which points to desktop documentation. The packaged Skills belong to the program and every update replaces them. Your own Skills live in `~/.config/ai-desktop/skills/` outside the repository and the package and must use other names: a Skill of yours with a packaged name is ignored (`/skills`, `ai-desktop skills list` and `ai-desktop doctor` say so) and `ai-desktop skills new` refuses such a name. Saved profiles that still name the former per-topic Skills (`arch-pacman`, `cachyos-kernel` and the others) get the area Skill instead.
 A name consists of lowercase letters, digits and hyphens. Do not put secrets in it: assigned metadata goes to the model, and a selected procedure or reference sends its content. A path written in the main Skill procedure or in an agent's instructions counts as given by you, so the model can read it without discovery; the policy and `deny` still decide.
 
 Reference documents do not ground local paths or grant reads. New configurations expose the general catalog; existing saved assignments, including an empty list, are preserved.

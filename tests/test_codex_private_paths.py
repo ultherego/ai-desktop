@@ -9,10 +9,10 @@ from ai_desktop import permissions as permissions
 from ai_desktop import project_scope
 
 
-def policy(home, *, version=1):
+def policy(home, *, version=1, protect=True):
     return permissions.Policy(uid=os.getuid(), home=home, _raw=b"", _identity=(),
                               _read=(permissions._rule("~/**", home, version=version),),
-                              _deny=(), _version=version)
+                              _deny=(), _version=version, _protect=protect)
 
 
 class CodexPrivatePathTests(unittest.TestCase):
@@ -63,7 +63,22 @@ class CodexPrivatePathTests(unittest.TestCase):
     def test_explicit_owner_managed_v2_semantics_remain_the_same_as_claude(self):
         # Version 2 deliberately delegates location choices to the owner;
         # this legacy filter must not silently rewrite that existing policy.
-        selected = policy("/home/synthetic", version=2)
+        # With the default protection switched off (files.protect = false) the owner's rules alone decide.
+        selected = policy("/home/synthetic", version=2, protect=False)
         with patch.object(permissions.os, "open", side_effect=AssertionError("target opened")):
             self.assertEqual(selected.select(["~/.codex/config.toml", "~/.claude/config.json"]),
                              ("/home/synthetic/.codex/config.toml", "/home/synthetic/.claude/config.json"))
+
+
+class DefaultProtectionTests(unittest.TestCase):
+    def test_version_two_protects_client_logins_by_default_without_opening_them(self):
+        selected = policy("/home/synthetic", version=2)
+        for path in ("~/.codex/config.toml", "~/.claude/config.json"):
+            with self.subTest(path=path), patch.object(permissions.os, "open", side_effect=AssertionError("opened")), \
+                    self.assertRaises(ValueError) as caught:
+                selected.select([path])
+            self.assertEqual(str(caught.exception), "files-denied")
+
+
+if __name__ == "__main__":
+    unittest.main()

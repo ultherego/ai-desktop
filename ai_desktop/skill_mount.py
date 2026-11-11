@@ -11,7 +11,7 @@ DEST = "/home/sandbox/.claude/skills"
 PROBE = chr(10).join([
     "import hashlib, os, sys",
     "from pathlib import Path",
-    "skill = Path(\"/home/sandbox/.claude/skills/cachyos-diagnostics/SKILL.md\")",
+    "skill = Path(\"/home/sandbox/.claude/skills/cachyos/SKILL.md\")",
     "checks = {",
     "  \"skill visible\": skill.is_file(),",
     "  \"skills read-only\": bool(os.statvfs(\"/home/sandbox/.claude/skills\").f_flag & os.ST_RDONLY),",
@@ -39,7 +39,7 @@ def source_hash(root: Path):
         if any(child.is_symlink() for child in entry.rglob("*")):
             raise ValueError("Symlink inside a Skill")
     return hashlib.sha256(
-        (root / "cachyos-diagnostics/SKILL.md").read_bytes()
+        (root / "cachyos/SKILL.md").read_bytes()
     ).hexdigest()
 
 

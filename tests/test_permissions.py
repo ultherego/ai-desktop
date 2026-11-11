@@ -737,7 +737,8 @@ class PolicyTests(unittest.TestCase):
                  ".git/config", ".config/ai-desktop/extra.txt", ".claude/data.json")
         content = "-----BEGIN OPENSSH PRIVATE KEY-----\nSYNTHETIC NOT A KEY\n"
         paths = tuple(str(self.file(name, content)) for name in names)
-        policy = self.policy(read=["~/"], write=["~/"], version=2)
+        # The owner switched the default protection off (files.protect = false): then no filter applies at all.
+        policy = self.policy(read=["~/"], write=["~/"], version=2, sections="protect = false\n")
         self.assertEqual(policy.write_workspace(0), str(self.home))
         selected = policy.expand_selected([(0, name) for name in names])
         self.assertEqual(selected, tuple(sorted(paths)))
@@ -902,7 +903,7 @@ class PolicyTests(unittest.TestCase):
         self.assertTrue(policy._excluded(str(self.config)))
         # These exclusions are configuration values, so an explicit v2 edit
         # can remove them without any hidden filename/content backstop.
-        policy = self.policy(read=["~/"], write=["~/"], deny=[], version=2)
+        policy = self.policy(read=["~/"], write=["~/"], deny=[], version=2, sections="protect = false\n")
         self.assertTrue(policy.can_write(str(self.config)))
         self.assertEqual(policy.select([str(self.config)]), (str(self.config),))
 

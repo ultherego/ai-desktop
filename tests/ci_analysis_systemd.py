@@ -90,20 +90,21 @@ def install_skills():
     bundles = []
     for directory in directories:
         snapshot = skills.bundle(directory.name, root=source)
-        bundles.append((directory, tuple(snapshot["references"])))
+        bundles.append((directory, tuple(snapshot["references"]), tuple(snapshot["guides"])))
     # Validate the whole source tree before any privileged installation. The
     # production loader remains responsible for ownership, modes and links.
     owner = ("sudo", "-n", "/usr/bin/install", "-o", "root", "-g", "root")
     destination = prior.DEST / "skills"
     prior._run(*owner, "-d", "-m755", str(destination))
-    for directory, references in bundles:
+    for directory, references, guides in bundles:
         target = destination / directory.name
         prior._run(*owner, "-d", "-m755", str(target))
         prior._run(*owner, "-m644", str(directory / "SKILL.md"), str(target / "SKILL.md"))
-        if references:
-            prior._run(*owner, "-d", "-m755", str(target / "references"))
-            prior._run(*owner, "-m644", *(str(directory / "references" / (name + ".md"))
-                                        for name in references), str(target / "references"))
+        for part, names in (("references", references), ("guides", guides)):
+            if names:
+                prior._run(*owner, "-d", "-m755", str(target / part))
+                prior._run(*owner, "-m644", *(str(directory / part / (name + ".md"))
+                                            for name in names), str(target / part))
 
 
 def install(temp, file_home):

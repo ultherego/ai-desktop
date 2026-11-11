@@ -42,6 +42,17 @@ _BLOCKED_NAMES = frozenset({"shadow", "gshadow", ".netrc", ".git-credentials", "
                           ".env", ".credentials.json", "credentials", "credentials.json",
                           "token", "tokens.json", "auth.json", "secrets.toml",
                           "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", "id_ecdsa_sk", "id_ed25519_sk"})
+# Version 2: secrets every installation may hold, protected by default and listed openly (docs/CONFIGURATION.md,
+# /permissions). `files.protect = false` switches the whole list off; a files.read rule that names a location itself
+# (or something inside it, e.g. "~/.ssh/config") lifts it for that location. A broad rule such as "~/**" does not.
+PROTECTED_HOME = (".ssh", ".gnupg", ".password-store", ".aws", ".azure", ".kube", ".docker", ".claude", ".codex",
+                  ".config/gh", ".config/gcloud", ".config/rclone", ".local/share/keyrings", ".config/borg",
+                  ".config/borgmatic", ".mozilla", ".librewolf", ".thunderbird", ".config/chromium",
+                  ".config/google-chrome", ".config/BraveSoftware", ".config/vivaldi", ".config/opera",
+                  ".config/microsoft-edge", ".config/ai-desktop", ".local/state/ai-desktop", ".local/share/ai-desktop",
+                  ".netrc", ".git-credentials", ".npmrc", ".pypirc", ".env")
+PROTECTED_SYSTEM = ("/etc/ssh", "/etc/shadow", "/etc/gshadow", "/etc/NetworkManager/system-connections",
+                    "/etc/wireguard", "/etc/borgmatic", "/etc/borgmatic.d")
 _WRITE_BLOCKED_ROOTS = ("/etc", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/boot",
                         "/var", "/opt", "/srv")
 _WRITE_BLOCKED_COMPONENTS = frozenset({".ssh", ".git", ".local", ".ai-desktop-tasks",
@@ -638,6 +649,20 @@ class Policy:
     local_port: int = 8080
     _host_sockets: tuple = ()
     _denied_commands: tuple = ()
+    _protect: bool = True
+
+    def protected_locations(self):
+        """The default-protected locations in force (version 2), for the owner's view; empty when switched off."""
+        if self._version != 2 or not self._protect:
+            return ()
+        locations = tuple(self.home + "/" + item for item in PROTECTED_HOME) + PROTECTED_SYSTEM
+        # A rule for the location itself lifts all of it; a rule for something inside lifts only what it covers.
+        return tuple(location for location in locations if not any(rule.base == location for rule in self._read))
+
+    def _protected(self, path):
+        return any(_under(path, location)
+                   and not any(_under(rule.base, location) and rule.matches(path) for rule in self._read)
+                   for location in self.protected_locations())
 
     def fingerprint(self):
         """Identifies the exact permissions.toml this policy came from, including what `access()` does not list."""
@@ -807,6 +832,7 @@ class Policy:
 
     def _excluded(self, path):
         return (_reserved(path) or (self._version == 1 and _blocked(path, self.home))
+                or (self._version == 2 and self._protect and self._protected(path))
                 or any(rule.denies(path) for rule in self._deny))
 
     def _allowed(self, path):
@@ -981,7 +1007,7 @@ def load_policy(*, optional=False):
         absent = [key for key in ("read", "deny") if key not in value["files"]]
         if absent:
             raise _Problem("Missing from [files]: " + ", ".join(absent) + ".")
-        stray = sorted(set(value["files"]) - {"read", "deny", "write", "file_size", "part_size", *LIMIT_SPECS})
+        stray = sorted(set(value["files"]) - {"read", "deny", "write", "file_size", "part_size", "protect", *LIMIT_SPECS})
         if stray:
             raise _Problem("Unknown key in [files]: " + ", ".join(_shown(key) for key in stray) + ".")
         rules = []
@@ -1037,8 +1063,14 @@ def load_policy(*, optional=False):
             raise _SettingError("part_size") from None
         limits = parse_limits(value["files"])
         section = value.get("commands", {})
-        if type(section) is not dict or set(section) - {"allow", "change", "deny", "share_processes", "host_sockets"}:
-            raise _Problem("[commands] only accepts the keys allow, change, deny, share_processes, host_sockets.")
+        if type(section) is not dict or set(section) - {"allow", "change", "deny", "share_processes", "host_sockets", "preset"}:
+            raise _Problem("[commands] only accepts the keys preset, allow, change, deny, share_processes, host_sockets.")
+        from .command_presets import PRESETS
+        chosen = section.get("preset", [])
+        chosen = [chosen] if type(chosen) is str else chosen
+        if type(chosen) is not list or any(type(name) is not str or name not in PRESETS for name in chosen):
+            raise _Problem("commands.preset is one of: %s (or a list of them)." % ", ".join(sorted(PRESETS)))
+        preset = [template for name in chosen for template in PRESETS[name]]
         from .command_ops import opens_a_change, parse_deny, parse_template, parse_templates, valid_group
         parsed_lists = {}
         for key in ("allow", "change"):
@@ -1065,6 +1097,9 @@ def load_policy(*, optional=False):
             again = _repeated(items)
             if again:
                 raise _Problem(*("Repeated template in commands.%s: %s" % (key, _shown(item)) for item in again))
+            if key == "allow" and preset:
+                # The built-in set first; the owner's own templates add to it (a repeat of a preset line is harmless).
+                items = list(dict.fromkeys([*preset, *items]))
             parsed_lists[key] = parse_templates(items, strict=key == "change")
         commands, changes = parsed_lists["allow"], parsed_lists["change"]
         both = [" ".join(t) for t in commands if t in set(changes)]
@@ -1090,10 +1125,14 @@ def load_policy(*, optional=False):
                                "link): " + _shown(str(item)))
         if len(set(sockets)) != len(sockets):
             raise _Problem("commands.host_sockets lists the same path twice.")
+        protect = value["files"].get("protect", True)
+        if type(protect) is not bool:
+            raise _Problem("files.protect must be true or false.")
         policy = Policy(uid, home, raw, identity, *rules,
                         network.get("claude", False), network.get("weather", False), tuple(systemd), value["version"],
                         network.get("web", False), file_size, part_size, network.get("codex", False), limits, commands, changes, share,
-                        network.get("local", False), local.get("port", DEFAULT_LOCAL_PORT), _host_sockets=tuple(sockets), _denied_commands=denies)
+                        network.get("local", False), local.get("port", DEFAULT_LOCAL_PORT), _host_sockets=tuple(sockets), _denied_commands=denies,
+                        _protect=protect)
         for template in (*commands, *changes):
             for token in template[1:]:
                 if token[:1] == "/":        # templates carry absolute literal paths only (`~` is refused by the parser)

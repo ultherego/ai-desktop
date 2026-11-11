@@ -15,7 +15,8 @@ class CachyOSKnowledgeTests(unittest.TestCase):
                 patch("subprocess.run", side_effect=AssertionError("no host probe")):
             for path in sorted(skills.ROOT.glob("*/SKILL.md")):
                 snapshot = skills.bundle(path.parent.name, root=skills.ROOT)
-                linked = set(re.findall(r"\]\(references/([a-z0-9-]+)\.md\)", snapshot["text"]))
+                documents = [snapshot["text"]] + [guide["content"] for guide in snapshot["guides"].values()]
+                linked = set(re.findall(r"\]\(references/([a-z0-9-]+)\.md\)", "\n".join(documents)))
                 self.assertEqual(linked, set(snapshot["references"]), path.parent.name)
                 for name in linked:
                     with self.subTest(skill=path.parent.name, reference=name):
@@ -36,13 +37,14 @@ class CachyOSKnowledgeTests(unittest.TestCase):
         self.assertTrue(references)
 
     def test_requested_update_reference_does_not_load_unrelated_recovery(self):
-        snapshot = skills.bundle("cachyos-packages", root=skills.ROOT)
-        selected = skills.resource_text(snapshot, "cachyos-packages/cachy-update")
+        snapshot = skills.bundle("cachyos", root=skills.ROOT)
+        selected = skills.resource_text(snapshot, "cachyos/cachy-update")
         self.assertIn("arch-update.timer", selected)
         self.assertIn("GNOME", selected)
         self.assertNotIn("# Snapshot tools", selected)
         self.assertIsNone(skills.resource_text(snapshot, "cachyos-boot-snapshots/cachy-chroot"))
-        self.assertIsNone(skills.resource_text(snapshot, "cachyos-packages/nonexistent"))
+        self.assertIsNone(skills.resource_text(snapshot, "arch/cachy-chroot"))
+        self.assertIsNone(skills.resource_text(snapshot, "cachyos/nonexistent"))
 
     def test_private_override_does_not_inherit_packaged_reference(self):
         with tempfile.TemporaryDirectory() as tmp:

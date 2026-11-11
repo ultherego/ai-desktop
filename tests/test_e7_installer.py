@@ -18,8 +18,8 @@ class E7InstallContract(unittest.TestCase):
             prefix.mkdir(mode=0o700)
             plan = install_user.preview()
             self.assertEqual(len(plan["sha256"]), 64)
-            self.assertTrue(any(f["path"] == "skills/cachyos-diagnostics/SKILL.md"
-                                for f in plan["files"]))
+            for packaged in ("skills/cachyos/SKILL.md", "skills/cachyos/guides/diagnostics.md"):
+                self.assertTrue(any(f["path"] == packaged for f in plan["files"]), packaged)
             self.assertTrue(any(f["path"] == "ai_desktop/__main__.py"
                                 for f in plan["files"]))
             result = install_user.install(str(prefix), plan["sha256"])
@@ -27,7 +27,8 @@ class E7InstallContract(unittest.TestCase):
             self.assertEqual(result["files"], len(plan["files"]))
             wrapper = prefix / "bin/ai-desktop"
             self.assertEqual(wrapper.stat().st_mode & 0o777, 0o700)
-            self.assertTrue((prefix / "lib/skills/cachyos-diagnostics/SKILL.md").is_file())
+            self.assertTrue((prefix / "lib/skills/cachyos/SKILL.md").is_file())
+            self.assertTrue((prefix / "lib/skills/cachyos/guides/diagnostics.md").is_file())
             command = subprocess.run([str(wrapper), "--version"], capture_output=True,
                                      text=True, timeout=15, check=False)
             self.assertEqual(command.returncode, 0, command.stderr)

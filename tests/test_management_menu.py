@@ -297,7 +297,9 @@ class CompleteManagementMenuTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(self.store.load().config.profiles["default"].skills,
                          profiles.PRESET_SKILLS["default"] + ("demo",))
-        code, _, _ = self.run_menu("Unassign", "Next page", "Next page", "Next page", "demo", "Save", argv=("skills",))
+        assigned = profiles.PRESET_SKILLS["default"] + ("demo",)
+        pages = ["Next page"] * (assigned.index("demo") // 8)
+        code, _, _ = self.run_menu("Unassign", *pages, "demo", "Save", argv=("skills",))
         self.assertEqual(code, 0)
         self.assertEqual(self.store.load().config.profiles["default"].skills, profiles.PRESET_SKILLS["default"])
 

@@ -442,6 +442,16 @@ class Controls:
         assistant_flow.describe_access(snapshot)
         for scope in snapshot.access["files"] + snapshot.access.get("write", []):
             print("  %s: %s" % (scope["id"], scope["pattern"]))
+        policy = snapshot.policy
+        if policy is not None:
+            commands = len(snapshot.access.get("commands", ()))
+            print("Commands without asking: %d; with your yes each time: %d." % (
+                commands, len(snapshot.access.get("change_commands", ()))))
+            protected = policy.protected_locations()
+            if protected:
+                home = policy.home + "/"
+                shown = ["~/" + item[len(home):] if item.startswith(home) else item for item in protected]
+                print("Protected by default, even under a broad read rule (files.protect): " + ", ".join(shown))
 
     @staticmethod
     def _rebind(conversation):
@@ -523,6 +533,8 @@ class Controls:
         except (OSError, ValueError, KeyError):
             print("Could not read the agent settings. Check ai-desktop agents list.")
             return
+        for hidden in skills.shadowed():
+            print("Warning: " + skills.SHADOWED_HINT % (hidden, hidden, hidden))
         always = profiles.with_presets(name, profiles.Profile()).skills       # built-in Skills of this agent
         chosen = list(profile.skills if self.skills is None else self.skills)
         chosen = list(always) + [item for item in chosen if item not in always]

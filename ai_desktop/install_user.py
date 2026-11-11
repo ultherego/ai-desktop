@@ -23,7 +23,8 @@ def manifest():
     """Deterministic list of source bytes to copy. No secrets or unlisted files."""
     try:
         paths = sorted(SOURCE_PACKAGE.glob("*.py"))
-        paths += sorted([*SOURCE_SKILLS.glob("*/SKILL.md"), *SOURCE_SKILLS.glob("*/references/*.md")])
+        paths += sorted([*SOURCE_SKILLS.glob("*/SKILL.md"), *SOURCE_SKILLS.glob("*/references/*.md"),
+                         *SOURCE_SKILLS.glob("*/guides/*.md")])
         if not paths or not (SOURCE_PACKAGE / "__init__.py").is_file():
             raise InstallDenied("INSTALL: REFUSED")
         out = []

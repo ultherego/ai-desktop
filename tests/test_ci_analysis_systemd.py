@@ -114,9 +114,11 @@ class CiAnalysisGuardTests(unittest.TestCase):
                             snapshot = skills.bundle(skill)
                             for reference in snapshot["references"]:
                                 self.assertIn(skill + "/" + reference + ":", selected["instructions"])
+                            for guide in snapshot["guides"]:
+                                self.assertIn(skill + "/" + guide + ":", selected["instructions"])
                 # Installed-source checks are real: neither missing nor unsafe
                 # resources can silently fall back to the source checkout.
-                reference = installed / "arch-pacman/references/package-queries.md"
+                reference = installed / "arch/references/package-queries.md"
                 reference.chmod(0o666)
                 with self.assertRaises(agent_profiles.ProfileError):
                     agent_profiles.resolve(store=store)
@@ -129,9 +131,9 @@ class CiAnalysisGuardTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             shutil.copytree(driver.ROOT / "skills", root / "skills")
-            reference = root / "skills/arch-pacman/references/package-queries.md"
+            reference = root / "skills/arch/references/package-queries.md"
             reference.unlink()
-            reference.symlink_to(driver.ROOT / "skills/arch-pacman/references/package-queries.md")
+            reference.symlink_to(driver.ROOT / "skills/arch/references/package-queries.md")
             with patch.object(driver, "ROOT", root), patch.object(driver.prior, "_run") as command:
                 with self.assertRaises(ValueError):
                     driver.install_skills()

@@ -39,6 +39,7 @@ class ControlsTests(unittest.TestCase):
         self.enterContext(patch.object(profiles, "_skill", side_effect=lambda name: "tresc " + name))
         self.enterContext(patch("ai_desktop.skills.inspect_skill", side_effect=lambda root, name, **_: ("opis " + name, "tresc " + name)))
         self.enterContext(patch("ai_desktop.skills._reference_files", return_value={}))
+        self.enterContext(patch("ai_desktop.skills._guide_files", return_value={}))
         self.enterContext(patch("ai_desktop.skills.names", return_value=("a", "b")))
         self.enterContext(execution.using(BASE))
         self.controls = commands.Controls()
@@ -303,7 +304,8 @@ class BuiltInSkillsTests(unittest.TestCase):
                 patch.object(profiles, "PRESET_SKILLS", {"default": ("a",)}), \
                 patch("ai_desktop.skills.names", return_value=("a", "b")), \
                 patch("ai_desktop.skills.inspect_skill", side_effect=lambda root, name, **_: ("opis " + name, "tresc " + name)), \
-                patch("ai_desktop.skills._reference_files", return_value={}):
+                patch("ai_desktop.skills._reference_files", return_value={}), \
+                patch("ai_desktop.skills._guide_files", return_value={}):
             resolved = profiles.resolve(store=profiles.Store())
         self.assertIn("- a: opis a", resolved["instructions"])
         self.assertIn("- b: opis b", resolved["instructions"])

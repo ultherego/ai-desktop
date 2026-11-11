@@ -12,7 +12,7 @@ from .skill_mount import DEST, ROOT, source_hash
 PROBE = chr(10).join([
     "import hashlib, os, sys",
     "from pathlib import Path",
-    "skill = Path(\"/home/sandbox/.claude/skills/cachyos-diagnostics/SKILL.md\")",
+    "skill = Path(\"/home/sandbox/.claude/skills/cachyos/SKILL.md\")",
     "data = skill.read_bytes() if skill.is_file() else b\"\"",
     "checks = {",
     "  \"skill present\": skill.is_file(),",

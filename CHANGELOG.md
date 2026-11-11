@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-164: two system Skills, a ready command set, secrets protected by default
+
+- **Skills `arch` and `cachyos` instead of 23 separate ones.** Each has a short guide of rules and a table of topics; the topics (firewall, SSH, pacman, kernel, snapshots and the others) are loaded only when a question needs them. Ten new source-backed notes: .pacnew/.pacsave and pacdiff, package signatures, mirrors, the package cache, Limine and limine-snapper-sync, Snapper with snap-pac, NVIDIA and two GPUs. Saved agents that named the old Skills get the new ones.
+- **The program's Skills are always its own.** Each update replaces them; a Skill of yours with the same name is ignored with a warning (`/skills`, `ai-desktop skills list`, `ai-desktop doctor`), so give yours another name. `ai-desktop skills new` refuses a packaged name.
+- **`preset = "diagnostics"`** in `[commands]` switches on about 140 read-only commands for all these topics, kept up to date with the program: no need to know every command or flag. Your own commands add to it, `commands.deny` removes from it. It is off until you add the line, because it reads logs, process lists and network names.
+- **Secrets protected by default** (`files.protect`, policy version 2): SSH keys, GnuPG, password stores, cloud and client logins, browser and mail profiles, keyrings, Borg/borgmatic, Wi-Fi/VPN credentials, also under `~/**`. Naming one of them in `files.read` lifts it for exactly that; `/permissions` shows the list. The example `permissions.toml` no longer needs its long `deny` list.
+- References can state a version range (`>=7.0.0`), compared the way pacman compares versions.
+
 ## 0.1.0-163: no limit on command templates, unit names without `.service`
 
 - `permissions.toml` may hold any number of command templates (the file may now be up to 256 KiB); the former 128 per list and the 8 KiB limit of the access description sent with each question are gone.

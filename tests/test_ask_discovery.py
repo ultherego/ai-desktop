@@ -164,12 +164,12 @@ class SkillsOnDemandTests(Base):
     def test_versioned_reference_can_reload_after_verified_command_but_not_reuse_stale_evidence(self):
         from ai_desktop import agent_profiles, ask_commands, command_ops, skills
         self.write_policy('[commands]\nallow = ["pacman -Q pacman"]\nchange = []\n')
-        selected = agent_profiles.Profile(skills=("arch-pacman",))
+        selected = agent_profiles.Profile(skills=("arch",))
         config = agent_profiles.defaults().put("diagnostic", selected)
         store = SimpleNamespace(load=lambda: SimpleNamespace(config=config))
         control = ask_commands.Controls()
         consent = ConversationConsent()
-        name = "arch-pacman/pacman-700-local-repositories"
+        name = "arch/pacman-700-local-repositories"
         selection = json.dumps({"action": "skill", "names": [name]})
         command = json.dumps({"action": "run", "argv": ["pacman", "-Q", "pacman"]})
         with patch.object(agent_profiles, "Store", return_value=store), \
@@ -194,12 +194,12 @@ class SkillsOnDemandTests(Base):
     def test_skills_have_a_separate_budget_from_diagnostic_observations(self):
         self.write_policy('discovery_bytes = "2KiB"\n')
         from ai_desktop import skills
-        body = skills.inspect_skill(skills.ROOT, "arch-btrfs", secure=True)[1]
-        self.run_flow([json.dumps({"action": "skill", "names": ["arch-btrfs"]}), ANSWER_PLAN], skills=lambda name: body)
+        body = skills.resource_text(skills.bundle("arch", root=skills.ROOT), "arch/btrfs")
+        self.run_flow([json.dumps({"action": "skill", "names": ["arch/btrfs"]}), ANSWER_PLAN], skills=lambda name: body)
         self.assertEqual(len(self.wire), 2)
         self.assertEqual(self.steps(1)[0]["text"], body)
         policy = p.load_policy()
-        document = {"steps": [{"op": "skill", "name": "arch-btrfs", "status": "ok", "text": body}],
+        document = {"steps": [{"op": "skill", "name": "arch/btrfs", "status": "ok", "text": body}],
                     "remaining": {"rounds": 1, "corrections": 0, "commands": 0}}
         directory_context.recheck_discovery(directory_context.DiscoverySnapshot(policy, document, ()))
 
@@ -259,10 +259,12 @@ class SkillsOnDemandTests(Base):
     def test_packaged_procedures_reach_the_final_answer_without_loading_other_bodies(self):
         """Exercise real procedure sizes through consent, discovery and the final file hand-off."""
         from ai_desktop import agent_profiles, skills
-        for name in ("arch-btrfs", "arch-systemd", "arch-amdgpu"):
+        for name in ("arch/btrfs", "arch/systemd", "arch/amdgpu"):
             with self.subTest(skill=name), patch.object(skills, "user_root", return_value=self.home / "no-skills"):
-                catalog = agent_profiles.catalog_for(agent_profiles.Profile(skills=(name,)))
-                body = skills.inspect_skill(skills.ROOT, name, secure=True)[1]
+                catalog = agent_profiles.catalog_for(agent_profiles.Profile(skills=("arch",)))
+                self.assertIn("- " + name + ":", catalog)
+                body = skills.resource_text(skills.bundle("arch", root=skills.ROOT), name)
+                self.assertTrue(body.startswith("Guide: " + name + "\n"))
                 loader = Mock(side_effect=lambda requested: body if requested == name else None)
                 self.run_flow([json.dumps({"action": "skill", "names": [name]}), plan("list", sel("gizmo")),
                                read(sel("gizmo/settings.conf")), ANSWER], instructions=catalog, skills=loader)

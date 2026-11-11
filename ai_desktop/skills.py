@@ -14,7 +14,9 @@ ROOT = Path(__file__).resolve().parent.parent / "skills"
 SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 MAX_SKILL_BYTES = 96 * 1024           # one Skill plus its label and a role text always fits the combined ceiling
 MAX_REFERENCE_BYTES = 16 * 1024
-MAX_REFERENCES = 8
+MAX_REFERENCES = 32                   # one area Skill (arch, cachyos) holds the source notes of many tools
+MAX_GUIDES = 32                       # topic guides of one area Skill, loaded on demand like references
+MAX_GUIDE_BYTES = 8 * 1024
 RESOURCE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*(?:/[a-z0-9]+(?:-[a-z0-9]+)*)?\Z")
 
 
@@ -35,10 +37,32 @@ def user_root() -> Path:
     return Path(pwd.getpwuid(os.getuid()).pw_dir) / ".config/ai-desktop/skills"
 
 
+def packaged() -> tuple:
+    """Names of the Skills that come with the program; each update replaces them."""
+    if not ROOT.is_dir() or ROOT.is_symlink():
+        return ()
+    return tuple(sorted(entry.name for entry in ROOT.iterdir() if entry.is_dir() or entry.is_symlink()))
+
+
 def locate(name: str) -> Path:
-    """The owner's Skill of this name, otherwise the packaged general one."""
+    """The packaged Skill of this name wins (an update must be able to replace it); otherwise the owner's own."""
+    if os.path.lexists(ROOT / name / "SKILL.md"):
+        return ROOT
     root = user_root()
     return root if os.path.lexists(root / name / "SKILL.md") else ROOT
+
+
+def shadowed() -> tuple:
+    """The owner's Skills that carry a packaged name: they are not used and should be renamed (never touched here)."""
+    root = user_root()
+    if not root.is_dir() or root.is_symlink():
+        return ()
+    taken = set(packaged())
+    return tuple(sorted(entry.name for entry in root.iterdir() if entry.name in taken))
+
+
+SHADOWED_HINT = ("Your own Skill %s has the name of a Skill that comes with AI Desktop, so the program's one is used and "
+                 "yours is ignored. Rename yours (e.g. my-%s): ~/.config/ai-desktop/skills/%s")
 
 
 def names() -> tuple:
@@ -53,6 +77,9 @@ def create(name: str) -> Path:
     """Start one private Skill from the template; an existing one is never overwritten."""
     if type(name) is not str or not SLUG.fullmatch(name):
         raise ValueError("Invalid Skill name (lowercase letters, digits and hyphens)")
+    if name in packaged():
+        raise ValueError("%s is a Skill that comes with AI Desktop and is replaced by each update; "
+                         "choose another name for your own (e.g. my-%s)" % (name, name))
     directory = user_root() / name
     os.makedirs(directory, mode=0o700, exist_ok=False)
     target = directory / "SKILL.md"
@@ -139,6 +166,22 @@ def inspect_skill(root: Path, name: str, *, secure=False) -> tuple[str, str]:
 
 def _reference_files(root, name, *, secure=True):
     """Read optional one-level references through descriptors, never following links."""
+    return _resource_files(root, name, "references", MAX_REFERENCES, MAX_REFERENCE_BYTES, parse_reference, secure=secure)
+
+
+def _guide_files(root, name, *, secure=True):
+    """Topic guides of an area Skill (guides/*.md): procedures with their own name, description and Sources."""
+    return _resource_files(root, name, "guides", MAX_GUIDES, MAX_GUIDE_BYTES, parse_guide, secure=secure)
+
+
+def parse_guide(data, name):
+    description, _ = parse_skill(data, name)
+    lines = data.splitlines()
+    body = "\n".join(lines[lines.index("---", 1) + 1:]).strip()     # the body only: name and description are in the catalog
+    return {"description": description, "content": body, "sha256": hashlib.sha256(data.encode()).hexdigest()}
+
+
+def _resource_files(root, name, folder, max_files, max_bytes, parse, *, secure=True):
     if type(name) is not str or not SLUG.fullmatch(name):
         raise ValueError("Invalid Skill name")
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
@@ -147,7 +190,7 @@ def _reference_files(root, name, *, secure=True):
         descriptors.append(os.open(root, flags))
         descriptors.append(os.open(name, flags, dir_fd=descriptors[-1]))
         try:
-            descriptors.append(os.open("references", flags, dir_fd=descriptors[-1]))
+            descriptors.append(os.open(folder, flags, dir_fd=descriptors[-1]))
         except FileNotFoundError:
             return {}
         if secure and any(os.fstat(fd).st_uid not in (0, os.getuid()) or os.fstat(fd).st_mode & 0o022
@@ -155,23 +198,23 @@ def _reference_files(root, name, *, secure=True):
             raise ValueError("Unsafe reference directory")
         directory = descriptors[-1]
         files = sorted(os.listdir(directory))
-        if len(files) > MAX_REFERENCES or any(not n.endswith(".md") or not SLUG.fullmatch(n[:-3]) for n in files):
+        if len(files) > max_files or any(not n.endswith(".md") or not SLUG.fullmatch(n[:-3]) for n in files):
             raise ValueError("Invalid reference catalog")
         result = {}
         for filename in files:
             fd = os.open(filename, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=directory)
             try:
                 before = os.fstat(fd)
-                if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size > MAX_REFERENCE_BYTES
+                if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size > max_bytes
                         or secure and (before.st_uid not in (0, os.getuid()) or before.st_mode & 0o022)):
                     raise ValueError("Unsafe reference file")
-                raw = os.read(fd, MAX_REFERENCE_BYTES + 1)
+                raw = os.read(fd, max_bytes + 1)
                 fingerprint = lambda s: (s.st_dev, s.st_ino, s.st_mode, s.st_uid, s.st_gid, s.st_nlink,
                                           s.st_size, s.st_mtime_ns, s.st_ctime_ns)
-                if (len(raw) > MAX_REFERENCE_BYTES or fingerprint(before) != fingerprint(os.fstat(fd))
+                if (len(raw) > max_bytes or fingerprint(before) != fingerprint(os.fstat(fd))
                         or fingerprint(before) != fingerprint(os.stat(filename, dir_fd=directory, follow_symlinks=False))):
                     raise ValueError("Reference changed")
-                result[filename[:-3]] = parse_reference(raw.decode("utf-8"), filename[:-3])
+                result[filename[:-3]] = parse(raw.decode("utf-8"), filename[:-3])
             finally:
                 os.close(fd)
         if files != sorted(os.listdir(directory)):
@@ -212,7 +255,8 @@ def parse_reference(data, name):
     if source.scheme != "https" or not source.hostname or source.username or source.password or source.port not in (None, 443):
         raise ValueError("Invalid reference source")
     datetime.date.fromisoformat(fields["checked"])
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.+:_-]{0,63}", fields["version"]):
+    from .skill_versions import VERSION_FIELD
+    if not VERSION_FIELD.fullmatch(fields["version"]):
         raise ValueError("Invalid reference version")
     tools = [tool.strip() for tool in fields["tools"].split(",")]
     if not 1 <= len(tools) <= 16 or any(not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9+_.-]{0,63}", tool) for tool in tools):
@@ -228,12 +272,17 @@ def bundle(name, *, root=None):
     root = locate(name) if root is None else root
     description, text = inspect_skill(root, name, secure=True)
     references = _reference_files(root, name)
+    guides = _guide_files(root, name)
+    if set(guides) & set(references):
+        raise ValueError("A guide and a reference share a name")
     # Re-read the main file after the references so mixed revisions cannot pass unnoticed.
     if inspect_skill(root, name, secure=True) != (description, text):
         raise ValueError("Skill changed")
-    fingerprint = hashlib.sha256(json.dumps({"text": text, "references": references}, sort_keys=True,
-                                           ensure_ascii=False).encode()).hexdigest()
-    return {"name": name, "description": description, "text": text, "references": references,
+    content = {"text": text, "references": references}
+    if guides:
+        content["guides"] = guides            # kept out of the digest of Skills without guides (unchanged hashes)
+    fingerprint = hashlib.sha256(json.dumps(content, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+    return {"name": name, "description": description, "text": text, "references": references, "guides": guides,
             "sha256": fingerprint}
 
 
@@ -246,6 +295,9 @@ def resource_text(snapshot, identifier, *, versions=None):
         return None
     if not separator:
         return snapshot["text"]
+    guide = snapshot.get("guides", {}).get(reference)
+    if guide is not None:
+        return "Guide: " + identifier + "\n\n" + guide["content"]
     item = snapshot["references"].get(reference)
     if item is None:
         return None
@@ -321,6 +373,9 @@ def main(argv=None):
         return 1
 
     failed = False
+    hidden = set(shadowed())
+    for name in sorted(hidden):
+        print("Warning: " + SHADOWED_HINT % (name, name, name))
     for name in names():
         root = locate(name)
         mark = " (your own)" if root != ROOT else ""
