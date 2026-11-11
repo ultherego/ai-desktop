@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-165: AI Desktop reads public web pages
+
+- **The model can read public web pages** when `web = true`. AI Desktop fetches the page itself, over HTTPS to public addresses only and without cookies, logins or your home directory, and gives the model the page text and links. An address from you, from the search sources or from a page already opened opens at once. An address the model made up itself is shown to you first, because it could carry your data out.
+
 ## 0.1.0-164: two system Skills, a ready command set, secrets protected by default
 
 - **Skills `arch` and `cachyos` instead of 23 separate ones.** Each has a short guide of rules and a table of topics; the topics (firewall, SSH, pacman, kernel, snapshots and the others) are loaded only when a question needs them. Ten new source-backed notes: .pacnew/.pacsave and pacdiff, package signatures, mirrors, the package cache, Limine and limine-snapper-sync, Snapper with snap-pac, NVIDIA and two GPUs. Saved agents that named the old Skills get the new ones.

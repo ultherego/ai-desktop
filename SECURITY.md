@@ -85,7 +85,8 @@ The model's response is checked against a closed list of actions. The response t
 - reading files from `read`, but only those shown by discovery or typed by you;
 - running a command matching your template from `allow`;
 - writing or creating a file in `write`, deleting to the trash, a change from the `change` list with a test and an undo;
-- a web search when `web = true`, and getting the weather when `weather = true`.
+- a web search when `web = true`, and getting the weather when `weather = true`;
+- with `web = true`, opening a public page through the program's web broker: HTTPS to public addresses only (checked again after every redirect), without cookies, logins or the home directory; an address the model composed itself is shown to you and needs `y`, because it could carry local data out.
 
 **It cannot:**
 

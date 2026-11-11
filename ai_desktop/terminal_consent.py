@@ -21,6 +21,7 @@ PROMPTS = {
     "run-undo": "The test failed. Run the undo shown above? Type yes (or n): ",
     "systemd-read": "Allow this systemd read? [y/n]: ",
     "weather": "Get the weather from Open-Meteo? [y/n]: ",
+    "web-open": "Open this address? [y/n]: ",
     "ask-transfer": "Send to Claude? [y/n]: ",
     "transfer": "Send the data shown to Claude? [y/n]: ",
     "task-scope": "Send these files to Claude and run the declared test on a copy? [y/n]: ",

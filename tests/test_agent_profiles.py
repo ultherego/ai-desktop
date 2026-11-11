@@ -131,7 +131,7 @@ class ProfileStoreTests(unittest.TestCase):
         for name in names:
             directory = root / name
             directory.mkdir()
-            data = "---\nname: " + name + "\ndescription: " + "a" * 52600 + "\n---\nprivate body\n"
+            data = "---\nname: " + name + "\ndescription: " + "a" * (profiles.MAX_EXECUTION_INSTRUCTIONS // 2 - 100) + "\n---\nprivate body\n"
             (directory / "SKILL.md").write_text(data)
         config = profiles.defaults().put("default", profiles.Profile(skills=names))
         self.write(config.data())

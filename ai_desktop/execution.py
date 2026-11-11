@@ -59,7 +59,7 @@ CODEX_MODEL = re.compile(r"[a-z][a-z0-9._-]{0,95}\Z", re.ASCII)
 # A Claude alias or id (e.g. "opus", "claude-opus-5-5") with an optional bracketed variant such as "opus[1m]" (the
 # 1M-token context, see code.claude.com/docs/en/model-config). Passed as one argv element after --model.
 MODEL_ID = re.compile(r"[a-z][a-z0-9._-]{0,95}(?:\[[a-z0-9]{1,8}\])?\Z", re.ASCII)
-MAX_INSTRUCTIONS_BYTES = 103 * 1024   # same ceiling as agent_profiles.MAX_EXECUTION_INSTRUCTIONS
+MAX_INSTRUCTIONS_BYTES = 101 * 1024   # same ceiling as agent_profiles.MAX_EXECUTION_INSTRUCTIONS
 MAX_HISTORY = 64         # `ask` conversation window (pairs); material/project keep their own, smaller windows
 HISTORY_QUESTION_BYTES = 128 * 1024  # a pasted text stays available for the follow-up questions about it
 HISTORY_ANSWER_BYTES = 32 * 1024 + 64  # bounded text plus the visible truncation suffix

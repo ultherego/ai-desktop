@@ -14,6 +14,9 @@ MAX_REUSED_SKILLS = 4
 MAX_COMMAND_ROUNDS = 128      # ceiling of [files] command_rounds; output stays bounded by discovery_bytes
 MAX_STEPS = 8 + 4 + MAX_COMMAND_ROUNDS + MAX_SKILL_ROUNDS * 4 + MAX_REUSED_SKILLS + 1   # + one web answer
 MAX_WEB_TEXT = 32 * 1024      # the checked web answer with its source list
+# A page step: opened ("ok"); the user declined a model-composed address ("declined"); the broker refused the address
+# (not https, credentials, a private or local host: "refused") or could not read it ("failed").
+PAGE_STATUSES = ("ok", "declined", "refused", "failed")
 MAX_DIRECTORIES = 4            # directories in one list step
 CEILING_ENTRIES = 512          # entries of one list/find step
 CEILING_TOTAL_ENTRIES = 1024   # entries of the whole document
@@ -206,6 +209,28 @@ def _step(value, total):
                        for char in value["text"])):
             raise ValueError("discovery")
         return {"op": "web", "text": value["text"]}
+    if op == "page":
+        # A public page the program's web broker opened (web_broker.validate_page) or that the user declined to open.
+        from .web_broker import MAX_LINKS, MAX_TEXT, WebError, clean_url
+        if (set(value) != {"op", "url", "status", "title", "text", "links", "truncated"}
+                or value["status"] not in PAGE_STATUSES or type(value["title"]) is not str or len(value["title"]) > 200
+                or type(value["text"]) is not str or len(value["text"].encode("utf-8")) > MAX_TEXT
+                or type(value["truncated"]) is not bool or type(value["links"]) is not list
+                or len(value["links"]) > MAX_LINKS
+                or value["status"] != "ok" and (value["text"] or value["links"] or value["title"])
+                or any(char not in "\n\t" and unicodedata.category(char) in ("Cc", "Cf", "Cs")
+                       for char in value["title"] + value["text"])):
+            raise ValueError("discovery")
+        try:
+            # An address that is not a public https URL is not repeated back: a refused step has an empty url.
+            if not (value["url"] == "" and value["status"] == "refused") and clean_url(value["url"]) != value["url"]:
+                raise ValueError("discovery")
+            if any(type(link) is not str or clean_url(link) != link
+                                                             for link in value["links"]):
+                raise ValueError("discovery")
+        except WebError:
+            raise ValueError("discovery") from None
+        return {key: (list(item) if key == "links" else item) for key, item in value.items()}
     if op == "refusal":
         if (set(value) != {"op", "code", "selectors", "limit"} or type(value["code"]) is not str
                 or value["code"] not in REFUSAL_CODES or type(value["selectors"]) is not list
@@ -309,7 +334,7 @@ def scope_ids(document):
             found.update(item["id"] for item in step["directories"])
         elif step["op"] in ("find", "content"):
             found.add(step["id"])
-        elif step["op"] in ("run", "skill", "web", "manual"):
+        elif step["op"] in ("run", "skill", "web", "manual", "page"):
             continue
         else:
             found.update(item["id"] for item in step["selectors"])

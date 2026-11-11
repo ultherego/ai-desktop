@@ -202,6 +202,15 @@ def parse_plan(raw, access):
                                               or "\n" in value["needle"])):
                 raise ValueError("assistant-plan")
             return dict(value)
+        if value.get("action") == "web-open":
+            # One public page, opened by the program's web broker (never by the client). Allowed with access.web.
+            check = "access"
+            if access.get("web") is not True:
+                raise ValueError("assistant-plan")
+            check = "shape"
+            if set(value) != {"action", "url"} or type(value["url"]) is not str or not 0 < len(value["url"]) <= 2048:
+                raise ValueError("assistant-plan")
+            return {"action": "web-open", "url": value["url"]}
         if value.get("action") == "web":
             check = "shape"
             # "continue": the search result comes back as a discovery step and the model plans local work after it

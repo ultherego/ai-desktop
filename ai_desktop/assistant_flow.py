@@ -280,6 +280,52 @@ def _read_line(shown, step, branch=""):
                               paint(symbol("dot"), "muted"), paint(state, "muted" if healthy else tone))
 
 
+def _open_page(ledger, url, reader, selected, snapshot):
+    """S10 stage A: one public page through the program's web broker. An address from the user's question, the search
+    sources or an opened page's links opens at once; one the model composed is shown in full and needs a yes, because
+    after local data was read an address can carry it out. The result (also a refusal) is data for the next round."""
+    from . import web_broker
+    from .terminal_consent import confirm
+    empty = {"title": "", "text": "", "links": [], "truncated": False}
+    try:
+        clean = web_broker.clean_url(url)
+    except web_broker.WebError:
+        print(paint("  %s Page refused (not a public https address): %s" % (symbol("skip"), terminal_text(url[:200])),
+                    "muted"))
+        clean = None
+    if clean is None:
+        _add_page(ledger, {"op": "page", "url": "", "status": "refused", **empty}, snapshot)
+        return
+    if clean not in ledger.known_urls:
+        print("The model wants to open an address that did not come from you, the search or an opened page:")
+        print("  " + terminal_text(clean))
+        if not confirm("web-open", reader=reader, config=selected):
+            _add_page(ledger, {"op": "page", "url": clean, "status": "declined", **empty}, snapshot)
+            return
+    try:
+        page = web_broker.open_page(clean)
+    except web_broker.WebError as error:
+        status = "refused" if error.code in ("url", "address") else "failed"
+        print(paint("  %s Page %s · %s (%s)" % (symbol("skip"), terminal_text(clean[:160]), status, error.code), "muted"))
+        _add_page(ledger, {"op": "page", "url": clean, "status": status, **empty}, snapshot)
+        return
+    step = {"op": "page", "url": page["final_url"], "status": "ok", "title": page["title"], "text": page["text"],
+            "links": page["links"], "truncated": page["truncated"]}
+    print(paint("  %s Page %s · %s" % (symbol("ok"), terminal_text(page["final_url"][:160]),
+                                        size_label(len(page["text"].encode("utf-8")))), "muted"))
+    conversation_state.note_action("Opened the public page %s (%s)" % (page["final_url"], page["title"] or "no title"),
+                                   read=True)
+    _add_page(ledger, step, snapshot)
+
+
+def _add_page(ledger, step, snapshot):
+    try:
+        ledger.add_page(step)
+    except ask_discovery.BudgetExhausted as exhausted:
+        if not ledger.soft_stop(exhausted.name if exhausted.name != "pages" else "discovery_rounds"):
+            _budget_stop(snapshot.policy, exhausted.name if exhausted.name != "pages" else "discovery_rounds")
+
+
 def _run_command(snapshot, ledger, plan, permit, args, reader):
     """Read-only commands (sandbox, no prompt: the owner listed them in `allow`) or a CHANGE with its test and undo (live
     system, strong yes, undo only on a second yes). The controller writes what really happened to the task memory and to
@@ -579,7 +625,7 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                                     "the model continues without it." % symbol("skip"), "muted"))
                         continue
                     break
-                if following["action"] not in ("list", "find", "run", "skill", "read", "read-range", "search-content", "manual", "answer", "edit", "delete", "project-test"):
+                if following["action"] not in ("list", "find", "run", "skill", "read", "read-range", "search-content", "manual", "web-open", "answer", "edit", "delete", "project-test"):
                     raise PlanError("action")
                 return following
 
@@ -669,6 +715,11 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                         else:
                             ledger.tree_rows = None          # a change shows its own card, not a tree
                         _run_command(snapshot, ledger, plan, permit, args, reader)
+                    plan = next_plan()
+                    continue
+                if plan["action"] == "web-open":
+                    progress("collect")
+                    _open_page(ledger, plan["url"], reader, selected, snapshot)
                     plan = next_plan()
                     continue
                 if plan["action"] == "manual":
