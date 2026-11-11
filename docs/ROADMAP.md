@@ -246,7 +246,7 @@ Distribution references: [CachyOS applications](https://wiki.cachyos.org/cachyos
 
 Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaining limitations and one next step. Add meaningful regressions to the existing `scripts/verify.py` gates and Python 3.12/3.13/3.14 Actions jobs, creating a new stage only for a distinct risk. Synthetic tests must cover success, refusal and failure without OAuth or real model requests. Changes to persistence, isolation, networking, host services and writes require applicable real CachyOS checks and explicit merge approval; Ubuntu CI is not that evidence. Keep documentation-only results separate from implementation acceptance.
 
-**Next step:** merge PR #53 (candidates 161–162), then S2 and a real Codex request with its answer while written (after the maintainer's Codex limit resets around 2026-11-12). S0 and S7 remain deferred.
+**Next step:** CachyOS check and merge of candidate 163, then S2 and a real Codex request with its answer while written (after the maintainer's Codex limit resets around 2026-11-12). S0 and S7 remain deferred.
 
 ## Conditions for the 1.0 release
 
@@ -260,6 +260,13 @@ Each implementation updates this roadmap with its own PR/SHA, tests, CI, remaini
 ## Progress log
 
 Earlier dated entries preserve the evidence and status at that point. The latest entry supersedes historical pending/next-step statements.
+
+### 2026-11-11 — Candidate 163: command templates without a count limit, bare unit names
+
+PR #53 merged as `b889f23`; GitHub wrote the account e-mail into that merge commit again (the account's private-email setting was not active), so merges now pass the no-reply address to GitHub (`gh pr merge --author-email`), and the maintainer amends `b889f23`. Branch `feature/limits-and-units` starts from `dac344a` (same tree) so that commit is not carried along.
+- **Analysis of the thread's refusals:** nine commands were refused as "not on the allowed list"; seven were `systemctl status/is-active/is-enabled` with a bare unit name although the policy held `<unit>` templates, because `<unit>` required a type suffix. `<unit>` now accepts `NAME` or `NAME.TYPE` (never a leading `-` or `.`), as systemctl does.
+- **No count limit (maintainer's request):** `command_ops.MAX_TEMPLATES` (128 per list) is removed from the policy loader, `parse_templates` and `parse_deny`, and from the worker's `validate_access`; the bound is the policy file size, raised from 16 KiB to 256 KiB (`MAX_POLICY_BYTES`). The access description sent with every question had its own 8 KiB ceiling (`MAX_ACCESS_BYTES`), which would have stopped at about 250 templates; it is now 320 KiB in both the controller and the worker, and the worker also bounds the advertised command lists at 256 KiB (`MAX_COMMAND_BYTES`). Tests that check the fail-closed path keep the former 8 KiB threshold through a patch.
+- Tests: `test_command_ops` (bare and suffixed units, no count limit, byte bound), `test_change_plan` (400 templates reach the access description), adjusted `test_permissions`/`test_assistant_contract`. **READY FOR TEST**, candidate **0.1.0-163**.
 
 ### 2026-11-11 — Candidates 161–162: small follow-ups
 

@@ -21,11 +21,11 @@ from .discovery_contract import MAX_COMMAND_ROUNDS
 from .file_context_contract import (plain_text, MAX_FILES, MAX_FILE_BYTES, MAX_TOTAL_BYTES, CEILING_FILES,
                                     contains_private_key, validate_context)
 
-MAX_POLICY_BYTES = 16384
+MAX_POLICY_BYTES = 256 * 1024     # also the only bound on the number of command templates
 DEFAULT_FILE_SIZE = 32 * 1024 * 1024       # largest file `material` imports unless `file_size` says otherwise
 MIN_FILE_SIZE = 4 * 1024
 MAX_FILE_SIZE = 64 * 1024 * 1024          # hard ceiling in code (also the ceiling of the request schema)
-MAX_ACCESS_BYTES = 8192
+MAX_ACCESS_BYTES = 320 * 1024     # = assistant_contract.MAX_ACCESS_BYTES: every template of the policy fits
 MAX_RULES = 64
 MAX_DIRECTORY_ENTRIES = 1024
 MAX_TOTAL_ENTRIES = 4096
@@ -1039,7 +1039,7 @@ def load_policy(*, optional=False):
         section = value.get("commands", {})
         if type(section) is not dict or set(section) - {"allow", "change", "deny", "share_processes", "host_sockets"}:
             raise _Problem("[commands] only accepts the keys allow, change, deny, share_processes, host_sockets.")
-        from .command_ops import MAX_TEMPLATES, opens_a_change, parse_deny, parse_template, parse_templates, valid_group
+        from .command_ops import opens_a_change, parse_deny, parse_template, parse_templates, valid_group
         parsed_lists = {}
         for key in ("allow", "change"):
             items = section.get(key, [])
@@ -1054,8 +1054,6 @@ def load_policy(*, optional=False):
                 items = [item for group in items.values() for item in group]
             if type(items) is not list:
                 raise _Problem("commands.%s must be a list or groups of lists." % key)
-            if len(items) > MAX_TEMPLATES:
-                raise _Problem("commands.%s has too many templates (%d, max %d)." % (key, len(items), MAX_TEMPLATES))
             for item in items:
                 try:
                     tokens = parse_template(item, strict=key == "change")

@@ -303,6 +303,7 @@ class PolicyTests(unittest.TestCase):
         self.file("project/not-directory")
         self.assert_code(lambda: self.policy(write=["~/project/not-directory/*"]).write_workspace(0))
 
+    @patch.object(p, "MAX_ACCESS_BYTES", 8192)       # the fail-closed check, at the former threshold
     def test_write_authority_rechecks_policy_and_combined_metadata_budget(self):
         policy = self.policy(write=["~/project/*"])
         self.config.write_bytes(self.config.read_bytes().replace(b'write = ["~/project/*"]', b'write = []'))
@@ -364,6 +365,7 @@ class PolicyTests(unittest.TestCase):
             self.assertEqual(policy.access()["systemd"], ["user"])
             self.assertTrue(policy.access()["weather"])
 
+    @patch.object(p, "MAX_ACCESS_BYTES", 8192)       # the fail-closed check, at the former threshold
     def test_access_metadata_byte_limit_fails_closed_before_transfer(self):
         rules = tuple("~/project/" + str(i) + "-" + "ą" * 180 for i in range(24))
         self.assertLess(len(json.dumps(list(rules), ensure_ascii=False).encode("utf-8")), p.MAX_POLICY_BYTES)

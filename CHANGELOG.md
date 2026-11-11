@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-163: no limit on command templates, unit names without `.service`
+
+- `permissions.toml` may hold any number of command templates (the file may now be up to 256 KiB); the former 128 per list and the 8 KiB limit of the access description sent with each question are gone.
+- `<unit>` accepts a unit name without its type, as `systemctl` does: `systemctl is-active <unit>` now also runs `systemctl is-active ufw`, not only `ufw.service`.
+
 ## 0.1.0-162: Skills always on, `/SKILL question`
 
 - The Skills that come with a built-in agent are always on, also new ones from an update; `/skills` now saves your choice in the agent instead of only this conversation.

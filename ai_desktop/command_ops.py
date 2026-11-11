@@ -20,7 +20,7 @@ import subprocess
 import time
 import unicodedata
 
-MAX_TEMPLATES = 128
+# No count limit on templates (owner's request): the policy file size (permissions.MAX_POLICY_BYTES) bounds them.
 MAX_TOKENS = 10
 MAX_TOKEN_BYTES = 100
 MAX_TEMPLATE_BYTES = 120
@@ -40,7 +40,9 @@ FORBIDDEN_PROGRAMS = frozenset((
 _PROGRAM = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}\Z")
 _LITERAL = re.compile(r"[A-Za-z0-9._+=:,@/%-]{1,100}\Z")
 _PLACEHOLDERS = {
-    "<unit>": re.compile(r"[A-Za-z0-9:_@.][A-Za-z0-9:_.@-]{0,99}\.(?:service|socket|timer|target|mount|path|slice|scope|device|swap)\Z"),
+    # A unit name with or without its type, as systemctl takes it ("ufw" means "ufw.service"); never an option.
+    "<unit>": re.compile(r"[A-Za-z0-9:_@][A-Za-z0-9:_.@-]{0,99}"
+                         r"(?:\.(?:service|socket|timer|target|mount|path|slice|scope|device|swap))?\Z"),
     "<int>": re.compile(r"(?:[1-9][0-9]{0,4}|0)\Z"),
     "<word>": re.compile(r"[A-Za-z0-9._:][A-Za-z0-9._:-]{0,63}\Z"),
 }
@@ -182,7 +184,7 @@ def parse_template(text, *, strict=False):
 
 
 def parse_templates(items, *, strict=False):
-    if type(items) is not list or len(items) > MAX_TEMPLATES:
+    if type(items) is not list:
         raise ValueError("command-template")
     result = tuple(parse_template(item, strict=strict) for item in items)
     if len(set(result)) != len(result):
@@ -223,7 +225,7 @@ def extra_words(templates, argv):
 
 def parse_deny(items):
     """Commands the owner never wants run, as word prefixes: "docker rm" refuses every docker rm call."""
-    if type(items) is not list or len(items) > MAX_TEMPLATES:
+    if type(items) is not list:
         raise ValueError("command-template")
     result = []
     for item in items:
