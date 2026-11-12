@@ -76,6 +76,21 @@ class InspectTests(Base):
         self.assertEqual((facts["format"], facts["files"], facts["single"], facts["top"]), ("zip", 2, True, ["package"]))
         self.assertEqual((facts["executables"], facts["examples"]), (1, ["package/lib/run.sh"]))
 
+    def test_an_executable_bit_alone_does_not_make_a_data_file_a_program(self):
+        path = self.tar("bits.tar.gz", {"package/image.tga": b"\0\0\2\0", "package/tool": b"#!/bin/sh\necho\n",
+                                       "package/readme.txt": b"text"})
+        with tarfile.open(path) as archive:
+            modes = {member.name: member.mode for member in archive.getmembers()}
+        rebuilt = self.quarantine / "rebuilt.tar.gz"
+        with tarfile.open(path) as source, tarfile.open(rebuilt, "w:gz") as target:
+            for member in source.getmembers():
+                member.mode = 0o755                                  # every file marked executable
+                target.addfile(member, source.extractfile(member))
+        rebuilt.chmod(0o600)
+        facts = a.inspect(str(rebuilt))
+        self.assertEqual(facts["examples"], ["package/tool"])
+        self.assertTrue(modes)
+
     def test_tar_formats_are_recognised_from_the_content_not_the_name(self):
         for mode, form in (("w:gz", "tar.gz"), ("w:xz", "tar.xz"), ("w:bz2", "tar.bz2"), ("w", "tar")):
             with self.subTest(form=form):

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.0-166: downloads, installing archives, moving files
+
+- **Downloading public files** with `downloads = true`: you see the list of addresses and approve it once; files go into a private quarantine folder, only when complete, with their size and SHA-256. Nothing downloaded is run.
+- **Installing a downloaded zip or tar archive** into a folder you allow: every entry is checked first, you see what will be created and whether it contains programs or scripts, and you approve it. Nothing is overwritten or made executable, and `ai-desktop task restore` undoes it.
+- **Moving and copying files and whole folders** inside a folder you allow, with a plan, one approval and undo. `task status` and `task prune` list them.
+- **Relative paths** in a question are understood from the folder you started AI Desktop in.
+- **Weather** for a remembered city: `ai-desktop settings weather-city CITY`; a question without a city uses it or asks for one. Your location is never guessed.
+- **Shared disks:** your own folders can be changed even when other accounts may write to them; a folder of another account is refused and named.
+- **Other computers:** the program finds the account range, the distribution and Flatpak data itself instead of assuming one setup.
+
 ## 0.1.0-165: AI Desktop reads public web pages
 
 - **The model can read public web pages** when `web = true`. AI Desktop fetches the page itself, over HTTPS to public addresses only and without cookies, logins or your home directory, and gives the model the page text and links. An address from you, from the search sources or from a page already opened opens at once. An address the model made up itself is shown to you first, because it could carry your data out.

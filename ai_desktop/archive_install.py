@@ -196,8 +196,21 @@ def _checked(entries, packed):
     return files, folders, total
 
 
-def _executable(name, mode):
-    return bool(mode & 0o111) or name.casefold().endswith(EXECUTABLE)
+PROGRAM_MAGIC = (b"#!", b"\x7fELF", b"MZ")
+
+
+def _executable(name, mode, source):
+    """A program or script: a known extension, or an executable bit on a file that starts like one (#!, ELF, MZ).
+    Archives made on some systems mark every file executable, so the bit alone does not make an image a program."""
+    if name.casefold().endswith(EXECUTABLE):
+        return True
+    if not mode & 0o111:
+        return False
+    try:
+        with source() as data:
+            return data.read(4).startswith(PROGRAM_MAGIC)
+    except (OSError, ValueError, EOFError, zipfile.BadZipFile, tarfile.TarError, lzma.LZMAError, zlib.error):
+        return True                                       # unreadable: say so rather than call it a plain file
 
 
 def inspect(path):
@@ -214,12 +227,13 @@ def inspect(path):
         entries, archive = _entries(handle, form)
         try:
             files, folders, total = _checked(entries, packed)
+            risky = sorted(name for name, directory, _, mode, source in entries
+                           if not directory and _executable(name, mode, source))
         finally:
             archive.close()
     if not files and not folders:
         raise ArchiveDenied("format")
     top = sorted({name.split("/")[0] for name in list(files) + list(folders)})
-    risky = sorted(name for name, directory, _, mode, _ in entries if not directory and _executable(name, mode))
     return {"format": form, "files": len(files), "folders": len(folders), "bytes": total, "top": top[:32],
             "top_count": len(top), "single": len(top) == 1 and top[0] in folders,
             "executables": len(risky), "examples": risky[:8]}
