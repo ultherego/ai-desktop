@@ -1,4 +1,4 @@
-// Optional example. xdg-terminal-exec (package xdg-terminal-exec) opens your preferred terminal; replace it with
+// Optional example for niri (inside the binds block of config.kdl). xdg-terminal-exec (package xdg-terminal-exec) opens your preferred terminal; replace it with
 // your terminal's own command if you like. Pick free shortcuts before adding them to your binds block.
 binds {
     Mod+Shift+A { spawn "xdg-terminal-exec" "/usr/bin/ai-desktop" "ask"; }

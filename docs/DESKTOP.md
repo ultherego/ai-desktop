@@ -1,4 +1,4 @@
-# Terminal launchers, Niri bindings and the DMS bar
+# Launchers, keyboard shortcuts and the DMS bar
 
 The Arch package installs **AI Desktop** and **AI Desktop Panel** as desktop entries. Find them in your application launcher. Both request a terminal and start the same installed `ai-desktop ask` or `ai-desktop panel` you use in your terminal. Your desktop opens them in its configured terminal (any terminal works: Konsole, GNOME Terminal, Terminator and others).
 
@@ -6,9 +6,18 @@ The Arch package installs **AI Desktop** and **AI Desktop Panel** as desktop ent
 
 The launchers and widget use the selected service and independently installed client; they do not require both Claude and Codex. System packages are selected directly; HOME/native/npm sources use the same explicitly registered runtime copy as the terminal. See [client installation and migration](AGENT_INSTALL.md). The widget still reads local account/usage metadata; selecting an approved executable does not reuse your ordinary CLI account or enlarge the widget's authority. Explicit native account/quota operations use the same bound-client compatibility checks as the terminal. DMS is optional for terminal conversations and client selection.
 
-## Keyboard shortcut in Niri
+## Keyboard shortcuts
 
-The package installs an example at `/usr/share/ai-desktop/niri-bindings.kdl`. It opens your preferred terminal through `xdg-terminal-exec` (package `xdg-terminal-exec`); with another compositor or terminal use its own command, for example `konsole -e ai-desktop ask`. Pick two free shortcuts and add the corresponding lines inside your existing Niri `binds` block. The example uses `Mod+Shift+A` for chat and `Mod+Shift+P` for the panel. Validate your edited configuration with `niri validate`. Installing AI Desktop does not edit the compositor configuration.
+Installing AI Desktop never edits a desktop's configuration. To open a conversation or the panel with a shortcut, add one yourself; pick free key combinations first. The examples use `xdg-terminal-exec` (package `xdg-terminal-exec`) to open your preferred terminal; with another terminal use its own command, for example `konsole -e /usr/bin/ai-desktop ask`.
+
+| Desktop | How |
+|---|---|
+| niri | add the lines of `/usr/share/ai-desktop/shortcuts/niri.kdl` inside the `binds` block of `~/.config/niri/config.kdl`, then `niri validate` |
+| Hyprland | add the lines of `/usr/share/ai-desktop/shortcuts/hyprland.conf` to `~/.config/hypr/hyprland.conf` |
+| Sway, i3 | add the lines of `/usr/share/ai-desktop/shortcuts/sway-i3.conf` to `~/.config/sway/config` or `~/.config/i3/config`, then reload |
+| KDE Plasma | System Settings → Keyboard → Shortcuts → Add New → Command or Script: `xdg-terminal-exec /usr/bin/ai-desktop ask` |
+| GNOME | Settings → Keyboard → View and Customize Shortcuts → Custom Shortcuts: the same command |
+| other | your desktop's own custom-shortcut setting, with the same command |
 
 ## Optional DMS bar widget
 
