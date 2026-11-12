@@ -19,6 +19,7 @@ REFUSAL_RESERVE = 2400
 WEB_MINIMUM = 512          # bytes of a shortened web answer below which it is not worth sending
 OVERHEAD = 1024            # envelope of a document with its counters; leaves room for the remaining steps' framing
 MAX_PAGES = 8              # public pages opened in one question (S10 stage A); a program bound, not a setting
+MAX_FILE_STEPS = 16        # downloaded files and archive inspections in one question (S10 stages B and C)
 
 
 class BudgetExhausted(Exception):
@@ -72,6 +73,7 @@ class DiscoveryLedger:
         from .web_broker import urls_in
         self.known_urls = set(urls_in(question))
         self.pages_left = MAX_PAGES
+        self.files_left = MAX_FILE_STEPS
 
     # -- state ---------------------------------------------------------------------------------------------------
     def document(self):
@@ -194,11 +196,15 @@ class DiscoveryLedger:
         return self.add_download(step)
 
     def add_download(self, step):
-        """One downloaded (or declined, refused, failed, cancelled) file as data for the next round."""
+        """One downloaded (or declined, refused, failed, cancelled) file, or one archive inspection, as data for the next
+        round; bounded per question like pages."""
+        if self.files_left <= 0:
+            raise BudgetExhausted("downloads")
         document = self.document()
         document["steps"].append(step)
         if self._diagnostic_bytes(validate_discovery(document)) > self.limits.discovery_bytes:
             raise BudgetExhausted("discovery_bytes")
+        self.files_left -= 1
         self.steps.append(step)
         return step
 
@@ -213,7 +219,9 @@ class DiscoveryLedger:
         if original is None:
             raise ValueError("web")
         from .web_broker import urls_in
-        self.known_urls.update(urls_in(original))          # the search's own sources may be opened without asking
+        from .discovery_contract import WEB_SOURCES
+        # Only the program-made source list counts, never an address the model wrote into the answer text.
+        self.known_urls.update(urls_in(original.rpartition(WEB_SOURCES)[2]))
         limit = len(original.encode("utf-8"))
         for _ in range(8):
             shortened = web_data(original, limit)
@@ -350,11 +358,12 @@ class DiscoveryLedger:
     def soft_stop(self, name):
         """Scan/byte budgets close further discovery but do not abort the question: the model is told, once,
         that discovery is over (rounds -> 0) and may still read observed paths or answer from what it has."""
-        if name not in ("search_scan", "discovery_bytes") or any(
+        if name not in ("search_scan", "discovery_bytes", "pages", "downloads") or any(
                 step["op"] == "refusal" and step["code"] == "discovery-budget" for step in self.steps):
             return False
+        limit = {"pages": MAX_PAGES, "downloads": MAX_FILE_STEPS}.get(name)
         self.steps.append({"op": "refusal", "code": "discovery-budget", "selectors": [],
-                           "limit": getattr(self.limits, name)})
+                           "limit": getattr(self.limits, name) if limit is None else limit})
         self.rounds_left = 0
         if name == "discovery_bytes":
             self.commands_left = 0          # no room for more output either: the model answers from what it has

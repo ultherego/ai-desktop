@@ -11,6 +11,7 @@ from dataclasses import dataclass
 import functools
 import json
 import os
+import unicodedata
 
 from .run_controls import recipient, recipient_config, wait_message
 from .execution import current as current_execution
@@ -117,9 +118,13 @@ def shared_directory(policy):
                 or policy.excludes(root) or policy._protected(root)
                 or not any(s.mode == "tree" and (root == s.base or root.startswith(s.base + "/")) for s in policy.scopes())):
             return None
-        if root == policy.home or root.startswith(policy.home + "/"):
-            return "~" + root[len(policy.home):]
-        return root
+        shown = "~" + root[len(policy.home):] if root == policy.home or root.startswith(policy.home + "/") else root
+        # Only what the access contract accepts (validate_access): otherwise it stays local rather than breaking
+        # every question asked in that directory.
+        if (len(shown.encode("utf-8", "surrogatepass")) > 512
+                or any(unicodedata.category(c) in ("Cc", "Cf", "Cs") for c in shown)):
+            return None
+        return shown
     except (OSError, ValueError):
         return None
 
@@ -306,7 +311,7 @@ def _read_line(shown, step, branch=""):
                               paint(symbol("dot"), "muted"), paint(state, "muted" if healthy else tone))
 
 
-def _open_page(ledger, url, reader, selected, snapshot):
+def _open_page(ledger, url, reader, selected, snapshot, permit=None):
     """S10 stage A: one public page through the program's web broker. An address from the user's question, the search
     sources or an opened page's links opens at once; one the model composed is shown in full and needs a yes, because
     after local data was read an address can carry it out. The result (also a refusal) is data for the next round."""
@@ -319,13 +324,22 @@ def _open_page(ledger, url, reader, selected, snapshot):
         print(paint("  %s Page refused (not a public https address): %s" % (symbol("skip"), terminal_text(url[:200])),
                     "muted"))
         clean = None
+    if ledger.pages_left <= 0:
+        # Checked before any prompt or connection: the page limit closes discovery, the model answers from what it has.
+        print(paint("  %s The page limit of this question is reached (%d)." % (symbol("skip"), ask_discovery.MAX_PAGES),
+                    "muted"))
+        if not ledger.soft_stop("pages"):
+            _budget_stop(snapshot.policy, "discovery_rounds")
+        return
     if clean is None:
         _add_page(ledger, {"op": "page", "url": "", "status": "refused", **empty}, snapshot)
         return
     if clean not in ledger.known_urls:
         print("The model wants to open an address that did not come from you, the search or an opened page:")
         print("  " + terminal_text(clean))
-        if not confirm("web-open", reader=reader, config=selected):
+        with permit.waiting() if permit is not None else nullcontext():
+            answer = confirm("web-open", reader=reader, config=selected)
+        if not answer:
             _add_page(ledger, {"op": "page", "url": clean, "status": "declined", **empty}, snapshot)
             return
     try:
@@ -369,11 +383,19 @@ def _download(ledger, urls, reader, selected, snapshot, permit=None):
     clean = list(dict.fromkeys(clean))
     if not clean:
         return
+    if ledger.files_left < len(clean):
+        print(paint("  %s The download limit of this question is reached (%d files and archive checks)."
+                    % (symbol("skip"), ask_discovery.MAX_FILE_STEPS), "muted"))
+        if not ledger.soft_stop("downloads"):
+            _budget_stop(snapshot.policy, "discovery_rounds")
+        return
     print("Download into a quarantine folder (files are not run, unpacked or installed):")
     for url in clean:
         print("  " + terminal_text(url) + ("" if url in ledger.known_urls else
                                            paint("  (address composed by the model)", "yellow")))
-    if not confirm("download", reader=reader, config=selected):
+    with permit.waiting() if permit is not None else nullcontext():
+        answer = confirm("download", reader=reader, config=selected)
+    if not answer:
         for url in clean:
             step(url, "declined")
         return
@@ -443,11 +465,7 @@ def _inspect(ledger, label, snapshot):
                 **{key: facts[key] for key in empty}}
         step["top"] = [name[:200] for name in step["top"][:32]]
         step["examples"] = [name[:200] for name in step["examples"][:32]]
-    try:
-        ledger.add_archive(step)
-    except ask_discovery.BudgetExhausted as exhausted:
-        if not ledger.soft_stop(exhausted.name):
-            _budget_stop(snapshot.policy, exhausted.name)
+    _add_download(ledger, step, snapshot)          # the same per-question file budget and soft stop as downloads
 
 
 def archive_install_home():
@@ -456,19 +474,26 @@ def archive_install_home():
 
 
 def _add_download(ledger, step, snapshot):
+    """A step that no longer fits (budget, step count) closes discovery instead of ending the question."""
     try:
         ledger.add_download(step)
     except ask_discovery.BudgetExhausted as exhausted:
         if not ledger.soft_stop(exhausted.name):
             _budget_stop(snapshot.policy, exhausted.name)
+    except ValueError:
+        if not ledger.soft_stop("discovery_bytes"):
+            _budget_stop(snapshot.policy, "discovery_bytes")
 
 
 def _add_page(ledger, step, snapshot):
     try:
         ledger.add_page(step)
     except ask_discovery.BudgetExhausted as exhausted:
-        if not ledger.soft_stop(exhausted.name if exhausted.name != "pages" else "discovery_rounds"):
+        if not ledger.soft_stop(exhausted.name):
             _budget_stop(snapshot.policy, exhausted.name if exhausted.name != "pages" else "discovery_rounds")
+    except ValueError:
+        if not ledger.soft_stop("discovery_bytes"):
+            _budget_stop(snapshot.policy, "discovery_bytes")
 
 
 def _run_command(snapshot, ledger, plan, permit, args, reader):
@@ -876,7 +901,7 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                     continue
                 if plan["action"] == "web-open":
                     progress("collect")
-                    _open_page(ledger, plan["url"], reader, selected, snapshot)
+                    _open_page(ledger, plan["url"], reader, selected, snapshot, permit)
                     plan = next_plan()
                     continue
                 if plan["action"] == "inspect":

@@ -103,7 +103,15 @@ class TransferTests(Workspace):
         (self.root / "source/package").mkdir()                                  # the old name is taken now
         self.assertFalse(t.undo(self.ws, plan))
         self.assertTrue((self.root / "target/package/notes.txt").exists())
-        self.assertEqual(self.journal(plan)["status"], "conflict")
+        self.assertEqual(self.journal(plan)["status"], "done")                 # nothing moved: it can be tried again
+        (self.root / "source/package").rmdir()
+        self.assertTrue(t.undo(self.ws, plan))
+        self.assertTrue((self.root / "source/package/notes.txt").exists())
+        moved = t.execute(*(lambda p: (p, p.authorize()))(t.prepare(self.ws, "move", "source/package", "target/package")))
+        (self.root / "target/package").rename(self.root / "target/elsewhere")  # the destination is not the moved entry
+        (self.root / "target/package").mkdir()
+        self.assertFalse(t.undo(self.ws, moved))
+        self.assertEqual(self.journal(moved)["status"], "conflict")
 
     def test_real_folder_names_with_spaces_other_languages_and_depth_work(self):
         # Regression: a real folder path with spaces was refused by the narrow edit-path rules.
@@ -126,6 +134,59 @@ class TransferTests(Workspace):
         with patch.object(t.os, "statvfs", return_value=Full()), self.assertRaises(t.TransferDenied) as caught:
             t.prepare(self.ws, "copy", "source/package", "target/package")
         self.assertEqual(caught.exception.reason, "space")
+
+
+class ReviewFindingTests(Workspace):
+    """Regressions from the code review of moves, copies and installs."""
+
+    def policy(self, deny=()):
+        home = pwd.getpwuid(os.getuid()).pw_dir
+        from ai_desktop import permissions
+        rule = permissions._rule(self.ws + "/**", home, version=2)
+        return permissions.Policy(uid=os.getuid(), home=home, _raw=b"", _identity=(), _read=(rule,),
+                                  _deny=tuple(permissions._rule(self.ws + "/" + d, home, version=2) for d in deny),
+                                  _write=(rule,), _version=2)
+
+    def test_a_denied_folder_inside_the_tree_refuses_the_copy_and_the_move(self):
+        (self.root / "source/package/private").mkdir()
+        (self.root / "source/package/private/notes.txt").write_text("synthetic")
+        policy = self.policy(deny=("source/package/private/",))
+        for operation in ("copy", "move"):
+            with self.subTest(operation=operation), self.assertRaises(t.TransferDenied) as caught:
+                t.prepare(self.ws, operation, "source/package", "target/package", policy=policy, index=0)
+            self.assertEqual(caught.exception.reason, "denied")
+        t.prepare(self.ws, "copy", "source/package", "target/package", policy=self.policy(), index=0)
+
+    def test_cleanup_never_removes_a_folder_swapped_in_under_the_staging_name(self):
+        keep = self.root / "target/keep"
+        (keep / "deep").mkdir(parents=True)
+        (keep / "deep/notes.txt").write_text("someone's data")
+        made = t.tw.identity(os.stat(self.root / "source"))                    # the identity of what this run made
+        parent = os.open(self.root / "target", os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            t._discard_staging(parent, "keep", made)
+        finally:
+            os.close(parent)
+        self.assertTrue((keep / "deep/notes.txt").exists())
+
+    def test_an_interrupted_copy_leaves_a_truthful_journal_and_no_staging(self):
+        prepared = t.prepare(self.ws, "copy", "source/package", "target/package")
+        with patch.object(t, "_copy_file", side_effect=KeyboardInterrupt()), self.assertRaises(KeyboardInterrupt):
+            t.execute(prepared, prepared.authorize())
+        journal = next(n for n in os.listdir(self.root / ".ai-desktop-tasks") if n.endswith(".transfer.json"))
+        self.assertEqual(json.loads((self.root / ".ai-desktop-tasks" / journal).read_text())["status"], "failed")
+        self.assertFalse(any(n.startswith(".ai-desktop-copy-") for n in os.listdir(self.root / "target")))
+        self.assertFalse((self.root / "target/package").exists())
+
+    def test_the_history_limit_is_checked_before_anything_moves(self):
+        with patch.object(t.tw, "MAX_JOURNALS", 1):
+            first = t.prepare(self.ws, "copy", "source/package", "target/one")
+            t.execute(first, first.authorize())
+            second = t.prepare(self.ws, "copy", "source/package", "target/two")
+            with self.assertRaises(t.TransferDenied) as caught:
+                t.execute(second, second.authorize())
+        self.assertEqual(caught.exception.reason, "full")
+        self.assertFalse((self.root / "target/two").exists())
 
 
 class HistoryTests(Workspace):
@@ -186,6 +247,8 @@ class ConversationTests(Workspace):
         policy.write_workspace.return_value = self.ws
         policy.require_write.side_effect = None if writable else ValueError("files-write")
         policy.allows.return_value = readable
+        policy.excludes.return_value = False
+        policy.can_write.return_value = writable
         return Mock(policy=policy, access={"write": [{"id": "w0"}]})
 
     def ask(self, plan, answer=True, **kwargs):

@@ -15,7 +15,7 @@ import re
 import socket
 import ssl
 import sys
-from urllib.parse import urljoin, urlsplit, urlunsplit
+from urllib.parse import quote, urljoin, urlsplit, urlunsplit
 
 MAX_URL = 2048
 MAX_REDIRECTS = 10
@@ -61,6 +61,8 @@ def clean_url(value):
     except ValueError:
         literal = None
     if literal is None:
+        if any(c in host for c in "\u00df\u03c2\u200c\u200d"):
+            raise WebError("url")          # IDNA 2003 maps these to another domain than IDNA 2008 would open
         try:
             host = host.encode("idna").decode("ascii").lower()
         except UnicodeError:
@@ -75,7 +77,13 @@ def clean_url(value):
     path = parts.path or "/"
     if any(ord(c) < 0x21 or ord(c) == 0x7f for c in path + parts.query):
         raise WebError("url")
-    return urlunsplit(("https", netloc, path, parts.query, ""))
+    # Non-ASCII letters are percent-encoded (UTF-8), so the request line is ASCII and one page has one spelling.
+    safe = "/%:@!$&'()*+,;=-._~?"
+    path, query = quote(path, safe=safe), quote(parts.query, safe=safe)
+    result = urlunsplit(("https", netloc, path, query, ""))
+    if len(result) > MAX_URL:
+        raise WebError("url")
+    return result
 
 
 def _public(ip):
@@ -127,7 +135,9 @@ class _Pinned(http.client.HTTPSConnection):
             try:
                 stream.settimeout(CONNECT_SECONDS)
                 stream.connect(address)
-                self.sock = self._context.wrap_socket(stream, server_hostname=self.host)
+                # A TCP close without TLS close_notify is an error, never the end of a body without a length.
+                self.sock = self._context.wrap_socket(stream, server_hostname=self.host, suppress_ragged_eofs=False)
+                self.sock.settimeout(self.timeout)          # reads wait as long as the caller asked, not the connect bound
                 return
             except ssl.SSLError:
                 stream.close()
@@ -322,7 +332,7 @@ def _sandbox(bootstrap, writable=None):
             "--symlink", "usr/lib", "/lib64", "--symlink", "usr/bin", "/sbin", *binds,
             "--ro-bind", code, code, "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp",
             *(["--bind", writable, "/download"] if writable else []),
-            "--unshare-user", "--unshare-pid", "--unshare-ipc", "--unshare-uts", "--unshare-cgroup",
+            "--unshare-user", "--disable-userns", "--unshare-pid", "--unshare-ipc", "--unshare-uts", "--unshare-cgroup",
             "--die-with-parent", "--new-session", "--cap-drop", "ALL", "--clearenv",
             "--setenv", "PATH", "/usr/bin", "--setenv", "LANG", "C.UTF-8", "--setenv", "HOME", "/tmp",
             "--chdir", "/tmp", sys.executable, "-I", "-B", "-c", bootstrap]

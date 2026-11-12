@@ -108,36 +108,55 @@ def _held(parent, leaf):
     return info, kind
 
 
-def _tree(parent, leaf, *, read=False):
-    """(files, folders, bytes) of a file or folder, refusing links and special files; folders are walked by FD."""
+def _open_relative(base, relative):
+    """A folder below `base` opened component by component without following links."""
+    fd = os.dup(base)
+    try:
+        for part in [p for p in relative.split("/") if p]:
+            child = os.open(part, tw.DIR, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def _tree(parent, leaf, *, read=False, names=None):
+    """(files, folders, bytes) of a file or folder, refusing links and special files. Folders are walked by name from
+    one opened handle (one descriptor at a time, however wide the tree); `names` collects every relative path."""
     info, kind = _held(parent, leaf)
     if kind == "file":
         if read and not os.access(leaf, os.R_OK, dir_fd=parent, follow_symlinks=False):
             raise TransferDenied("type")
         return 1, 0, info.st_size
     files = folders = size = 0
-    pending = [os.open(leaf, tw.DIR, dir_fd=parent)]
+    top = os.open(leaf, tw.DIR, dir_fd=parent)
     try:
+        pending = [""]
         while pending:
-            fd = pending.pop()
+            relative = pending.pop()
+            fd = _open_relative(top, relative)
             try:
                 folders += 1
-                for name in os.listdir(fd):
+                for name in sorted(os.listdir(fd)):
                     child = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                    inner = relative + "/" + name if relative else name
                     if stat.S_ISDIR(child.st_mode):
-                        pending.append(os.open(name, tw.DIR, dir_fd=fd))
+                        pending.append(inner)
                     elif stat.S_ISREG(child.st_mode):
                         files += 1
                         size += child.st_size
                     else:
                         raise TransferDenied("type")             # a link, device, socket or FIFO inside
+                    if names is not None:
+                        names.append(inner)
                     if files + folders > MAX_FILES:
                         raise TransferDenied("size")
             finally:
                 os.close(fd)
     finally:
-        for fd in pending:
-            os.close(fd)
+        os.close(top)
     return files, folders, size
 
 
@@ -145,8 +164,31 @@ def _inside(source, target):
     return target == source or target.startswith(source + "/")
 
 
-def prepare(workspace, operation, source, target, *, clock=time.monotonic):
-    """Check everything BEFORE the owner's question; nothing is written. Paths are relative to the workspace."""
+def _authorized(policy, index, workspace, source, target, names, operation):
+    """Every entry of the tree, not only its top: the source readable (deny and default protection win) and, for a
+    move, writable; the destination inside the chosen write rule and not denied. None of it is ever skipped."""
+    if policy is None:
+        return
+    for relative in [""] + names:
+        tail = "/" + relative if relative else ""
+        source_path, target_path = workspace + "/" + source + tail, workspace + "/" + target + tail
+        if not policy.allows(source_path) or policy.excludes(source_path) or not policy.can_write(target_path, index=index):
+            raise TransferDenied("denied")
+        if operation == "move" and not policy.can_write(source_path, index=index):
+            raise TransferDenied("denied")
+
+
+def _journal_room(state):
+    """Refused BEFORE the first journal is written: past MAX_JOURNALS the history could no longer be listed."""
+    count = sum(1 for name in os.listdir(state) if re.fullmatch(r"[a-f0-9]{32}\.transfer\.json", name))
+    if count >= tw.MAX_JOURNALS:
+        raise TransferDenied("full")
+
+
+def prepare(workspace, operation, source, target, *, clock=time.monotonic, policy=None, index=None):
+    """Check everything BEFORE the owner's question; nothing is written. Paths are relative to the workspace. With
+    `policy`, every entry of the tree is checked against it (read for the source, the write rule `index` for the
+    destination)."""
     if operation not in ("move", "copy"):
         raise TransferDenied("operation")
     try:
@@ -176,17 +218,21 @@ def prepare(workspace, operation, source, target, *, clock=time.monotonic):
             target_dir = os.fstat(dst_parent)
             if target_dir.st_uid != os.geteuid():
                 raise TransferDenied("workspace")
+            names = []
             if operation == "move":
                 if info.st_uid != os.geteuid():
                     raise TransferDenied("type")
                 if os.fstat(src_parent).st_dev != target_dir.st_dev:
                     raise TransferDenied("device")                  # one filesystem only; copy works across
-                files, folders, size = _tree(src_parent, src_leaf)
+                files, folders, size = _tree(src_parent, src_leaf, names=names)
             else:
-                files, folders, size = _tree(src_parent, src_leaf, read=True)
+                if target_dir.st_dev != os.fstat(root).st_dev:
+                    raise TransferDenied("mount")                   # undo keeps the copy in the workspace's own state
+                files, folders, size = _tree(src_parent, src_leaf, read=True, names=names)
                 free = os.statvfs(dst_parent)
                 if size + SPACE_MARGIN > free.f_bavail * free.f_frsize:
                     raise TransferDenied("space")
+            _authorized(policy, index, workspace, source, target, names, operation)
             data = {"workspace": workspace, "root": tw.identity(os.fstat(root)), "operation": operation,
                     "from": source, "to": target, "kind": kind, "entry": tw.identity(info), "files": files,
                     "folders": folders, "bytes": size, "target_parent": tw.identity(target_dir),
@@ -227,53 +273,111 @@ def _copy_file(src_dir, name, dst_dir, target):
         os.close(source)
 
 
-def _copy_tree(src_parent, src_leaf, dst_parent, staging):
-    """Recreate the file or folder under `staging` in dst_parent; links and special files refuse the copy."""
+def _copy_tree(src_parent, src_leaf, dst_parent, staging, *, files=None, size=None):
+    """Recreate the file or folder under `staging` in dst_parent; links and special files refuse the copy. Returns the
+    staging entry's identity, taken right after it was created. With `files`/`size` (the approved plan) a source that
+    grew after the plan is refused rather than copied in full."""
     info, kind = _held(src_parent, src_leaf)
     if kind == "file":
         _copy_file(src_parent, src_leaf, dst_parent, staging)
-        return
-    os.mkdir(staging, stat.S_IMODE(info.st_mode) & 0o755 | 0o700, dir_fd=dst_parent)
-    pending = [(os.open(src_leaf, tw.DIR, dir_fd=src_parent), os.open(staging, tw.DIR, dir_fd=dst_parent))]
+        return tw.identity(os.stat(staging, dir_fd=dst_parent, follow_symlinks=False))
+    os.mkdir(staging, 0o700, dir_fd=dst_parent)
+    made = tw.identity(os.stat(staging, dir_fd=dst_parent, follow_symlinks=False))
+    entries = copied = 0
+    source_top = os.open(src_leaf, tw.DIR, dir_fd=src_parent)
+    target_top = os.open(staging, tw.DIR, dir_fd=dst_parent)
     try:
+        if tw.identity(os.fstat(target_top)) != made:
+            raise TransferDenied("changed")
+        pending = [""]
         while pending:
-            source, target = pending.pop()
+            relative = pending.pop()
+            source = _open_relative(source_top, relative)
             try:
-                for name in sorted(os.listdir(source)):
-                    child = os.stat(name, dir_fd=source, follow_symlinks=False)
-                    if stat.S_ISDIR(child.st_mode):
-                        os.mkdir(name, stat.S_IMODE(child.st_mode) & 0o755 | 0o700, dir_fd=target)
-                        pending.append((os.open(name, tw.DIR, dir_fd=source), os.open(name, tw.DIR, dir_fd=target)))
-                    elif stat.S_ISREG(child.st_mode):
-                        _copy_file(source, name, target, name)
-                    else:
-                        raise TransferDenied("type")
-                os.fsync(target)
+                target = _open_relative(target_top, relative)
+                try:
+                    for name in sorted(os.listdir(source)):
+                        child = os.stat(name, dir_fd=source, follow_symlinks=False)
+                        entries += 1
+                        if files is not None and entries > files + MAX_FILES:
+                            raise TransferDenied("changed")
+                        if stat.S_ISDIR(child.st_mode):
+                            os.mkdir(name, stat.S_IMODE(child.st_mode) & 0o755 | 0o700, dir_fd=target)
+                            pending.append(relative + "/" + name if relative else name)
+                        elif stat.S_ISREG(child.st_mode):
+                            copied += child.st_size
+                            if size is not None and copied > size + SPACE_MARGIN:
+                                raise TransferDenied("changed")      # the source grew after the plan was shown
+                            _copy_file(source, name, target, name)
+                        else:
+                            raise TransferDenied("type")
+                    os.fsync(target)
+                finally:
+                    os.close(target)
             finally:
                 os.close(source)
-                os.close(target)
+        os.fchmod(target_top, stat.S_IMODE(info.st_mode) & 0o755 | 0o700)   # private while it was being built
     finally:
-        for source, target in pending:
-            os.close(source)
-            os.close(target)
+        os.close(source_top)
+        os.close(target_top)
+    return made
 
 
-def _discard_staging(parent, name):
-    """Remove only the hidden staging tree this copy created (never the destination or the source)."""
+def _discard_staging(parent, name, expected=None):
+    """Remove only the hidden staging tree this run created: with `expected` (its identity from creation) anything
+    else now under that name is left alone, so a folder swapped in by another account is never deleted. The tree is
+    emptied through the opened handle; the final rmdir by name cannot remove a non-empty swapped-in folder."""
     try:
         info = os.stat(name, dir_fd=parent, follow_symlinks=False)
     except FileNotFoundError:
+        return
+    if expected is not None and tw.identity(info) != expected:
         return
     if not stat.S_ISDIR(info.st_mode):
         os.unlink(name, dir_fd=parent)
         return
     fd = os.open(name, tw.DIR, dir_fd=parent)
     try:
-        for child in os.listdir(fd):
-            _discard_staging(fd, child)
+        if expected is not None and tw.identity(os.fstat(fd)) != expected:
+            return
+        _empty(fd)
     finally:
         os.close(fd)
     os.rmdir(name, dir_fd=parent)
+
+
+def _empty(fd):
+    for child in os.listdir(fd):
+        info = os.stat(child, dir_fd=fd, follow_symlinks=False)
+        if stat.S_ISDIR(info.st_mode):
+            inner = os.open(child, tw.DIR, dir_fd=fd)
+            try:
+                _empty(inner)
+            finally:
+                os.close(inner)
+            os.rmdir(child, dir_fd=fd)
+        else:
+            os.unlink(child, dir_fd=fd)
+
+
+def publish(parent, staging, leaf, expected):
+    """One no-replace rename of the staging entry to its real name, only while it is still the entry this run made,
+    and checked again after: True when the published entry is exactly that one."""
+    if tw.identity(os.stat(staging, dir_fd=parent, follow_symlinks=False)) != expected:
+        raise TransferDenied("changed")
+    rename_noreplace(parent, staging, parent, leaf)
+    return tw.identity(os.stat(leaf, dir_fd=parent, follow_symlinks=False)) == expected
+
+
+def finish(state, name, journal, published, error=None):
+    """The journal's final word, written on every way out (also Ctrl-C or an unexpected error): `done` once the entry
+    is published under its real name, otherwise `failed`. Undo and pruning then always see the truth."""
+    journal["status"] = "done" if published else "failed"
+    try:
+        tw._save(state, name, journal)
+    except (OSError, ValueError):
+        if error is None:
+            raise
 
 
 def execute(prepared, authorization):
@@ -295,32 +399,43 @@ def execute(prepared, authorization):
                 raise TransferDenied("changed")
             state = tw._state_dir(root, create=True)
             try:
+                _journal_room(state)
+                name = _journal_name(plan)
                 journal = {"schema": 1, "plan": plan, "workspace": workspace, "operation": before["operation"],
                            "from": before["from"], "to": before["to"], "kind": before["kind"], "entry": before["entry"],
                            "files": before["files"], "bytes": before["bytes"], "status": "prepared"}
-                tw._save(state, _journal_name(plan), journal, first=True)   # intent is durable before anything moves
+                tw._save(state, name, journal, first=True)          # intent is durable before anything moves
+                published = False
                 try:
                     if before["operation"] == "move":
+                        if tw.identity(os.stat(src_leaf, dir_fd=src_parent, follow_symlinks=False)) != before["entry"]:
+                            raise TransferDenied("changed")
                         rename_noreplace(src_parent, src_leaf, dst_parent, dst_leaf)
+                        published = True
+                        moved = os.stat(dst_leaf, dir_fd=dst_parent, follow_symlinks=False)
+                        if tw.identity(moved) != before["entry"]:
+                            raise TransferDenied("changed")
+                        journal["entry"] = tw.identity(moved)
                         os.fsync(src_parent)
                         os.fsync(dst_parent)
-                        moved = os.stat(dst_leaf, dir_fd=dst_parent, follow_symlinks=False)
-                        journal["entry"] = tw.identity(moved)
                     else:
                         staging = ".ai-desktop-copy-" + plan
+                        made = None
                         try:
-                            _copy_tree(src_parent, src_leaf, dst_parent, staging)
-                            rename_noreplace(dst_parent, staging, dst_parent, dst_leaf)
+                            made = _copy_tree(src_parent, src_leaf, dst_parent, staging,
+                                              files=before["files"] + before.get("folders", 0), size=before["bytes"])
+                            published = publish(dst_parent, staging, dst_leaf, made)
+                            if not published:
+                                raise TransferDenied("changed")
                             os.fsync(dst_parent)
                         except BaseException:
-                            _discard_staging(dst_parent, staging)
+                            if not published:
+                                _discard_staging(dst_parent, staging, made)
                             raise
-                        journal["entry"] = tw.identity(os.stat(dst_leaf, dir_fd=dst_parent, follow_symlinks=False))
-                    journal["status"] = "done"
-                    tw._save(state, _journal_name(plan), journal)
-                except (OSError, ValueError, ExecutionDenied) as error:
-                    journal["status"] = "failed"
-                    tw._save(state, _journal_name(plan), journal)
+                        journal["entry"] = made
+                    finish(state, name, journal, True)
+                except BaseException as error:
+                    finish(state, name, journal, published, error)
                     if isinstance(error, OSError) and error.errno == errno.EEXIST:
                         raise TransferDenied("exists") from None
                     if isinstance(error, OSError) and error.errno == errno.ENOSPC:
@@ -511,8 +626,8 @@ def undo(workspace, plan):
                         os.fsync(state)
                     os.fsync(dst_parent)
                 except OSError:
-                    journal["status"] = "conflict"
-                    tw._save(state, name, journal)
+                    # The old name is taken now, a folder on the way is gone, or another filesystem: nothing moved and
+                    # the record stays `done`, so undo can be tried again once that is resolved.
                     return False
                 journal["status"] = "undone"
                 tw._save(state, name, journal)

@@ -340,7 +340,7 @@ OWNED_FOLDERS = ("AI Desktop changes files only in folders that belong to you; c
 def foreign_folders_hint(folders, uid):
     """Names the folders that belong to another account; AI Desktop changes files only in your own folders."""
     if not folders:
-        return OWNED_FOLDERS + "."
+        return OWNED_FOLDERS + " (a folder on the way must not be a symbolic link)."
     import pwd
     def owner(number):
         try:
@@ -359,7 +359,7 @@ def write_root(policy, index):
     try:
         return policy.write_workspace(index)
     except ValueError as exc:
-        if exc.args[:1] != ("policy-directory",):
+        if exc.args[:1] not in (("policy-directory",), ("files-directory",)):
             raise
         scope = policy.write_scopes()[index]
         root = scope.base.rsplit("/", 1)[0] if scope.mode == "exact" else scope.base
@@ -367,7 +367,11 @@ def write_root(policy, index):
                                                             policy.uid)) from None
 
 
-INSTALL_REASONS = {"format": "it is not a supported archive (zip or tar with gzip, bzip2, xz or zstd)",
+TRANSFER_FULL = ("the history of moves, copies and installations in this folder is full (128); undo or prune entries "
+                 "first: ai-desktop task status --workspace DIR")
+INSTALL_REASONS = {"denied": "part of it would land where a deny rule, the default protection or the write rule does "
+                   "not allow", "mount": "the destination is on another filesystem than the folder of the write rule",
+                   "full": TRANSFER_FULL, "top": "it has several top-level entries: name a new folder to put them in","format": "it is not a supported archive (zip or tar with gzip, bzip2, xz or zstd)",
                    "encrypted": "it is encrypted", "path": "an entry has an absolute path, .. or a reserved name",
                    "link": "it contains links", "type": "it contains devices or other special files",
                    "duplicate": "an entry name appears twice", "count": "it has too many entries",
@@ -394,7 +398,7 @@ def install_archive(plan, snapshot, reader):
         index = int(plan["write"][1:])
         workspace = write_root(policy, index)
         archive = archive_install.resolve(plan["archive"], policy.home)
-        prepared = archive_install.prepare(workspace, plan["archive"], archive, plan["to"])
+        prepared = archive_install.prepare(workspace, plan["archive"], archive, plan["to"], policy=policy, index=index)
         facts = prepared.data()
         policy.require_write((workspace + "/" + facts["to"],), index=index)
     except archive_install.ArchiveDenied as refused:
@@ -457,14 +461,17 @@ def transfer_files(plan, snapshot, reader):
         policy.require_write(absolute, index=index)
         if not policy.allows(absolute[0]):
             raise ValueError()
-        prepared = workspace_transfer.prepare(workspace, operation, source, target)
+        prepared = workspace_transfer.prepare(workspace, operation, source, target, policy=policy, index=index)
         facts = prepared.data()
     except workspace_transfer.TransferDenied as refused:
         reasons = {"exists": "the destination already exists (nothing is overwritten)", "missing": "it does not exist",
                    "device": "they are on different filesystems: copy instead of move",
                    "type": "it holds a link, a device or a file you do not own",
                    "space": "there is not enough free space", "inside": "a folder cannot go inside itself",
-                   "size": "it has more than %d entries" % workspace_transfer.MAX_FILES}
+                   "size": "it has more than %d entries" % workspace_transfer.MAX_FILES,
+                   "denied": "part of it is covered by a deny rule or the default protection, or lies outside the "
+                   "write rule", "mount": "the destination is on another filesystem than the folder of the write rule "
+                   "(undo keeps copies there)", "full": TRANSFER_FULL}
         print("Refused: cannot %s %s to %s: %s." % (operation, terminal_text(plan.get("from", "")),
                                                     terminal_text(plan.get("to", "")),
                                                     reasons.get(refused.reason, OWNED_FOLDERS)))
