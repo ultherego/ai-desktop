@@ -8,7 +8,7 @@ Supported system packages are used directly. Clients installed in your home dire
 
 ## Installation from the signed repository (recommended)
 
-The package is published in a signed pacman repository on GitHub Releases; the steps are in the [README](../README.md#install). pacman checks the signature of the package and of the repository database against the AI Desktop key you trusted with `pacman-key --lsign-key`; a package or database signed by any other key is refused. `sudo pacman -Syu` then updates AI Desktop with the rest of the system. The policy template and the settings reference are installed in `/usr/share/doc/ai-desktop/`.
+The package is published in a signed pacman repository on GitHub Releases; the steps are in the [README](../README.md#install). The repository section sets `SigLevel = Required DatabaseRequired TrustedOnly`, so pacman requires the signature of the package and of the repository database and accepts only the AI Desktop key you trusted with `pacman-key --lsign-key`; a missing signature or one by any other key is refused. (The common global default `DatabaseOptional` would accept a database without a signature, which is why the section sets its own level.) If you added the repository without that line, add it under `[ai-desktop]`. `sudo pacman -Syu` then updates AI Desktop with the rest of the system. The policy template and the settings reference are installed in `/usr/share/doc/ai-desktop/`.
 
 ## Building from source (CachyOS / Arch x86_64)
 
@@ -20,7 +20,7 @@ sudo pacman -S --needed base-devel git python bubblewrap xdg-dbus-proxy libsecco
 
 # 2. Code and application installation; this does not download a provider client.
 #    The checkout directory is your choice; this example uses ~/ai-desktop.
-git clone https://github.com/ultherego/ai-desktopv2.git ~/ai-desktop
+git clone https://github.com/ultherego/ai-desktop.git ~/ai-desktop
 cd ~/ai-desktop
 python3 -B scripts/install_agents.py codex --install
 sudo systemctl daemon-reload

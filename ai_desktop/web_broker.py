@@ -25,7 +25,7 @@ MAX_LINKS = 64
 MAX_HEADERS = 32 * 1024
 CONNECT_SECONDS = 10
 REQUEST_SECONDS = 45
-USER_AGENT = "AI-Desktop/1.0 (+https://github.com/ultherego/ai-desktopv2)"
+USER_AGENT = "AI-Desktop/1.0 (+https://github.com/ultherego/ai-desktop)"
 READABLE = ("text/html", "application/xhtml+xml", "text/plain", "text/markdown", "application/json", "text/xml",
             "application/xml", "text/x-markdown")
 REDIRECTS = (301, 302, 303, 307, 308)

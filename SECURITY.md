@@ -6,7 +6,7 @@ Full description of the architecture and threats: [docs/THREAT_MODEL.md](docs/TH
 
 ## Reporting a problem
 
-Report security vulnerabilities **privately**: on the repository page <https://github.com/ultherego/ai-desktopv2> choose
+Report security vulnerabilities **privately**: on the repository page <https://github.com/ultherego/ai-desktop> choose
 Security → "Report a vulnerability". Only the project maintainer sees the report. You can open ordinary bugs and questions as a
 public issue.
 
