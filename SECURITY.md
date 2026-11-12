@@ -62,6 +62,7 @@ Ordinary `doctor` and panel status remain metadata-only. `doctor --clients` expl
 | Commands from `allow` | your user, in a separate sandbox | Read-only file system, hidden `/home` and `/root`, an empty `/run` apart from plain state files and a read-only filtered D-Bus, no network. Other daemon sockets (e.g. Docker) only when listed in `host_sockets`. A path inside your home directory that a command names (e.g. your compositor's offline check, such as `niri validate -c ~/.config/niri/config.kdl` or `sway -C -c ~/.config/sway/config`) and that `files.read` allows is shown read-only for that one command: the file, or its directory when nothing protected or denied lies in it. |
 | Commands from `change` | your user, **without a sandbox** | Run on the live system after you type `yes`. |
 | Tests on a copy | your user, in a sandbox | A copy in memory, without network, home directory or access to the project. |
+| Web broker (pages, downloads) | your user, in a separate sandbox with network | HTTPS to public addresses only (checked again after every redirect), no home directory, `/run/user`, capabilities or credentials; a download can write only its own quarantine folder. |
 
 The client does not have your home directory mounted. It gets data as text, passed by the controller after the policy check.
 
@@ -87,7 +88,9 @@ The model's response is checked against a closed list of actions. The response t
 - running a command matching your template from `allow`;
 - writing or creating a file in `write`, deleting to the trash, a change from the `change` list with a test and an undo;
 - a web search when `web = true`, and getting the weather when `weather = true`;
-- with `web = true`, opening a public page through the program's web broker: HTTPS to public addresses only (checked again after every redirect), without cookies, logins or the home directory; an address the model composed itself is shown to you and needs `y`, because it could carry local data out.
+- with `web = true`, opening a public page through the program's web broker: HTTPS to public addresses only (checked again after every redirect), without cookies, logins or the home directory; an address the model composed itself is shown to you and needs `y`, because it could carry local data out;
+- with `downloads = true`, downloading public files into a private quarantine folder after one consent for the list; inspecting a downloaded zip or tar archive and installing it into `write` after its plan and your `y`;
+- moving or copying a file or folder inside one `write` scope after its plan and your `y`.
 
 **It cannot:**
 
@@ -96,7 +99,8 @@ The model's response is checked against a closed list of actions. The response t
 - read or write anything covered by `deny` or lying out of scope;
 - save a file without your `y` after the full diff;
 - perform a change from `change` without your `yes`;
-- point to an arbitrary URL or host.
+- reach a non-public address, a non-HTTPS URL or any host through the client; a public address it proposes is fetched by the program, and one it composed itself needs your consent;
+- run, unpack or install a download without your consent, or make an installed file executable.
 
 Important: **the content of a file or the output of a command can lead the model to further allowed reads**, and their results go to the provider. The limit is
 `permissions.toml` and the per-question budgets, not the model's common sense. Refuse access to what you do not want to send.
@@ -108,8 +112,11 @@ Important: **the content of a file or the output of a command can lead the model
 | `ask` conversation: questions, reads, discovery, commands from `allow` | One `Send this request to Claude? [y/n]:` per conversation. Again after a change of permissions, service or agent. The consent lives in process memory. |
 | Writing or creating a file | Full diff and `[y/n]` every time. |
 | Deleting files | A list of files and `[y/n]`. Files go to the task trash. |
+| Moving, copying, installing an archive | The plan (source, destination, counts, size, programs or scripts in an archive) and `[y/n]`. Nothing is overwritten. |
+| Downloading files | The list of addresses (composed ones marked) and one `[y/n]` for the list. |
+| Opening a page the model composed | The address and `[y/n]`. |
 | Change from `change` | The change, test and undo shown, typing the whole word `yes`. An undo after a failure also requires `yes`. |
-| Undo and restore | A separate `[y/n]`. |
+| Undo and restore (also of a move, copy or installation) | A separate `[y/n]`. |
 | `material` | Consent per question. Whole-file analysis: one consent per task, valid for 30 minutes. |
 | `project` task | One approval for the task, including follow-up questions: at most 10 stages (5 per question), 80 requests, 20 MiB of project data and 50 minutes. An edit and its declared project suite are one decision; the copy is rechecked before the test. Source, policy, recipient and deadline checks apply before continuation; a changed file, policy, model or recipient ends the task. |
 | `task run` | One initial approval covers sending the selected files, bounded preparation and one exact declared test on a selected-file copy, including Go/npm. The full diff and write still need a separate approval. |
@@ -134,12 +141,14 @@ The chosen recipient (Anthropic for Claude, OpenAI for Codex, or your own server
 - the content of files read with **absolute paths**, which may contain the user name;
 - command output, including from `allow` commands run without asking (the `deny` filter does not cover them);
 - names and states of systemd units and the weather result;
-- the latest conversation exchanges and the task memory.
+- the latest conversation exchanges and the task memory;
+- the directory you started the program in (as `~/...`), when a whole-tree `read` rule covers it and nothing denies or protects it;
+- the text, title and links of public pages it opened; for downloads the address, file name, size, SHA-256 and quarantine folder; for an inspected archive its format, counts, top-level names and example names of programs or scripts.
 
 On top of this comes the technical context of the official client and login data, which the program neither reads nor shows. `--v` shows the program's data, not
 a record of all encrypted traffic.
 
-Other network targets: `weather = true` reveals the place name and IP address to the Open-Meteo service. `web = true` sends the question together with the latest conversation exchanges for a search on the
+Other network targets: `weather = true` reveals the place name and IP address to the Open-Meteo service. Opening pages (`web = true`, Claude only) and downloads (`downloads = true`) connect from your computer to the named public host, which sees your IP address and the address requested. `web = true` sends the question together with the latest conversation exchanges for a search on the
 provider's side, so a question about "the error above" is understood. Text from the question and from those exchanges may go into search engine queries; Claude is told to keep personal details out of them, which is an instruction, not a filter. Files, task memory and Skills are not attached.
 
 Data that was sent cannot be withdrawn.

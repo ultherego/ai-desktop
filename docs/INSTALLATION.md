@@ -85,7 +85,8 @@ Do not update during a task. An update is not atomic: files are replaced one aft
 | Claude and Codex login profiles | `/var/lib/ai-desktop/claude`, `/var/lib/ai-desktop/codex` |
 | Policy, agents, your own Skills | `~/.config/ai-desktop/` |
 | Saved conversations | `~/.local/state/ai-desktop/conversations/` |
-| Task journals and trash | `.ai-desktop-tasks` in every directory where something was saved |
+| Task journals and trash, undone copies and installations | `.ai-desktop-tasks` in every directory where something was saved |
+| Downloads | `~/.local/state/ai-desktop/downloads/` (never cleaned automatically) |
 | Your project files and files changed by the program | in place |
 
 The program has no "remove everything" command. You remove this data yourself and at your own risk; erasing `.ai-desktop-tasks` takes away undo and restore, and files from the trash disappear with it. Terminal history, system logs and data on the provider's side are not cleaned.

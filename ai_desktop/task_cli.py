@@ -44,7 +44,7 @@ def build_parser():
     undo = commands.add_parser("rollback", help="Undo approved writes; refused if the file was edited later")
     undo.add_argument("--workspace", required=True)
     undo.add_argument("--plan", help="Optional ID; without it you pick the task from a list")
-    restore = commands.add_parser("restore", help="Restore files deleted in project mode (task trash) or undo a move or copy")
+    restore = commands.add_parser("restore", help="Restore files deleted to the task trash, or undo a move, copy or installation")
     restore.add_argument("--workspace", required=True)
     restore.add_argument("--plan", required=True, help="ID from the message shown after the deletion, move or copy")
     prune = commands.add_parser("prune", help="Remove finished history entries you choose from a list")

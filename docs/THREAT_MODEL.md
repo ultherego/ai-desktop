@@ -25,7 +25,9 @@ ai-desktop controller (user's UID) ── reads the policy and files, collects d
    │        │            │
    │        │            └─ allow commands: bwrap, read-only, no network
    │        │               change commands, test, undo: no sandbox, after "yes"
-   │        └─ tests of proposals: bwrap, copy in tmpfs, seccomp, no network
+   │        ├─ tests of proposals: bwrap, copy in tmpfs, seccomp, no network
+   │        └─ web broker (pages, downloads): bwrap, no home, network to public HTTPS only,
+   │           writes only its quarantine folder
    │  sudo: fixed root helper, only start/stop of session units
    │  Unix socket (0600, owner is the user's UID)
    ▼
@@ -57,7 +59,7 @@ a ClientHello with SNI equal to the host name, and rejects ECH. It does not use 
 
 **Login** happens through the client's official flow in the same isolation mode, directly in the terminal, without capture. The program does not read tokens, and before a request it requires the status `authMethod=claude.ai`. There is no API key and no workaround. Codex: login through a trusted component outside the model's space, a short-lived token goes through a private channel to the client process; a separate token store `/var/lib/ai-desktop/codex`.
 
-**Weather** is a controller collector to two fixed Open-Meteo hosts. **systemd:** only unit names and states.
+**Weather** is a controller collector to two fixed Open-Meteo hosts. **Pages and downloads** are fetched by the controller's web broker, not by the client: a separate sandbox without the home directory, HTTPS to public addresses only (every DNS answer and redirect checked), TLS for the original host name, no proxy, cookies or credentials; a download writes only into a fresh quarantine folder. **systemd:** only unit names and states.
 
 Rejected option: a token broker hiding OAuth from the client, once marked "PREFERRED, TO BE VERIFIED IN E2". It is not the current architecture or a fallback plan.
 
@@ -161,13 +163,15 @@ A provider, account slot and local port, where applicable, are part of the recip
 | T26 | Undo overwrites a later edit | Comparison of bytes and mode, a conflict keeps the user's version |
 | T27 | Restoring from the trash to a taken name | Publication without overwriting, otherwise a conflict |
 | T28 | Consent from a conversation stays valid after permissions change | Consent bound to access, sources and service, otherwise a new question |
+| T16c | A download that is partial, replaced or endless | Streamed into a `.part` file with a free-space margin and an internal ceiling; resumed only with a strong ETag or Last-Modified via If-Range; the controller names the file only when its size matches and it has hashed it (SHA-256); otherwise the part is removed. Files are 0600 and never run |
+| T16d | A malicious archive (paths out of the folder, links, devices, a bomb, programs) | Format from the content; every entry checked before writing (no absolute paths, `..`, links, devices, duplicates; bounded count, depth, size and ratio; encrypted entries refused); programs and scripts named, never called safe; SHA-256 re-checked before unpacking through no-follow handles; files 0644, folders 0755, nothing overwritten, undo moves the installation aside |
 | T29 | Pasted text approves a further action | Terminal buffer cleared before the question, no protection against another process on this TTY |
 | T30 | Data returns after access is revoked | Dependent answers and memory are removed before the next turn |
 | T31 | A refused answer or an unchecked action appears through the live preview | Only an `answer` action's text is previewed; web answers never; status frames carry fixed codes and counts; the validated answer decides |
 
 ## 6. Writing, undo and deletion
 
-Writing goes through a single executor: directory lock, identity check, `.ai-desktop-tasks` journal (`0700`, files `0600`) with the old and new content before publication, writing a temporary file, check, publication. New files are published without overwriting; a taken name is a refusal. The paths `.ai-desktop-tasks` and `.ai-task-*` are reserved for the program, also in `version = 2`.
+File writes go through one executor: directory lock, identity check, `.ai-desktop-tasks` journal (`0700`, files `0600`) with the old and new content before publication, writing a temporary file, check, publication. New files are published without overwriting; a taken name is a refusal. Moves, copies and archive installations go through the transfer executor: a `<plan>.transfer.json` journal written first, a copy or an unpacked archive built in a hidden `.ai-desktop-copy-<plan>` sibling and published with one no-replace rename, undo moving it into `.ai-desktop-tasks/transfer-<plan>`. The folders of a write scope must be yours (root's on the way), whatever their mode; every step uses opened, no-follow folder handles, so a folder swapped meanwhile is refused, not followed. The paths `.ai-desktop-tasks`, `.ai-task-*` and `.ai-desktop-copy-*` are reserved for the program, also in `version = 2`.
 
 Undo compares bytes and mode. A conflict is kept in the journal and visible, but does not block new writes as long as no leftovers remain in the directory. Unresolved temporary files and unfinished tasks do block them. Limit of 128 journals. The journal is bound to the directory; history from another device or a replaced directory is unlinked and is not used for undo.
 
@@ -185,7 +189,7 @@ Analysis opts into a 96 MiB aggregate TLS tunnel budget, including both directio
 
 Local project-test copies have an independent contract: default 2,000 files / 8 MiB per file / 64 MiB combined; hard 20,000 / 32 MiB / 128 MiB. The copy pipe is opt-in and unavailable to ordinary model calls. The sandbox bounds memory to 2 GiB, writable work to 160 MiB and individual files to 32 MiB. This increases resource consumption. Copy membership is never added to model context simply because tests need it.
 
-On-demand procedure and reference selection in all modes is controller-managed. The knowledge envelope is canonically bound to consent and reconstructed without inheriting a worker's ambient catalog. Bundled references have source/version provenance and hashes but remain untrusted evidence. Package-version evidence comes only from a successful, untruncated exact allowed query and is reset with the task. No new command grant, network route, desktop detection/download or shell tool is implied by loading documentation. Area Skills serve topic guides by name under the same bounds; a packaged name always resolves to the package, so a same-named file in the owner's directory cannot replace it. Installed manual pages are read by the worker only from root-owned `/usr/share/man`, converted to plain text and cut to a few short excerpts; they are untrusted evidence that goes to the selected provider, and no web documentation is fetched inside a task.
+On-demand procedure and reference selection in all modes is controller-managed. The knowledge envelope is canonically bound to consent and reconstructed without inheriting a worker's ambient catalog. Bundled references have source/version provenance and hashes but remain untrusted evidence. Package-version evidence comes only from a successful, untruncated exact allowed query and is reset with the task. No new command grant, network route, desktop detection/download or shell tool is implied by loading documentation. Area Skills serve topic guides by name under the same bounds; a packaged name always resolves to the package, so a same-named file in the owner's directory cannot replace it. Installed manual pages are read by the worker only from root-owned `/usr/share/man`, converted to plain text and cut to a few short excerpts; they are untrusted evidence that goes to the selected provider, and no web documentation is fetched inside `material`, `project` or `task` (in a conversation with `web = true` the model may open public pages through the web broker).
 
 ### Automatic local conversation checkpoints
 
