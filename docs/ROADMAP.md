@@ -277,6 +277,8 @@ Goal: describe what you want; AI Desktop finds the sources, reads pages, downloa
 5. Anthropic's terms checked for a program that runs Claude Code with a subscription login.
 6. Release checklist ticked for this commit.
 
+**After 1.0 (decision of 2026-11-12): interface language from the locale.** Until then every message, prompt and control word of the program is English, while the model answers in the language of the question. After 1.0 the program's own texts (prompts, refusals, plan views, help) get translations chosen from the user's locale (`LANGUAGE`, then `LC_ALL`/`LC_MESSAGES`/`LANG`), with English as the fallback; consent answers keep accepting `y`/`yes`/`n` so a translation never changes what approves a write.
+
 ## Progress log
 
 Earlier dated entries preserve the evidence and status at that point. The latest entry supersedes historical pending/next-step statements.
