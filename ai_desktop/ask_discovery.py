@@ -190,6 +190,9 @@ class DiscoveryLedger:
         self.known_urls.update(step["links"])
         return step
 
+    def add_archive(self, step):
+        return self.add_download(step)
+
     def add_download(self, step):
         """One downloaded (or declined, refused, failed, cancelled) file as data for the next round."""
         document = self.document()

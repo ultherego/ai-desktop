@@ -222,6 +222,27 @@ def parse_plan(raw, access):
             if set(value) != {"action", "url"} or type(value["url"]) is not str or not 0 < len(value["url"]) <= 2048:
                 raise ValueError("assistant-plan")
             return {"action": "web-open", "url": value["url"]}
+        if value.get("action") in ("inspect", "install"):
+            # A downloaded archive in the quarantine folder: looked into (inspect) or installed into a write scope
+            # (install) after the plan and the owner's yes (S10 stage C). With access.downloads.
+            from .archive_install import _LABEL
+            check = "access"
+            if access.get("downloads") is not True:
+                raise ValueError("assistant-plan")
+            check = "shape"
+            keys = {"action", "archive"} | ({"write", "to"} if value.get("action") == "install" else set())
+            if set(value) != keys or type(value["archive"]) is not str or not _LABEL.fullmatch(value["archive"]):
+                raise ValueError("assistant-plan")
+            if value["action"] == "inspect":
+                return {"action": "inspect", "archive": value["archive"]}
+            check = "write"
+            if type(value["write"]) is not str or value["write"] not in {item["id"] for item in access.get("write", [])}:
+                raise ValueError("assistant-plan")
+            check = "create"
+            from .workspace_transfer import path
+            if value["to"] != ".":
+                path(value["to"])
+            return {"action": "install", "archive": value["archive"], "write": value["write"], "to": value["to"]}
         if value.get("action") == "download":
             # Public files fetched by the program's broker into a quarantine folder after one consent. With access.downloads.
             check = "access"

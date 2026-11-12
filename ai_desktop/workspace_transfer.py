@@ -352,7 +352,7 @@ def _load(state, name):
         os.close(fd)
     keys = {"schema", "plan", "workspace", "operation", "from", "to", "kind", "entry", "files", "bytes", "status"}
     if (type(value) is not dict or set(value) != keys or value["schema"] != 1 or not _PLAN.match(str(value["plan"]))
-            or _journal_name(value["plan"]) != name or value["operation"] not in ("move", "copy")
+            or _journal_name(value["plan"]) != name or value["operation"] not in ("move", "copy", "install")
             or value["status"] not in _STATUSES or value["kind"] not in ("file", "folder")):
         raise ValueError("transfer journal")
     path(value["from"]), path(value["to"])

@@ -367,6 +367,75 @@ def write_root(policy, index):
                                                             policy.uid)) from None
 
 
+INSTALL_REASONS = {"format": "it is not a supported archive (zip or tar with gzip, bzip2, xz or zstd)",
+                   "encrypted": "it is encrypted", "path": "an entry has an absolute path, .. or a reserved name",
+                   "link": "it contains links", "type": "it contains devices or other special files",
+                   "duplicate": "an entry name appears twice", "count": "it has too many entries",
+                   "depth": "it is nested too deeply", "size": "it unpacks to more than 4 GiB",
+                   "bomb": "it unpacks to far more than its size (a decompression bomb)",
+                   "space": "there is not enough free space", "exists": "the destination already exists (nothing is "
+                   "overwritten)", "missing": "the destination folder does not exist", "archive":
+                   "the archive is not a file of the download quarantine", "changed": "the archive or the folder "
+                   "changed after the plan was shown"}
+
+
+def install_archive(plan, snapshot, reader):
+    """S10 stage C: unpack a downloaded archive into a write scope after the plan and the owner's yes; nothing is run,
+    overwritten or made executable, and `ai-desktop task restore` undoes it. Nothing is sent to the model."""
+    from . import archive_install
+    from .run_controls import require_changes
+    from .terminal_consent import confirm
+    require_changes()
+    policy = snapshot.policy
+    try:
+        if policy is None or plan.get("action") != "install" or plan["write"] not in {
+                item["id"] for item in snapshot.access.get("write", [])}:
+            raise ValueError()
+        index = int(plan["write"][1:])
+        workspace = write_root(policy, index)
+        archive = archive_install.resolve(plan["archive"], policy.home)
+        prepared = archive_install.prepare(workspace, plan["archive"], archive, plan["to"])
+        facts = prepared.data()
+        policy.require_write((workspace + "/" + facts["to"],), index=index)
+    except archive_install.ArchiveDenied as refused:
+        print("Refused: cannot install %s: %s." % (terminal_text(plan.get("archive", "")),
+                                                   INSTALL_REASONS.get(refused.reason, OWNED_FOLDERS)))
+        conversation_state.note_action("Install NOT done (%s): %s -> %s" % (refused.reason, plan.get("archive"),
+                                                                          plan.get("to")))
+        return CompletedTask(2)
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, ExecutionDenied):
+        raise EditDenied("input") from None
+    seen = facts["inspection"]
+    print()
+    print("Install in %s:" % terminal_text(workspace))
+    print("  %s  ->  %s" % (terminal_text(plan["archive"].rsplit("/", 1)[-1]), terminal_text(facts["to"])))
+    print("  %s archive: %d files, %d folders, %s unpacked; the destination does not exist yet, nothing is overwritten"
+          % (seen["format"], seen["files"], seen["folders"], size_label(seen["bytes"])))
+    if seen["executables"]:
+        print("  Contains programs or scripts (%d), for example: %s. They are installed as plain files (not "
+              "executable); nothing here says they are safe." % (seen["executables"], ", ".join(
+                  terminal_text(name) for name in seen["examples"][:4])))
+    if not confirm("install", reader=reader):
+        print("Cancelled. Nothing was changed.")
+        conversation_state.note_action("Install NOT done (declined by the user): %s -> %s" % (plan["archive"],
+                                                                                           facts["to"]))
+        return CompletedTask(2)
+    try:
+        policy.recheck()
+        plan_id = archive_install.execute(prepared, prepared.authorize())
+    except archive_install.ArchiveDenied as refused:
+        print("Refused: %s. Nothing was installed." % INSTALL_REASONS.get(refused.reason, refused.reason))
+        conversation_state.note_action("Install NOT done (%s): %s -> %s" % (refused.reason, plan["archive"], facts["to"]))
+        return CompletedTask(2)
+    except (OSError, ValueError, ExecutionDenied):
+        raise EditDenied("input") from None
+    print("Installed.")
+    print("Undo: " + shlex.join(["ai-desktop", "task", "restore", "--workspace", workspace, "--plan", plan_id]))
+    conversation_state.note_action("Installed %s -> %s (%d files; can be undone with ai-desktop task restore)" % (
+        plan["archive"], facts["to"], seen["files"]))
+    return CompletedTask(0)
+
+
 def transfer_files(plan, snapshot, reader):
     """Move or copy a file or a whole folder inside one write scope after the owner's yes; nothing is overwritten and
     the step can be undone with `ai-desktop task restore`. Nothing is sent to the model (S10)."""

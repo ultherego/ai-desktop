@@ -18,6 +18,8 @@ MAX_WEB_TEXT = 32 * 1024      # the checked web answer with its source list
 # (not https, credentials, a private or local host: "refused") or could not read it ("failed").
 PAGE_STATUSES = ("ok", "declined", "refused", "failed")
 DOWNLOAD_STATUSES = ("ok", "declined", "refused", "failed", "cancelled")
+ARCHIVE_KEYS = ("op", "archive", "status", "reason", "format", "files", "folders", "bytes", "top", "top_count",
+                "executables", "examples")
 MAX_DIRECTORIES = 4            # directories in one list step
 CEILING_ENTRIES = 512          # entries of one list/find step
 CEILING_TOTAL_ENTRIES = 1024   # entries of the whole document
@@ -256,6 +258,21 @@ def _step(value, total):
         except WebError:
             raise ValueError("discovery") from None
         return {key: value[key] for key in keys}
+    if op == "archive":
+        # What a downloaded archive holds (archive_install.inspect), or why it cannot be installed. Names are data.
+        if (set(value) != set(ARCHIVE_KEYS) or value["status"] not in ("ok", "refused")
+                or type(value["archive"]) is not str or len(value["archive"].encode("utf-8")) > 512
+                or type(value["reason"]) is not str or not re.fullmatch(r"[a-z]{0,12}", value["reason"])
+                or (value["status"] == "ok") == bool(value["reason"])
+                or value["format"] not in ("", "zip", "tar", "tar.gz", "tar.bz2", "tar.xz", "tar.zst")
+                or any(type(value[key]) is not int or value[key] < 0
+                       for key in ("files", "folders", "bytes", "top_count", "executables"))
+                or any(type(value[key]) is not list or len(value[key]) > 32 for key in ("top", "examples"))
+                or any(type(item) is not str or len(item.encode("utf-8")) > 1024
+                       or any(unicodedata.category(c) in ("Cc", "Cf", "Cs") for c in item)
+                       for item in value["top"] + value["examples"] + [value["archive"]])):
+            raise ValueError("discovery")
+        return {key: (list(value[key]) if key in ("top", "examples") else value[key]) for key in ARCHIVE_KEYS}
     if op == "refusal":
         if (set(value) != {"op", "code", "selectors", "limit"} or type(value["code"]) is not str
                 or value["code"] not in REFUSAL_CODES or type(value["selectors"]) is not list
@@ -359,7 +376,7 @@ def scope_ids(document):
             found.update(item["id"] for item in step["directories"])
         elif step["op"] in ("find", "content"):
             found.add(step["id"])
-        elif step["op"] in ("run", "skill", "web", "manual", "page", "download"):
+        elif step["op"] in ("run", "skill", "web", "manual", "page", "download", "archive"):
             continue
         else:
             found.update(item["id"] for item in step["selectors"])

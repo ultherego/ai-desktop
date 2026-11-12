@@ -307,7 +307,7 @@ def show_record(record, number=None, *, details=False):
         states["prepared"] = "deletion not finished — check the task trash"
     states["detached"] = "unlinked history — undo is blocked"
     if record.get("kind") == "transfer":
-        verb = "moved" if record["operation"] == "move" else "copied"
+        verb = {"move": "moved", "copy": "copied", "install": "installed"}[record["operation"]]
         states.update({"prepared": record["operation"] + " not finished — check task status", "done": verb,
                        "failed": "failed — nothing was " + verb, "undone": "undone",
                        "conflict": "undo refused — the destination or the old name changed"})
@@ -315,7 +315,8 @@ def show_record(record, number=None, *, details=False):
     if record["status"] == "detached":
         print("  " + workspace.DETACHED_HISTORY_HINT)
     if record.get("kind") == "transfer":
-        print("  " + ("Move" if record["operation"] == "move" else "Copy") + ": " + record["from"] + "  ->  " + record["to"])
+        print("  " + {"move": "Move", "copy": "Copy", "install": "Install"}[record["operation"]] + ": " + record["from"]
+              + "  ->  " + record["to"])
     for item in record["files"]:
         action = "Restore original" if item["action"] == "restore" else "Delete created file"
         print("  " + action + ": " + item["path"])
@@ -333,7 +334,8 @@ def _undo_transfer(args, reader):
     if journal["status"] != "done":
         print("Nothing to undo: the %s is %s." % (journal["operation"], journal["status"]))
         return 2
-    print("A move goes back to its old name; a copy is moved into the task state (.ai-desktop-tasks), not deleted. "
+    print("A move goes back to its old name; a copy or an installation is moved into the task state (.ai-desktop-tasks), "
+          "not deleted. "
           "Nothing is overwritten.")
     if not confirm("transfer-undo", reader=reader):
         print("Cancelled. Nothing was changed.")
