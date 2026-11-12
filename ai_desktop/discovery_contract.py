@@ -47,7 +47,9 @@ REFUSAL_CODES = ("discovery-required", "discovery-budget", "files-missing", "fil
                  # a web search asked for after local data was collected (only allowed first)
                  "web-late",
                  # a Skill asked for again (already in discovery) or after the Skill rounds of a question are used up
-                 "skill-repeat", "skill-limit")
+                 "skill-repeat", "skill-limit",
+                 # an archive that is not "<folder>/<name>" of a download step (inspect, install)
+                 "archive-label")
 _ID = re.compile(r"f(?:[0-9]|[1-5][0-9]|6[0-3])\Z", re.ASCII)
 _SKILL = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*(?:/[a-z0-9]+(?:-[a-z0-9]+)*)?\Z", re.ASCII)
 MAX_SKILL_TEXT = 96 * 1024

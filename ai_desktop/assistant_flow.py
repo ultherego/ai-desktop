@@ -417,8 +417,9 @@ def _fetch_all(ledger, clean, folder, step):
             continue
         print(paint("  %s %s · %s · sha256 %s" % (symbol("ok"), terminal_text(found["name"]), size_label(found["size"]),
                                                  found["sha256"][:16]), "muted"))
-        conversation_state.note_action("Downloaded %s (%d bytes, sha256 %s) into %s"
-                                       % (found["final_url"], found["size"], found["sha256"], folder), read=True)
+        label = "~/" + os.path.relpath(os.path.join(folder, found["name"]), web_download._home())
+        conversation_state.note_action("Downloaded %s (%d bytes, sha256 %s) as %s"
+                                       % (found["final_url"], found["size"], found["sha256"], label), read=True)
         step(url, "ok", "", dict(found, folder="~/" + os.path.relpath(folder, web_download._home())))
 
 
@@ -741,6 +742,11 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                     # scope's id, ~/name, a directory): the code lets it write the same selection correctly.
                     print(paint("  %s The proposed file selection was not valid (%s); the model may correct it."
                                 % (symbol("skip"), error.check), "muted"))
+                    return
+                if error.check == "archive" and snapshot.policy is not None and ledger.correction(
+                        ask_discovery.Recoverable("archive-label", [], None)):
+                    print(paint("  %s The archive was not named as a downloaded file; the model may correct it."
+                                % symbol("skip"), "muted"))
                     return
                 if error.check != "command" or snapshot.policy is None or not ledger.correction(
                         ask_discovery.Recoverable("command-invalid", [], None)):

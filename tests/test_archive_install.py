@@ -207,6 +207,13 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(assistant_contract.parse_plan(json.dumps(inspect), self.ACCESS), inspect)
         self.assertEqual(assistant_contract.parse_plan(json.dumps(install), self.ACCESS), install)
         self.assertEqual(assistant_contract.parse_plan(json.dumps(dict(install, to=".")), self.ACCESS)["to"], ".")
+        written = dict(install, archive="/home/synthetic" + FOLDER[1:] + "/package.zip")     # the path the user saw
+        self.assertEqual(assistant_contract.parse_plan(json.dumps(written), self.ACCESS), install)
+        with self.assertRaises(assistant_contract.PlanError) as caught:
+            assistant_contract.parse_plan(json.dumps(dict(install, archive="~/Downloads/package.zip")), self.ACCESS)
+        self.assertEqual(caught.exception.check, "archive")                  # correctable, not the end of the question
+        self.assertIsNone(a.label("/etc/passwd"))
+        self.assertIsNone(a.label(FOLDER + "/sub/package.zip"))
         without = dict(self.ACCESS)
         del without["downloads"]
         for access, value in ((without, inspect), (self.ACCESS, dict(inspect, archive="~/package.zip")),

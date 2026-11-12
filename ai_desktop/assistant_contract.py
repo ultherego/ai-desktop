@@ -26,7 +26,9 @@ PLAN_CHECKS = frozenset({"access", "type", "size", "json", "shape", "action", "f
                          # which part of a file selection was refused: a scope not offered for reading (for example a
                          # write scope's id), a path that is not a plain relative path, a directory where a file is
                          # needed, or a malformed or repeated selector
-                         "files-scope", "files-path", "files-directory", "files-selector"})
+                         "files-scope", "files-path", "files-directory", "files-selector",
+                         # an archive that is not a file of the download quarantine (inspect, install)
+                         "archive"})
 
 
 class _Selection(ValueError):
@@ -225,16 +227,20 @@ def parse_plan(raw, access):
         if value.get("action") in ("inspect", "install"):
             # A downloaded archive in the quarantine folder: looked into (inspect) or installed into a write scope
             # (install) after the plan and the owner's yes (S10 stage C). With access.downloads.
-            from .archive_install import _LABEL
+            from .archive_install import label
             check = "access"
             if access.get("downloads") is not True:
                 raise ValueError("assistant-plan")
             check = "shape"
             keys = {"action", "archive"} | ({"write", "to"} if value.get("action") == "install" else set())
-            if set(value) != keys or type(value["archive"]) is not str or not _LABEL.fullmatch(value["archive"]):
+            if set(value) != keys:
+                raise ValueError("assistant-plan")
+            check = "archive"
+            archive = label(value["archive"])
+            if archive is None:
                 raise ValueError("assistant-plan")
             if value["action"] == "inspect":
-                return {"action": "inspect", "archive": value["archive"]}
+                return {"action": "inspect", "archive": archive}
             check = "write"
             if type(value["write"]) is not str or value["write"] not in {item["id"] for item in access.get("write", [])}:
                 raise ValueError("assistant-plan")
@@ -242,7 +248,7 @@ def parse_plan(raw, access):
             from .workspace_transfer import path
             if value["to"] != ".":
                 path(value["to"])
-            return {"action": "install", "archive": value["archive"], "write": value["write"], "to": value["to"]}
+            return {"action": "install", "archive": archive, "write": value["write"], "to": value["to"]}
         if value.get("action") == "download":
             # Public files fetched by the program's broker into a quarantine folder after one consent. With access.downloads.
             check = "access"

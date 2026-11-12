@@ -41,6 +41,16 @@ EXECUTABLE = (".exe", ".dll", ".so", ".dylib", ".jar", ".sh", ".bash", ".zsh", "
 REASONS = ("format", "encrypted", "path", "link", "type", "duplicate", "count", "depth", "size", "bomb", "space",
            "exists", "missing", "workspace", "archive", "changed")
 _LABEL = re.compile(r"~/\.local/state/ai-desktop/downloads/[0-9]{8}-[0-9]{6}-[a-f0-9]{8}/[^/\x00]{1,120}\Z")
+_WRITTEN = re.compile(r"(?:~|/[^\x00]{1,1024}?)(/\.local/state/ai-desktop/downloads/[0-9]{8}-[0-9]{6}-[a-f0-9]{8}/[^/\x00]{1,120})\Z")
+
+
+def label(value):
+    """The quarantine label of an archive however the model wrote it (`~/...` or the full path the user saw); None
+    when it does not name a file of the download quarantine. Only this user's own quarantine is ever read."""
+    if type(value) is not str:
+        return None
+    match = _WRITTEN.fullmatch(value)
+    return "~" + match.group(1) if match and _LABEL.fullmatch("~" + match.group(1)) else None
 
 
 class ArchiveDenied(ExecutionDenied):
