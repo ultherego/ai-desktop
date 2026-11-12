@@ -6,6 +6,7 @@ Existing data must also be readable; creation grants never read old contents.
 from dataclasses import dataclass
 import json
 import shlex
+import stat
 from types import SimpleNamespace
 
 from . import conversation_state, file_context, permissions, task_contract, task_workspace, workspace_trash
@@ -154,7 +155,7 @@ def prepare(plan, snapshot, args, reader, *, question_consent, expected_versions
         advertised = {item["id"]: item["pattern"] for item in snapshot.access.get("write", [])}
         if scope.pattern != advertised[plan["write"]]:
             raise ValueError()
-        workspace = policy.write_workspace(index)
+        workspace = write_root(policy, index)
         detached = task_workspace._can_apply(workspace)
         if args.details and type(detached) is int and detached:
             print(task_workspace.DETACHED_HISTORY_HINT)
@@ -293,7 +294,7 @@ def delete_files(plan, snapshot, reader):
                 item["id"] for item in snapshot.access.get("write", [])}:
             raise ValueError()
         index = int(plan["write"][1:])
-        workspace = policy.write_workspace(index)
+        workspace = write_root(policy, index)
         names = [task_contract.path(name) for name in plan["paths"]]
         policy.require_write(tuple(workspace + "/" + name for name in names), index=index)
         prepared = workspace_trash.prepare(workspace, names)
@@ -338,6 +339,31 @@ OWNED_FOLDERS = ("AI Desktop changes files only in folders that belong to you an
                  "check the folders on the way with ls -ld (chmod go-w removes write access for others)")
 
 
+def shared_folders_hint(folders, uid):
+    """Names the folders other accounts may write to, and the command that changes that (the owner decides)."""
+    if not folders:
+        return OWNED_FOLDERS + "."
+    shown = ", ".join("%s (%s)" % (terminal_text(folder), stat.filemode(stat.S_IFDIR | mode)) for folder, _, mode in folders)
+    commands = "; ".join(("sudo chmod go-w " if owner == 0 else "chmod go-w " if owner == uid else "the owner can run chmod go-w ")
+                         + shlex.quote(folder) for folder, owner, _ in folders)
+    return ("Other accounts can write to %s, so one could swap a folder while the change runs. AI Desktop changes files "
+            "only where that is not possible. To allow it: %s. Do this only if no other account or program needs to "
+            "write there." % (shown, commands))
+
+
+def write_root(policy, index):
+    """`policy.write_workspace`, with a refusal over a shared folder explained (which folder, which command)."""
+    try:
+        return policy.write_workspace(index)
+    except ValueError as exc:
+        if exc.args[:1] != ("policy-directory",):
+            raise
+        scope = policy.write_scopes()[index]
+        root = scope.base.rsplit("/", 1)[0] if scope.mode == "exact" else scope.base
+        raise EditDenied("input", hint=shared_folders_hint(permissions.writable_by_others(root, policy.uid),
+                                                           policy.uid)) from None
+
+
 def transfer_files(plan, snapshot, reader):
     """Move or copy a file or a whole folder inside one write scope after the owner's yes; nothing is overwritten and
     the step can be undone with `ai-desktop task restore`. Nothing is sent to the model (S10)."""
@@ -352,7 +378,7 @@ def transfer_files(plan, snapshot, reader):
                 item["id"] for item in snapshot.access.get("write", [])}:
             raise ValueError()
         index = int(plan["write"][1:])
-        workspace = policy.write_workspace(index)
+        workspace = write_root(policy, index)
         source, target = workspace_transfer.path(plan["from"]), workspace_transfer.path(plan["to"])
         absolute = (workspace + "/" + source, workspace + "/" + target)
         # Both ends inside files.write; the source must also be readable (deny and the default protection win).

@@ -246,6 +246,24 @@ def _directory(info, uid, secure):
         raise ValueError("policy-directory")
 
 
+def writable_by_others(path, uid):
+    """The folders on the way to `path` (from /) that a write needs but that fail the rule of `_directory`: owned by
+    someone other than root or `uid`, or writable by group or others. [(folder, owner uid, mode)], nearest to / first;
+    used only to explain a refusal, never to allow anything."""
+    found, current = [], "/"
+    for name in [""] + _absolute(path).split("/")[1:]:
+        current = "/" if not name else (current.rstrip("/") + "/" + name)
+        try:
+            info = os.lstat(current)
+        except OSError:
+            break
+        if not stat.S_ISDIR(info.st_mode):
+            break
+        if info.st_uid not in (0, uid) or info.st_mode & 0o022:
+            found.append((current, info.st_uid, stat.S_IMODE(info.st_mode)))
+    return found
+
+
 @contextmanager
 def _open_directory(path, uid, *, secure=False):
     """Keep and verify the whole chain, including names changed during a read."""
