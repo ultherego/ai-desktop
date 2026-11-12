@@ -33,7 +33,7 @@ The service is shared by all agents. After a service change, an agent returns to
 
 ## Agents
 
-An agent is a saved role: service, model, level, access (`changes` or `read-only`), instructions up to 4 KiB and assigned Skills (role plus metadata catalog up to 103 KiB; selected procedures/references use a separate 192 KiB budget). The limit is 24 profiles. A `read-only` agent does not write, does not delete and does not get
+An agent is a saved role: service, model, level, access (`changes` or `read-only`), instructions up to 4 KiB and assigned Skills (role plus metadata catalog up to 101 KiB; selected procedures/references use a separate 192 KiB budget). The limit is 24 profiles. A `read-only` agent does not write, delete, move, copy or install (it may still download into the quarantine folder) and does not get
 commands from the `change` list.
 
 ```sh
@@ -54,8 +54,8 @@ New configurations expose the default, diagnostic, programmer and reviewer catal
 
 | Profile | Skill | Access |
 |---|---|---|
-| `default` | the `arch` and `cachyos` area Skills, the `desktop` area Skill, the development Skills and `concise-assistant` | `changes` |
-| `diagnostic` | the `arch`, `cachyos` and `desktop` area Skills | `read-only` |
+| `default` | the `arch` and `cachyos` area Skills (`cachyos` only on CachyOS), the `desktop` area Skill, the development Skills and `concise-assistant` | `changes` |
+| `diagnostic` | the `arch`, `cachyos` (only on CachyOS) and `desktop` area Skills | `read-only` |
 | `programmer` | `code-development` | `changes` |
 | `reviewer` | `code-review` | `read-only` |
 | `analyst` | `project-analysis` | `read-only` |
@@ -143,7 +143,7 @@ Login is the official "Sign in with ChatGPT" flow handled by a trusted component
 
 The client gets an empty `HOME` and `CODEX_HOME`, an empty working directory and no mounted token store. A short-lived token goes through a private channel to the client process and does not reach the question or the arguments. The proxy lets through only `api.openai.com`. The client's shell, agents, MCP, Skill detection and search are disabled. An unexpected tool event, a failed turn or an exceeded budget ends the request without a retry. Rejecting an event will not undo an effect that has already happened, so kernel isolation remains necessary.
 
-The list of models in the menu comes from the client, run in a closed sandbox with no network or account. An unknown identifier is rejected by the client as `codex-model-unavailable`. Codex has no web search: choosing this service removes that capability.
+The list of models in the menu comes from the client, run in a closed sandbox with no network or account. An unknown identifier is rejected by the client as `codex-model-unavailable`. Codex has no web search: choosing this service removes web search and page opening; `downloads = true` still fetches public files from your computer.
 
 ## Older commands
 
@@ -163,7 +163,7 @@ port = 8080
 
 Select the service with `ai-desktop settings set --provider local`, or use `ai-desktop ask --provider local` for one conversation. The `default` model uses the model served by a single-model server. If your server uses an alias, select it with `ai-desktop settings set --provider local --model my-model`. Use an alias of up to 96 letters, digits, dots, underscores or hyphens, beginning with a letter or digit. `ai-desktop doctor` shows the configured address and policy while offline. To actively query the enabled loopback server, run `ai-desktop local models` or `ai-desktop local status`. Both read only `/v1/models`. A successful check confirms that the server returned a model catalog; some servers also advertise unloaded models.
 
-The approval names the recipient and port. The controller rechecks the permission file immediately before releasing the text. It sends the application instructions and the approved request body. Responses are untrusted text processed by the same operation, test and write checks as a remote response. The local adapter rejects native tool calls and redirects. There is no cloud fallback, OAuth, key lookup, server installation or automatic startup. External weather collection, if separately enabled and requested, still contacts the weather service. WebSearch is unavailable on this provider.
+The approval names the recipient and port. The controller rechecks the permission file immediately before releasing the text. It sends the application instructions and the approved request body. Responses are untrusted text processed by the same operation, test and write checks as a remote response. The local adapter rejects native tool calls and redirects. There is no cloud fallback, OAuth, key lookup, server installation or automatic startup. External weather collection, if separately enabled and requested, still contacts the weather service. WebSearch and page opening are unavailable on this provider; `downloads = true` still fetches public files from your computer.
 
 The server is a separate, owner-managed program. Its launch options, file access, logging and outbound network are outside AI Desktop's sandbox. Trust extends to whoever can bind the configured TCP port: another local user could claim it while your server is stopped. Use this on a machine you control with a dedicated loopback server, never a reverse proxy that forwards to another recipient. Servers requiring API keys, TLS, streaming-only responses or a remote host are unsupported.
 

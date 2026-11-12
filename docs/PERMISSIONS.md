@@ -12,9 +12,9 @@ All `true`/`false`, default `false`.
 
 - `claude`: requests may go to Claude.
 - `codex`: requests may go to Codex.
-- `local`: requests may go to a model you run yourself on this computer (an OpenAI-compatible server such as llama.cpp, listening on `127.0.0.1`). Nothing leaves the computer. Choose it with `ai-desktop agent use local`.
+- `local`: requests may go to a model you run yourself on this computer (an OpenAI-compatible server such as llama.cpp, listening on `127.0.0.1`). No model request leaves the computer (weather and downloads, when enabled, still do). Choose it with `ai-desktop agent use local`.
 - `weather`: weather from Open-Meteo (sends the place name).
-- `web`: Claude may search the Internet for a question that needs current information. It is a separate request with your question and the latest exchanges of the conversation (so "the error above" is understood), without files, task memory or Skills. It also lets the model open public pages: the program fetches them itself (HTTPS to public addresses only, no cookies or logins, no JavaScript) and gives the model their text and links. An address from you, from the search sources or from an opened page opens at once; any other address is shown to you first and opens only after `y`.
+- `web` (Claude only): Claude may search the Internet for a question that needs current information. It is a separate request with your question and the latest exchanges of the conversation (so "the error above" is understood), without files, task memory or Skills. It also lets the model open public pages: the program fetches them itself (HTTPS to public addresses only, no cookies or logins, no JavaScript) and gives the model their text and links. An address from you, from the search sources or from an opened page opens at once; any other address is shown to you first and opens only after `y`.
 - `downloads`: the model may ask to download public files (at most 8 at a time). You see the list, with any address that did not come from you, the search or an opened page marked, and approve it once. The program downloads them itself, like a page (HTTPS to public addresses only, no cookies or logins), into a new private folder `~/.local/state/ai-desktop/downloads/<date-time-id>/`. A file appears there only when it arrived whole; its size and SHA-256 are shown. Files are never run and are not executable; an archive is unpacked only when you approve installing it into a `write` scope (plan, consent, undo). There is no size setting: the disk must keep 64 MiB free.
 
 ## `[local]`
@@ -28,7 +28,7 @@ All `true`/`false`, default `false`.
 ## `[files]`: what may be read and written
 
 - `read`: places that may be read, e.g. `"~/"`, `"~/Projects/**"`, `"/etc/"`.
-- `write`: places where changes may be saved (each save shows a diff and asks), and where files and folders may be moved or copied (each move or copy shows the plan and asks; the source must also be readable).
+- `write`: places where changes may be saved (each save shows a diff and asks), and where files and folders may be moved or copied (each move or copy shows the plan and asks; the source must also be readable), and where a downloaded archive may be installed. The folder must be yours; a shared disk with mode 0777 is fine.
 - `deny`: never read or written, wins over `read` and `write`, e.g. `"~/private/"`. At most 64 rules in each of `read`, `write`, `deny`.
 - `protect`: `true` (default) keeps common secrets out even under a broad rule such as `"~/**"`: SSH and GnuPG keys, password stores, cloud and client logins (`.aws`, `.kube`, `.claude`, `.codex`, `gh`, `rclone`, `borg`…), browser and mail profiles, `.netrc`, `.env`, `/etc/ssh`, `/etc/shadow`, Wi-Fi and WireGuard secrets. `/permissions` prints the list. Naming such a place in `read` opens exactly what you named; `false` switches the list off.
 

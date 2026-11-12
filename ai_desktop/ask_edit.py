@@ -472,7 +472,7 @@ def transfer_files(plan, snapshot, reader):
                                                                         plan.get("from"), plan.get("to")))
         return CompletedTask(2)
     except ExecutionDenied:
-        # The workspace or a folder on the way belongs to someone else or others may write to it (e.g. mode 777).
+        # The workspace or a folder on the way belongs to another account (mode does not matter).
         print("Refused: cannot %s %s to %s: %s." % (operation, terminal_text(plan.get("from", "")),
                                                     terminal_text(plan.get("to", "")), OWNED_FOLDERS))
         conversation_state.note_action("%s NOT done (folder permissions): %s -> %s" % (

@@ -6,7 +6,7 @@
 
 <p align="center">A terminal assistant for diagnostics, configuration and file work on CachyOS and Arch Linux x86_64.</p>
 
-In a terminal, start `ai-desktop`, write a plain sentence, and the program itself collects the data your `~/.config/ai-desktop/permissions.toml` file allows and sends it to the model. Every write shows a full diff and waits for your consent.
+In a terminal, start `ai-desktop`, write a plain sentence, and the program itself collects the data your `~/.config/ai-desktop/permissions.toml` file allows and sends it to the model. Every edit shows a full diff, and every other change (deletion, move, copy, archive installation, download) shows its plan; each waits for your consent.
 
 The interface and settings are in English, and the selected model answers in the language of your question.
 
@@ -16,6 +16,7 @@ The interface and settings are in English, and the selected model answers in the
 - **Reads only what you allow.** Files, commands, systemd and network access are decided by `permissions.toml`. `deny` always wins.
 - **Commands and edits with your approval.** Read commands run in a sandbox. Changes need `yes`, and every write shows the full diff first, with undo.
 - **Web search with checked sources.** With `web = true`, a Claude answer can use a search; the program lists the sources it checked.
+- **Public pages, downloads and archive installs.** The program itself opens public pages and downloads files (`downloads = true`) in a sandbox into a quarantine folder; a zip or tar is installed into a folder you allow only after its plan and your consent, never made executable, and can be undone.
 - **Claude or Codex in a separate sandboxed account.** An independently installed client runs under the `ai-desktop` account in Bubblewrap, with network access through a filtering proxy. Local inference on `127.0.0.1` needs no cloud client.
 - **Any number of terminals.** Each conversation has its own session and runs in parallel.
 
