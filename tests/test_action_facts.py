@@ -44,14 +44,14 @@ class MemoryFactTests(unittest.TestCase):
 
 
 class ChangeFactTests(unittest.TestCase):
-    PROPOSAL = json.dumps({"summary": "Add  VPN\nindicator", "files": [{"path": "waybar/config", "content": "SECRET-BODY"},
-                                                                       {"path": "waybar/style.css", "content": "x"}]})
+    PROPOSAL = json.dumps({"summary": "Add  clock\nwidget", "files": [{"path": "panel/config", "content": "SECRET-BODY"},
+                                                                       {"path": "panel/style.css", "content": "x"}]})
 
     def test_an_applied_change_names_files_and_check_but_never_the_content(self):
         text = ask_edit._change_fact(self.PROPOSAL, 0, "text")
         self.assertIn("Change applied", text)
-        self.assertIn("waybar/config, waybar/style.css", text)
-        self.assertIn("Add VPN indicator", text)
+        self.assertIn("panel/config, panel/style.css", text)
+        self.assertIn("Add clock widget", text)
         self.assertNotIn("SECRET-BODY", text)
 
     def test_a_refused_or_cancelled_change_is_recorded_as_not_applied(self):

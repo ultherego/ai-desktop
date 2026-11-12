@@ -208,7 +208,7 @@ class WebSearchResultTests(unittest.TestCase):
 
     def test_one_unusual_search_result_is_left_out_instead_of_refusing_the_answer(self):
         good = "https://www.python.org/about/"
-        for item in ({"title": "Exampleland", "url": "https://zażółć.pl/a"},
+        for item in ({"title": "Exampleland", "url": "https://bücher.example/a"},
                      {"title": "Port", "url": "https://python.org:8443/"},
                      {"title": "Underscore", "url": "https://my_host.example.com/"},
                      {"title": "Quote", "url": 'https://python.org/"a"'},
@@ -272,7 +272,7 @@ class WebSearchResultTests(unittest.TestCase):
                 self.assert_refused(events)
 
     def test_links_and_addresses_in_the_text_are_removed_instead_of_refusing_the_answer(self):
-        # Only the program's list of proven sources shows addresses (CachyOS check: a whole answer was refused for a
+        # Only the program's list of proven sources shows addresses (regression: a whole answer was refused for a
         # Markdown link). A listed source becomes its number, anything else is dropped.
         for answer, shown, hidden in (
                 ("Wynik [1]. https://www.python.org/about/", "Wynik [1]. [1]", "https://www.python.org/about/ "),

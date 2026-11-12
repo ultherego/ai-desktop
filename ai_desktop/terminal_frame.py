@@ -29,6 +29,7 @@ _MOUSE_ON, _MOUSE_OFF = "\x1b[?1002h\x1b[?1006h", "\x1b[?1002l\x1b[?1000l\x1b[?1
 _REPORT = re.compile(r"\[<(\d{1,3});(\d{1,5});(\d{1,5})([Mm])")
 DOUBLE_CLICK = 0.4
 WL_COPY = "/usr/bin/wl-copy"
+X11_COPY = (("/usr/bin/xclip", "-selection", "clipboard"), ("/usr/bin/xsel", "--clipboard", "--input"))
 
 
 def copy_to_clipboard(text, stream, *, environ=None):
@@ -42,9 +43,16 @@ def copy_to_clipboard(text, stream, *, environ=None):
     stream.write("\x1b]52;c;" + base64.b64encode(data).decode("ascii") + "\x07")
     stream.flush()
     environ = os.environ if environ is None else environ
+    # The desktop clipboard as well, whichever display server runs: wl-copy on Wayland, xclip or xsel on X11.
+    command = None
     if environ.get("WAYLAND_DISPLAY") and os.path.isfile(WL_COPY) and os.access(WL_COPY, os.X_OK):
+        command = [WL_COPY]
+    elif environ.get("DISPLAY"):
+        command = next((list(tool) for tool in X11_COPY if os.path.isfile(tool[0]) and os.access(tool[0], os.X_OK)),
+                       None)
+    if command is not None:
         try:
-            process = subprocess.Popen([WL_COPY], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+            process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
                                        stderr=subprocess.DEVNULL, close_fds=True, start_new_session=True)
             process.stdin.write(data)
             process.stdin.close()
@@ -147,7 +155,9 @@ def view_setting(home=None):
     """The chosen conversation view: "fullscreen" (the default) or "inline", from ~/.config/ai-desktop/view."""
     from pathlib import Path
     try:
-        path = Path(home or os.path.expanduser("~")) / ".config" / "ai-desktop" / "view"
+        import pwd
+        # The account's own home, as for every other AI Desktop setting (never the changeable $HOME).
+        path = Path(home or pwd.getpwuid(os.getuid()).pw_dir) / ".config" / "ai-desktop" / "view"
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
         try:
             value = os.read(descriptor, 64).decode("ascii").strip()
@@ -227,7 +237,7 @@ class Frame:
         old = self._top()
         if delta > 0 and self.screen is not None:
             # Full-screen view: the conversation moves up only as far as its end must, to stay above the list; with
-            # room below it nothing moves (no copies of the waiting line, no gaps; CachyOS check of candidate 154).
+            # room below it nothing moves (no copies of the waiting line, no gaps).
             end = self.screen.model.saved[0] + 1               # 1-based row of the conversation's end
             need = max(0, end - (old - delta))
             if need:

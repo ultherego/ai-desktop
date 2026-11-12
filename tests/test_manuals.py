@@ -84,7 +84,7 @@ from test_ask_discovery import Base  # noqa: E402  (the shared ask-flow harness)
 
 
 class ManualInTheFlowTests(Base):
-    """CachyOS check (candidate 164): after a manual excerpt the next planner round failed (prepare-plan-request),
+    """Regression: after a manual excerpt the next planner round failed (prepare-plan-request),
     because the document's scope ids did not know the manual step."""
 
     def test_a_manual_excerpt_reaches_the_next_round_and_the_question_is_answered(self):

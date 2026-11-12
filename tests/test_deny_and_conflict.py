@@ -17,10 +17,10 @@ class DenySpellingTests(unittest.TestCase):
         self.enterContext(patch.object(p, "_home", return_value=str(self.home)))
         self.config = self.home / ".config/ai-desktop/permissions.toml"
         self.config.parent.mkdir(parents=True, mode=0o700)
-        (self.home / "Private/sub").mkdir(parents=True)
-        (self.home / "Private/a.txt").write_text("a")
-        (self.home / "Private/sub/b.txt").write_text("b")
-        (self.home / "Private2.txt").write_text("c")
+        (self.home / "private-notes/sub").mkdir(parents=True)
+        (self.home / "private-notes/a.txt").write_text("a")
+        (self.home / "private-notes/sub/b.txt").write_text("b")
+        (self.home / "private-notes2.txt").write_text("c")
 
     def policy(self, deny):
         self.config.write_text('version=2\n[network]\nclaude=true\n[files]\nread=["~/"]\nwrite=["~/"]\ndeny=["%s"]\n' % deny)
@@ -28,22 +28,22 @@ class DenySpellingTests(unittest.TestCase):
         return p.load_policy()
 
     def test_every_spelling_protects_files_and_subdirectories(self):
-        for deny in ("~/Private", "~/Private/", "~/Private/*", "~/Private/**"):
+        for deny in ("~/private-notes", "~/private-notes/", "~/private-notes/*", "~/private-notes/**"):
             with self.subTest(deny=deny):
                 policy = self.policy(deny)
-                for name in ("Private/a.txt", "Private/sub/b.txt"):
+                for name in ("private-notes/a.txt", "private-notes/sub/b.txt"):
                     self.assertFalse(policy.allows(str(self.home / name)), name)
                     self.assertFalse(policy.can_write(str(self.home / name)), name)
 
     def test_a_similar_name_next_to_it_stays_allowed(self):
-        policy = self.policy("~/Private")
-        self.assertTrue(policy.allows(str(self.home / "Private2.txt")))
-        self.assertTrue(policy.can_write(str(self.home / "Private2.txt")))
+        policy = self.policy("~/private-notes")
+        self.assertTrue(policy.allows(str(self.home / "private-notes2.txt")))
+        self.assertTrue(policy.can_write(str(self.home / "private-notes2.txt")))
 
     def test_an_exact_file_rule_still_blocks_that_file(self):
-        policy = self.policy("~/Private2.txt")
-        self.assertFalse(policy.allows(str(self.home / "Private2.txt")))
-        self.assertTrue(policy.allows(str(self.home / "Private/a.txt")))
+        policy = self.policy("~/private-notes2.txt")
+        self.assertFalse(policy.allows(str(self.home / "private-notes2.txt")))
+        self.assertTrue(policy.allows(str(self.home / "private-notes/a.txt")))
 
 
 class ConflictTests(unittest.TestCase):

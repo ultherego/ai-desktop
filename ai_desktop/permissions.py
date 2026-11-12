@@ -27,6 +27,12 @@ MIN_FILE_SIZE = 4 * 1024
 MAX_FILE_SIZE = 64 * 1024 * 1024          # hard ceiling in code (also the ceiling of the request schema)
 MAX_ACCESS_BYTES = 320 * 1024     # = assistant_contract.MAX_ACCESS_BYTES: every template of the policy fits
 MAX_RULES = 64
+# Internal bounds, not settings: technical limits stay in the program. The real bound of what a
+# question sends is the byte budget (discovery_bytes); these only stop a model that keeps looping.
+MAX_DISCOVERY_ROUNDS = 32              # list/find/page steps of one question (= discovery_contract ceiling)
+MAX_SEARCH_RESULTS = 512               # matches of one find step (= discovery_contract.CEILING_ENTRIES)
+# Former settings: an older permissions.toml may still hold them; they are accepted and have no effect.
+RETIRED_LIMITS = ("search_results", "discovery_rounds")
 MAX_DIRECTORY_ENTRIES = 1024
 MAX_TOTAL_ENTRIES = 4096
 MAX_DEPTH = 8
@@ -50,7 +56,11 @@ PROTECTED_HOME = (".ssh", ".gnupg", ".password-store", ".aws", ".azure", ".kube"
                   ".config/borgmatic", ".mozilla", ".librewolf", ".thunderbird", ".config/chromium",
                   ".config/google-chrome", ".config/BraveSoftware", ".config/vivaldi", ".config/opera",
                   ".config/microsoft-edge", ".config/ai-desktop", ".local/state/ai-desktop", ".local/share/ai-desktop",
-                  ".netrc", ".git-credentials", ".npmrc", ".pypirc", ".env")
+                  ".netrc", ".git-credentials", ".npmrc", ".pypirc", ".env",
+                  # The same browsers and mail clients installed as Flatpak apps keep their profiles here.
+                  ".var/app/org.mozilla.firefox", ".var/app/org.mozilla.Thunderbird", ".var/app/org.chromium.Chromium",
+                  ".var/app/com.google.Chrome", ".var/app/com.brave.Browser", ".var/app/com.vivaldi.Vivaldi",
+                  ".var/app/com.microsoft.Edge", ".var/app/com.opera.Opera", ".var/app/io.gitlab.librewolf-community")
 PROTECTED_SYSTEM = ("/etc/ssh", "/etc/shadow", "/etc/gshadow", "/etc/NetworkManager/system-connections",
                     "/etc/wireguard", "/etc/borgmatic", "/etc/borgmatic.d")
 _WRITE_BLOCKED_ROOTS = ("/etc", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/boot",
@@ -59,7 +69,10 @@ _WRITE_BLOCKED_COMPONENTS = frozenset({".ssh", ".git", ".local", ".ai-desktop-ta
                                      "oauth", "secrets", "backup", "backups"})
 
 
-_SANDBOX_HIDDEN = ("/home", "/root", "/tmp")    # empty tmpfs in a read command's sandbox (command_ops.sandbox_command)
+def _sandbox_hidden():
+    """What a read command's sandbox shows as empty tmpfs (command_ops.sandbox_command): every home root and /tmp."""
+    from .host_accounts import home_roots
+    return (*home_roots(), "/tmp")
 
 DEFAULT_PART_SIZE = 240 * 1024            # one portion of a whole-file analysis (one request)
 MIN_PART_SIZE = 30 * 1024
@@ -132,9 +145,9 @@ class Limits:
     test_copy_total_size: int = 64 * 1024 * 1024
     listing_entries: int = 128        # entries per list/find step
     discovery_bytes: int = 131072     # bytes of all discovery steps sent to the model during one question
-    search_results: int = 40          # matches per find step
+    search_results: int = MAX_SEARCH_RESULTS   # matches per find step; the byte budget decides how many fit
     search_scan: int = 20000          # directory entries a question may examine while searching/listing
-    discovery_rounds: int = 4         # list/find steps (extra model requests) per question
+    discovery_rounds: int = MAX_DISCOVERY_ROUNDS   # list/find/page steps per question; an internal safety bound
     plan_corrections: int = 2         # corrected read plans (extra model requests) per question
     command_rounds: int = 24          # commands the assistant may propose per question (0 = none run)
     command_output: int = 8192        # bytes of one command's output that go back to the model
@@ -151,9 +164,7 @@ LIMIT_SPECS = {
     "test_copy_total_size": ("size", 1024, 128 * 1024 * 1024),
     "listing_entries": ("count", 16, 512),
     "discovery_bytes": ("size", 2048, 262144),
-    "search_results": ("count", 5, 200),
     "search_scan": ("count", 100, 100000),
-    "discovery_rounds": ("count", 1, 8),
     "plan_corrections": ("count", 0, 4),
     "command_rounds": ("count", 0, MAX_COMMAND_ROUNDS),
     "command_output": ("size", 1024, 131072),
@@ -229,10 +240,30 @@ def _fingerprint(info):
 
 
 def _directory(info, uid, secure):
+    """`secure=True`: owned by root or `uid` and writable by nobody else (the policy file's folders).
+    `secure="owner"`: owned by root or `uid`, whatever its mode (a write scope on a shared disk; every write goes
+    through opened, no-follow folder handles, so a folder swapped meanwhile is refused, never followed)."""
     if not stat.S_ISDIR(info.st_mode):
         raise ValueError("files-directory")
-    if secure and (info.st_uid not in (0, uid) or info.st_mode & 0o022):
+    if secure and (info.st_uid not in (0, uid) or (secure is True and info.st_mode & 0o022)):
         raise ValueError("policy-directory")
+
+
+def owned_by_others(path, uid):
+    """The folders on the way to `path` (from /) that belong to another account (not root, not `uid`): a write scope
+    under them is refused. [(folder, owner uid, mode)], nearest to / first; used only to explain a refusal."""
+    found, current = [], "/"
+    for name in [""] + _absolute(path).split("/")[1:]:
+        current = "/" if not name else (current.rstrip("/") + "/" + name)
+        try:
+            info = os.lstat(current)
+        except OSError:
+            break
+        if not stat.S_ISDIR(info.st_mode):
+            break
+        if info.st_uid not in (0, uid) or (current == _absolute(path) and info.st_uid != uid):
+            found.append((current, info.st_uid, stat.S_IMODE(info.st_mode)))
+    return found
 
 
 @contextmanager
@@ -582,7 +613,9 @@ def _reserved(path):
 
 
 def _foreign_home(path, home):
-    return ((_under(path, "/home") or _under(path, "/root")) and not _under(path, home))
+    """Another user's home, wherever this system keeps homes (not only /home and /root)."""
+    from .host_accounts import home_roots
+    return any(_under(path, root) for root in home_roots()) and not _under(path, home)
 
 
 def _blocked(path, home):
@@ -652,6 +685,7 @@ class Policy:
     _host_sockets: tuple = ()
     _denied_commands: tuple = ()
     _protect: bool = True
+    _downloads: bool = False
 
     def protected_locations(self):
         """The default-protected locations in force (version 2), for the owner's view; empty when switched off."""
@@ -694,6 +728,8 @@ class Policy:
         value = {"claude": self._claude, "weather": self._weather, "systemd": list(self._systemd)}
         if self._web:
             value["web"] = True
+        if self._downloads:
+            value["downloads"] = True
         return value
 
     def access(self):
@@ -703,6 +739,8 @@ class Policy:
                  "systemd": list(self._systemd), "weather": self._weather}
         if self._web:
             value["web"] = True
+        if self._downloads:
+            value["downloads"] = True
         if self._write:
             value["write"] = [{"id": "w" + str(i), "pattern": rule.original}
                               for i, rule in enumerate(self._write)]
@@ -772,7 +810,7 @@ class Policy:
         binds = []
         for word in extra_words(self._commands, argv) or ():
             candidate = word.split("=", 1)[1] if word.startswith("-") and "=" in word else word
-            if (not candidate.startswith("/") or not any(_under(candidate, root) for root in _SANDBOX_HIDDEN)
+            if (not candidate.startswith("/") or not any(_under(candidate, root) for root in _sandbox_hidden())
                     or not os.path.exists(candidate) or os.path.realpath(candidate) != candidate
                     or not self.allows(candidate)):
                 continue
@@ -784,7 +822,7 @@ class Policy:
         return tuple(binds)
 
     def _whole_directory(self, directory):
-        if (directory in (self.home, *_SANDBOX_HIDDEN) or os.path.realpath(directory) != directory
+        if (directory in (self.home, *_sandbox_hidden()) or os.path.realpath(directory) != directory
                 or not self.allows(directory)):
             return False
         if any(_under(location, directory) for location in self.protected_locations()):
@@ -850,9 +888,9 @@ class Policy:
         validate_write_path(root, self.home, managed=self._version == 2)
         if any(deny.denies(root) for deny in self._deny):
             raise ValueError("files-write-denied")
-        with _open_directory(root, self.uid, secure=True) as (directory, recheck):
+        with _open_directory(root, self.uid, secure="owner") as (directory, recheck):
             info = os.fstat(directory)
-            if info.st_uid != self.uid or info.st_mode & 0o7022:
+            if info.st_uid != self.uid:
                 raise ValueError("files-directory")
             recheck()
             self.recheck()
@@ -1042,7 +1080,8 @@ def load_policy(*, optional=False):
         absent = [key for key in ("read", "deny") if key not in value["files"]]
         if absent:
             raise _Problem("Missing from [files]: " + ", ".join(absent) + ".")
-        stray = sorted(set(value["files"]) - {"read", "deny", "write", "file_size", "part_size", "protect", *LIMIT_SPECS})
+        stray = sorted(set(value["files"]) - {"read", "deny", "write", "file_size", "part_size", "protect", *LIMIT_SPECS,
+                                              *RETIRED_LIMITS})
         if stray:
             raise _Problem("Unknown key in [files]: " + ", ".join(_shown(key) for key in stray) + ".")
         rules = []
@@ -1077,8 +1116,8 @@ def load_policy(*, optional=False):
         if type(local) is not dict or set(local) - {"port"} or not valid_local_port(local.get("port", DEFAULT_LOCAL_PORT)):
             raise _Problem("[local] accepts only a numeric loopback port between 1024 and 65535.")
         network, system = value.get("network", {}), value.get("system", {})
-        if type(network) is not dict or set(network) - {"claude", "codex", "local", "weather", "web"}:
-            raise _Problem("[network] only accepts the keys claude, codex, local, weather, web.")
+        if type(network) is not dict or set(network) - {"claude", "codex", "local", "weather", "web", "downloads"}:
+            raise _Problem("[network] only accepts the keys claude, codex, local, weather, web, downloads.")
         if any(type(flag) is not bool for flag in network.values()):
             raise _Problem("Values in [network] must be true or false.")
         if type(system) is not dict or set(system) - {"systemd"}:
@@ -1167,7 +1206,7 @@ def load_policy(*, optional=False):
                         network.get("claude", False), network.get("weather", False), tuple(systemd), value["version"],
                         network.get("web", False), file_size, part_size, network.get("codex", False), limits, commands, changes, share,
                         network.get("local", False), local.get("port", DEFAULT_LOCAL_PORT), _host_sockets=tuple(sockets), _denied_commands=denies,
-                        _protect=protect)
+                        _protect=protect, _downloads=network.get("downloads", False))
         for template in (*commands, *changes):
             for token in template[1:]:
                 if token[:1] == "/":        # templates carry absolute literal paths only (`~` is refused by the parser)

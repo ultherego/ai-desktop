@@ -67,6 +67,10 @@ class Declined(Exception):
     pass
 
 
+class ContextUnavailable(ValueError):
+    """A source did not answer; its hint is already printed, so no second, generic line follows."""
+
+
 @dataclass(frozen=True)
 class AccessSnapshot:
     policy: object
@@ -101,6 +105,25 @@ def _usable_writes(policy, access):
     return {**trimmed, "write": usable} if usable else trimmed
 
 
+def shared_directory(policy):
+    """The directory the user started the program in, for relative paths in a question, written like the scope
+    patterns (~ for the home directory). Shared only when a recursive read scope already lets the model list it and no
+    deny rule or default protection covers it; otherwise None and it stays local."""
+    if type(policy) is not permissions.Policy:
+        return None
+    try:
+        root = os.getcwd()
+        if (not root.startswith("/") or os.path.realpath(root) != root or not policy.allows(root + "/_")
+                or policy.excludes(root) or policy._protected(root)
+                or not any(s.mode == "tree" and (root == s.base or root.startswith(s.base + "/")) for s in policy.scopes())):
+            return None
+        if root == policy.home or root.startswith(policy.home + "/"):
+            return "~" + root[len(policy.home):]
+        return root
+    except (OSError, ValueError):
+        return None
+
+
 def capture_access():
     try:
         policy = permissions.load_policy(optional=True)
@@ -114,6 +137,9 @@ def capture_access():
         access = {"files": [], "systemd": [], "weather": False}
     else:
         sources, access = policy.sources(), _usable_writes(policy, policy.access())
+        directory = shared_directory(policy)
+        if directory is not None:
+            access = {**access, "cwd": directory}
     from .execution import current
     selected = current()
     if selected is not None and selected["provider"] in ("codex", "local"):
@@ -129,7 +155,7 @@ def capture_access():
     else:
         from .project_checks import current_directory
         if current_directory(policy) is not None:
-            access = {**access, "project_test": True}  # capability only; cwd stays local
+            access = {**access, "project_test": True}  # capability only; the test runs locally
     return AccessSnapshot(policy, sources, validate_access(access),
                           "claude" if selected is None else selected["provider"])
 
@@ -188,7 +214,7 @@ def collect(plan, snapshot, args, reader, *, question_consent=None, defer=()):
                                         question_consent=question_consent)
         except ask_context.weather_context.WeatherError as exc:
             print(ask_context.WEATHER_HINTS[exc.reason])
-            raise ValueError("context unavailable") from None
+            raise ContextUnavailable("context unavailable") from None
         if item is not None:
             context.append(item)
     question_consent.check()
@@ -278,6 +304,138 @@ def _read_line(shown, step, branch=""):
     tone = "accent" if healthy else "yellow" if empty else "red"
     return "  %s%s %s %s %s" % (paint(branch, "muted"), paint(symbol("ok" if healthy else "skip" if empty else "fail"), tone, "bold"), shown,
                               paint(symbol("dot"), "muted"), paint(state, "muted" if healthy else tone))
+
+
+def _open_page(ledger, url, reader, selected, snapshot):
+    """S10 stage A: one public page through the program's web broker. An address from the user's question, the search
+    sources or an opened page's links opens at once; one the model composed is shown in full and needs a yes, because
+    after local data was read an address can carry it out. The result (also a refusal) is data for the next round."""
+    from . import web_broker
+    from .terminal_consent import confirm
+    empty = {"title": "", "text": "", "links": [], "truncated": False}
+    try:
+        clean = web_broker.clean_url(url)
+    except web_broker.WebError:
+        print(paint("  %s Page refused (not a public https address): %s" % (symbol("skip"), terminal_text(url[:200])),
+                    "muted"))
+        clean = None
+    if clean is None:
+        _add_page(ledger, {"op": "page", "url": "", "status": "refused", **empty}, snapshot)
+        return
+    if clean not in ledger.known_urls:
+        print("The model wants to open an address that did not come from you, the search or an opened page:")
+        print("  " + terminal_text(clean))
+        if not confirm("web-open", reader=reader, config=selected):
+            _add_page(ledger, {"op": "page", "url": clean, "status": "declined", **empty}, snapshot)
+            return
+    try:
+        page = web_broker.open_page(clean)
+    except web_broker.WebError as error:
+        status = "refused" if error.code in ("url", "address") else "failed"
+        print(paint("  %s Page %s · %s (%s)" % (symbol("skip"), terminal_text(clean[:160]), status, error.code), "muted"))
+        _add_page(ledger, {"op": "page", "url": clean, "status": status, **empty}, snapshot)
+        return
+    step = {"op": "page", "url": page["final_url"], "status": "ok", "title": page["title"], "text": page["text"],
+            "links": page["links"], "truncated": page["truncated"]}
+    print(paint("  %s Page %s · %s" % (symbol("ok"), terminal_text(page["final_url"][:160]),
+                                        size_label(len(page["text"].encode("utf-8")))), "muted"))
+    conversation_state.note_action("Opened the public page %s (%s)" % (page["final_url"], page["title"] or "no title"),
+                                   read=True)
+    _add_page(ledger, step, snapshot)
+
+
+def _download(ledger, urls, reader, selected, snapshot, permit=None):
+    """S10 stage B: public files into a fresh quarantine folder, after one consent for the whole set. An address that did
+    not come from the user, the search or an opened page is marked. Nothing is run, unpacked or installed; every file
+    (also a refusal) is a discovery step for the next round."""
+    from . import web_download
+    from .web_broker import WebError, clean_url
+
+    def step(url, status, reason="", found=None):
+        found = found or {}
+        _add_download(ledger, {"op": "download", "url": url, "status": status, "reason": reason,
+                               "name": found.get("name", ""), "size": found.get("size", 0),
+                               "sha256": found.get("sha256", ""), "content_type": found.get("content_type", ""),
+                               "folder": found.get("folder", "")},
+                      snapshot)
+    clean = []
+    for url in urls:
+        try:
+            clean.append(clean_url(url))
+        except WebError:
+            print(paint("  %s Download refused (not a public https address): %s"
+                        % (symbol("skip"), terminal_text(url[:200])), "muted"))
+            step("", "refused", "url")
+    clean = list(dict.fromkeys(clean))
+    if not clean:
+        return
+    print("Download into a quarantine folder (files are not run, unpacked or installed):")
+    for url in clean:
+        print("  " + terminal_text(url) + ("" if url in ledger.known_urls else
+                                           paint("  (address composed by the model)", "yellow")))
+    if not confirm("download", reader=reader, config=selected):
+        for url in clean:
+            step(url, "declined")
+        return
+    try:
+        folder = web_download.quarantine()
+    except (OSError, WebError):
+        for url in clean:
+            step(url, "failed", "space")
+        print(paint("  %s Could not create the quarantine folder." % symbol("fail"), "red"))
+        return
+    with permit.waiting() if permit is not None else nullcontext():
+        _fetch_all(ledger, clean, folder, step)
+    print("Quarantine folder: " + terminal_text(folder))
+
+
+def _fetch_all(ledger, clean, folder, step):
+    """The approved files one after another; time spent here is the user's chosen transfer, not the question's."""
+    from urllib.parse import urlsplit
+    from . import web_download
+    from .web_broker import WebError
+    stopped = False
+    for url in clean:
+        if stopped:
+            step(url, "cancelled", "cancelled")
+            continue
+        shown = os.path.basename(urlsplit(url).path) or url
+        def progress(size, shown=shown):
+            print(paint("  %s %s · %s so far" % (symbol("dot"), terminal_text(shown[:80]), size_label(size)), "muted"),
+                  flush=True)
+        try:
+            found = web_download.download(url, folder, progress=progress)
+        except KeyboardInterrupt:
+            stopped = True
+            print(paint("  %s Download cancelled; the partial file was removed." % symbol("skip"), "muted"))
+            step(url, "cancelled", "cancelled")
+            continue
+        except WebError as error:
+            status = "refused" if error.code in ("url", "address") else "cancelled" if error.code == "cancelled" else "failed"
+            print(paint("  %s %s · %s (%s)" % (symbol("skip"), terminal_text(url[:160]), status, error.code), "muted"))
+            step(url, status, error.code if error.code in web_download.CODES else "response")
+            continue
+        print(paint("  %s %s · %s · sha256 %s" % (symbol("ok"), terminal_text(found["name"]), size_label(found["size"]),
+                                                 found["sha256"][:16]), "muted"))
+        conversation_state.note_action("Downloaded %s (%d bytes, sha256 %s) into %s"
+                                       % (found["final_url"], found["size"], found["sha256"], folder), read=True)
+        step(url, "ok", "", dict(found, folder="~/" + os.path.relpath(folder, web_download._home())))
+
+
+def _add_download(ledger, step, snapshot):
+    try:
+        ledger.add_download(step)
+    except ask_discovery.BudgetExhausted as exhausted:
+        if not ledger.soft_stop(exhausted.name):
+            _budget_stop(snapshot.policy, exhausted.name)
+
+
+def _add_page(ledger, step, snapshot):
+    try:
+        ledger.add_page(step)
+    except ask_discovery.BudgetExhausted as exhausted:
+        if not ledger.soft_stop(exhausted.name if exhausted.name != "pages" else "discovery_rounds"):
+            _budget_stop(snapshot.policy, exhausted.name if exhausted.name != "pages" else "discovery_rounds")
 
 
 def _run_command(snapshot, ledger, plan, permit, args, reader):
@@ -448,6 +606,13 @@ def _budget_stop(policy, name):
         print("Refused: selected Skills and references exceed their separate %d B budget." % MAX_KNOWLEDGE_BYTES)
         raise file_context.FileReadDenied("input")
     limits = policy.limits() if policy is not None else permissions.Limits()
+    if name not in permissions.LIMIT_SPECS:
+        # An internal bound (steps of one question), not a setting: the model kept looking without reaching an answer.
+        print("Refused: this question used all %d steps the program allows for looking around (%s). "
+              "Ask a narrower question; a partial result is not sent as if it were complete."
+              % (getattr(limits, name, 0), name))
+        print(recipient("The local result was not sent to Claude."))
+        raise file_context.FileReadDenied("input")
     print("Refused: the file discovery budget ran out: " + name + "=" + str(getattr(limits, name))
           + " ([files] of permissions.toml; ceiling in the code: " + str(permissions.LIMIT_SPECS[name][2])
           + "). A partial result is not sent as if it were complete.")
@@ -579,7 +744,7 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                                     "the model continues without it." % symbol("skip"), "muted"))
                         continue
                     break
-                if following["action"] not in ("list", "find", "run", "skill", "read", "read-range", "search-content", "manual", "answer", "edit", "delete", "project-test"):
+                if following["action"] not in ("list", "find", "run", "skill", "read", "read-range", "search-content", "manual", "web-open", "download", "answer", "edit", "delete", "move", "copy", "project-test"):
                     raise PlanError("action")
                 return following
 
@@ -623,7 +788,7 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                     wanted = [name for name in plan["names"] if name not in loaded or
                               "/" in name and skills(name) != previous.get(name)]
                     if not wanted or skill_rounds >= MAX_SKILL_ROUNDS:
-                        # Nothing new, or the Skill rounds are used up: a correction (CachyOS check, candidate 164),
+                        # Nothing new, or the Skill rounds are used up: a correction,
                         # so the model goes on with what it has instead of the question ending.
                         code = "skill-repeat" if not wanted else "skill-limit"
                         if not ledger.correction(ask_discovery.Recoverable(code, [], None)):
@@ -669,6 +834,16 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                         else:
                             ledger.tree_rows = None          # a change shows its own card, not a tree
                         _run_command(snapshot, ledger, plan, permit, args, reader)
+                    plan = next_plan()
+                    continue
+                if plan["action"] == "web-open":
+                    progress("collect")
+                    _open_page(ledger, plan["url"], reader, selected, snapshot)
+                    plan = next_plan()
+                    continue
+                if plan["action"] == "download":
+                    progress("collect")
+                    _download(ledger, plan["urls"], reader, selected, snapshot, permit)
                     plan = next_plan()
                     continue
                 if plan["action"] == "manual":
@@ -770,8 +945,14 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                                  question_consent=permit)
                 permit.check()
                 return answer
-            if plan["action"] in ("delete", "edit") and _record_full():
+            if plan["action"] in ("delete", "edit", "move", "copy") and _record_full():
                 return None
+            if plan["action"] in ("move", "copy"):
+                # Local only, like a deletion: nothing goes to the model, the owner's yes comes after the plan.
+                progress("edit-review")
+                permit.check()
+                with permit.waiting():
+                    return ask_edit.transfer_files(plan, snapshot, reader)
             if plan["action"] == "delete":
                 # Local only: nothing goes to the model, and the owner's own yes comes after the list of files.
                 progress("edit-review")

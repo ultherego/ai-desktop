@@ -131,7 +131,7 @@ class ProfileStoreTests(unittest.TestCase):
         for name in names:
             directory = root / name
             directory.mkdir()
-            data = "---\nname: " + name + "\ndescription: " + "a" * 52600 + "\n---\nprivate body\n"
+            data = "---\nname: " + name + "\ndescription: " + "a" * (profiles.MAX_EXECUTION_INSTRUCTIONS // 2 - 100) + "\n---\nprivate body\n"
             (directory / "SKILL.md").write_text(data)
         config = profiles.defaults().put("default", profiles.Profile(skills=names))
         self.write(config.data())
@@ -403,6 +403,44 @@ class BoundedSkillTests(unittest.TestCase):
         self.path.symlink_to(link)
         with self.assertRaises((ValueError, OSError)):
             skills.inspect_skill(self.root, "demo")
+
+
+class DistributionSkillTests(unittest.TestCase):
+    def test_the_cachyos_skill_is_offered_only_where_os_release_names_cachyos(self):
+        from unittest.mock import patch
+        from ai_desktop import distro
+        names = ("concise-assistant", "arch", "cachyos", "desktop")
+        for values, expected in (({"ID": "cachyos", "ID_LIKE": "arch"}, names),
+                                 ({"ID": "arch"}, ("concise-assistant", "arch", "desktop")),
+                                 ({"ID": "ubuntu", "ID_LIKE": "debian"}, ("concise-assistant", "arch", "desktop")),
+                                 ({}, ("concise-assistant", "arch", "desktop"))):
+            with self.subTest(values=values), patch.object(distro, "current", return_value=values):
+                self.assertEqual(profiles.for_this_distribution(names), expected)
+
+    def test_a_task_accepts_the_catalog_resolved_for_another_distribution(self):
+        # CI runs on another distribution: the frozen catalog leaves cachyos out and a task must accept exactly that.
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from ai_desktop import distro, execution, skill_runtime
+        stored = profiles.defaults().profiles["default"]
+        store = SimpleNamespace(load=lambda: SimpleNamespace(config=profiles.defaults()))
+        with patch.object(distro, "current", return_value={"ID": "ubuntu", "ID_LIKE": "debian"}), \
+                patch.object(profiles, "Store", return_value=store):
+            resolved = profiles.with_presets("default", stored)
+            self.assertNotIn("cachyos", resolved.skills)
+            config = {"provider": "claude", "model": "default", "effort": "default", "access": stored.access,
+                      "profile": "default", "instructions": profiles.catalog_for(resolved)}
+            with execution.using(config), skill_runtime.task_scope():
+                pass
+
+    def test_a_stored_profile_listing_cachyos_does_not_offer_it_on_another_distribution(self):
+        from unittest.mock import patch
+        from ai_desktop import distro
+        stored = profiles.defaults().profiles["default"]
+        self.assertIn("cachyos", stored.skills)
+        for values, offered in (({"ID": "cachyos", "ID_LIKE": "arch"}, True), ({"ID": "arch"}, False)):
+            with self.subTest(values=values), patch.object(distro, "current", return_value=values):
+                self.assertEqual("cachyos" in profiles.with_presets("default", stored).skills, offered)
 
 
 if __name__ == "__main__":

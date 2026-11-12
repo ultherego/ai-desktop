@@ -198,7 +198,7 @@ class DailyConsentTests(unittest.TestCase):
         report = report_fixture()
         def reader(prompt):
             self.assertEqual(prompt, PROMPTS["transfer"])
-            report["kernel"] = "6.9.2-cachyos"
+            report["kernel"] = "0.0.1-synthetic"
             return "yes"
         code, _, started, sent = self.run_ui(reader, report=report)
         self.assertEqual(code, 2)
@@ -362,7 +362,7 @@ class MultiSessionTests(unittest.TestCase):
         run.assert_not_called()
 
     def legacy_session(self, nonce="e" * 32):
-        """A running session of candidate 131's single-claim layout, as left by an upgrade."""
+        """A running session of the older single-claim layout, as left by an upgrade."""
         path = admin.legacy_claim(1000)
         path.write_text(nonce)
         path.chmod(0o600)

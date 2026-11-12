@@ -1,7 +1,7 @@
 """One question may search the web first and then do local work (an edit, commands, reads) with what was found.
 
 The search never carries local data; its checked answer goes to the following planner round as a discovery step
-`op=web`. One search per question, only as the first step (CachyOS check: "search the web and fix a.py" could not be
+`op=web`. One search per question, only as the first step (regression: "search the web and fix a.py" could not be
 done in one question).
 """
 import json
@@ -43,7 +43,7 @@ class WebThenLocalTests(Base):
         self.assertIn("continues with the local part", shown)
 
     def test_after_the_search_the_model_may_read_files_and_answer_from_both(self):
-        question = "Sprawdź w sieci zalecany tryb i porównaj z ~/.config/gizmo/settings.conf"
+        question = "Look up the recommended mode online and compare it with ~/.config/gizmo/settings.conf"
         self.assertEqual(self.run_flow([CONTINUE, WEB_TEXT, READ, FINAL], question=question), FINAL)
         self.assertEqual(self.modes(), ["assistant", "web", "assistant", "question"])
         final = self.wire[3]
@@ -66,7 +66,7 @@ class WebThenLocalTests(Base):
                                  {"op": "refusal", "code": "web-late", "selectors": [], "limit": None})
 
     def test_a_search_after_local_work_is_refused_as_a_correction(self):
-        # CachyOS check (candidate 164): a search asked for after commands ended the question with plan-action.
+        # Regression: a search asked for after commands ended the question with plan-action.
         listing = json.dumps({"action": "list", "files": [{"id": "f0", "path": "gizmo"}]})
         answer = json.dumps({"action": "answer", "text": FINAL})
         self.assertEqual(self.run_flow([listing, CONTINUE, answer]), FINAL)

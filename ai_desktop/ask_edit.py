@@ -154,7 +154,7 @@ def prepare(plan, snapshot, args, reader, *, question_consent, expected_versions
         advertised = {item["id"]: item["pattern"] for item in snapshot.access.get("write", [])}
         if scope.pattern != advertised[plan["write"]]:
             raise ValueError()
-        workspace = policy.write_workspace(index)
+        workspace = write_root(policy, index)
         detached = task_workspace._can_apply(workspace)
         if args.details and type(detached) is int and detached:
             print(task_workspace.DETACHED_HISTORY_HINT)
@@ -293,7 +293,7 @@ def delete_files(plan, snapshot, reader):
                 item["id"] for item in snapshot.access.get("write", [])}:
             raise ValueError()
         index = int(plan["write"][1:])
-        workspace = policy.write_workspace(index)
+        workspace = write_root(policy, index)
         names = [task_contract.path(name) for name in plan["paths"]]
         policy.require_write(tuple(workspace + "/" + name for name in names), index=index)
         prepared = workspace_trash.prepare(workspace, names)
@@ -331,6 +331,110 @@ def delete_files(plan, snapshot, reader):
     print("Moved to the task trash: %d." % len(names))
     print("Restore: " + shlex.join(["ai-desktop", "task", "restore", "--workspace", workspace, "--plan", plan_id]))
     conversation_state.note_action("Moved to the task trash, can be restored: " + summary)
+    return CompletedTask(0)
+
+
+OWNED_FOLDERS = ("AI Desktop changes files only in folders that belong to you; check the folders on the way with ls -ld")
+
+
+def foreign_folders_hint(folders, uid):
+    """Names the folders that belong to another account; AI Desktop changes files only in your own folders."""
+    if not folders:
+        return OWNED_FOLDERS + "."
+    import pwd
+    def owner(number):
+        try:
+            return pwd.getpwuid(number).pw_name
+        except KeyError:
+            return "uid %d" % number
+    shown = ", ".join("%s (owner %s)" % (terminal_text(folder), terminal_text(owner(number))) for folder, number, _ in folders)
+    return ("%s belong%s to another account. AI Desktop changes files only in your own folders (folders owned by root "
+            "may lie on the way). Use a folder of yours, or have it given to you: sudo chown %s %s."
+            % (shown, "s" if len(folders) == 1 else "", terminal_text(owner(uid)),
+               " ".join(shlex.quote(folder) for folder, _, _ in folders)))
+
+
+def write_root(policy, index):
+    """`policy.write_workspace`, with a refusal over another account's folder explained (which folder, whose)."""
+    try:
+        return policy.write_workspace(index)
+    except ValueError as exc:
+        if exc.args[:1] != ("policy-directory",):
+            raise
+        scope = policy.write_scopes()[index]
+        root = scope.base.rsplit("/", 1)[0] if scope.mode == "exact" else scope.base
+        raise EditDenied("input", hint=foreign_folders_hint(permissions.owned_by_others(root, policy.uid),
+                                                            policy.uid)) from None
+
+
+def transfer_files(plan, snapshot, reader):
+    """Move or copy a file or a whole folder inside one write scope after the owner's yes; nothing is overwritten and
+    the step can be undone with `ai-desktop task restore`. Nothing is sent to the model (S10)."""
+    from . import workspace_transfer
+    from .run_controls import require_changes
+    from .terminal_consent import confirm
+    require_changes()
+    policy = snapshot.policy
+    operation = plan.get("action")
+    try:
+        if policy is None or operation not in ("move", "copy") or plan["write"] not in {
+                item["id"] for item in snapshot.access.get("write", [])}:
+            raise ValueError()
+        index = int(plan["write"][1:])
+        workspace = write_root(policy, index)
+        source, target = workspace_transfer.path(plan["from"]), workspace_transfer.path(plan["to"])
+        absolute = (workspace + "/" + source, workspace + "/" + target)
+        # Both ends inside files.write; the source must also be readable (deny and the default protection win).
+        policy.require_write(absolute, index=index)
+        if not policy.allows(absolute[0]):
+            raise ValueError()
+        prepared = workspace_transfer.prepare(workspace, operation, source, target)
+        facts = prepared.data()
+    except workspace_transfer.TransferDenied as refused:
+        reasons = {"exists": "the destination already exists (nothing is overwritten)", "missing": "it does not exist",
+                   "device": "they are on different filesystems: copy instead of move",
+                   "type": "it holds a link, a device or a file you do not own",
+                   "space": "there is not enough free space", "inside": "a folder cannot go inside itself",
+                   "size": "it has more than %d entries" % workspace_transfer.MAX_FILES}
+        print("Refused: cannot %s %s to %s: %s." % (operation, terminal_text(plan.get("from", "")),
+                                                    terminal_text(plan.get("to", "")),
+                                                    reasons.get(refused.reason, OWNED_FOLDERS)))
+        conversation_state.note_action("%s NOT done (%s): %s -> %s" % (operation.capitalize(), refused.reason,
+                                                                        plan.get("from"), plan.get("to")))
+        return CompletedTask(2)
+    except ExecutionDenied:
+        # The workspace or a folder on the way belongs to someone else or others may write to it (e.g. mode 777).
+        print("Refused: cannot %s %s to %s: %s." % (operation, terminal_text(plan.get("from", "")),
+                                                    terminal_text(plan.get("to", "")), OWNED_FOLDERS))
+        conversation_state.note_action("%s NOT done (folder permissions): %s -> %s" % (
+            operation.capitalize(), plan.get("from"), plan.get("to")))
+        return CompletedTask(2)
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        raise EditDenied("input") from None
+    print()
+    what = "folder (%d files, %d folders)" % (facts["files"], facts["folders"]) if facts["kind"] == "folder" else "file"
+    print("%s in %s:" % (operation.capitalize(), terminal_text(workspace)))
+    print("  %s  ->  %s" % (terminal_text(source), terminal_text(target)))
+    print("  %s, %s; the destination does not exist yet, nothing is overwritten" % (what, size_label(facts["bytes"])))
+    if not confirm(operation, reader=reader):
+        print("Cancelled. Nothing was changed.")
+        conversation_state.note_action("%s NOT done (declined by the user): %s -> %s" % (operation.capitalize(),
+                                                                                         source, target))
+        return CompletedTask(2)
+    try:
+        policy.recheck()
+        plan_id = workspace_transfer.execute(prepared, prepared.authorize())
+    except workspace_transfer.TransferDenied as refused:
+        print("Refused: the files changed or the destination appeared after the plan was shown (%s). Nothing "
+              "was overwritten." % refused.reason)
+        conversation_state.note_action("%s NOT done (changed): %s -> %s" % (operation.capitalize(), source, target))
+        return CompletedTask(2)
+    except (OSError, ValueError, ExecutionDenied):
+        raise EditDenied("input") from None
+    print("Moved." if operation == "move" else "Copied.")
+    print("Undo: " + shlex.join(["ai-desktop", "task", "restore", "--workspace", workspace, "--plan", plan_id]))
+    conversation_state.note_action("%s %s -> %s (can be undone with ai-desktop task restore)" % (
+        "Moved" if operation == "move" else "Copied", source, target))
     return CompletedTask(0)
 
 

@@ -47,10 +47,10 @@ class TaskCopyTests(unittest.TestCase):
 
     def test_text_copy_preserves_utf8_backslashes_and_missing_final_newline(self):
         content = "ą\\\t\n" * 7000 + "END"
-        data = {"files": [{"path": "niri/config.kdl", "content": content}]}
+        data = {"files": [{"path": "gizmo/settings.conf", "content": content}]}
         with tempfile.TemporaryDirectory() as directory:
             task_child.materialize(data, directory)
-            self.assertEqual((Path(directory) / "niri/config.kdl").read_bytes(), content.encode("utf-8"))
+            self.assertEqual((Path(directory) / "gizmo/settings.conf").read_bytes(), content.encode("utf-8"))
             with self.assertRaises(FileExistsError):
                 task_child.materialize(data, directory)
 
@@ -83,26 +83,26 @@ class TaskFilesystemTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix="ai-task-engine-")
         self.addCleanup(self.temp.cleanup)
         self.home = Path(self.temp.name)
-        self.root = self.home / ".config" / "niri"
+        self.root = self.home / ".config" / "gizmo"
         self.root.mkdir(parents=True, mode=0o700)
         self.enterContext(patch.object(workspace.pwd, "getpwuid", return_value=SimpleNamespace(pw_dir=str(self.home))))
 
     def test_config_root_large_edit_new_file_and_rollback_keep_legacy_root_guard(self):
         original = "a" * 64000
-        (self.root / "config.kdl").write_text(original)
-        plan = plan_for(self.root, ["config.kdl", "new.kdl"], ["b" * 65536, "ą" * 32768])
+        (self.root / "settings.conf").write_text(original)
+        plan = plan_for(self.root, ["settings.conf", "new.conf"], ["b" * 65536, "ą" * 32768])
         workspace.apply(plan, plan.authorize("SAVE " + plan.sha256))
-        self.assertEqual((self.root / "config.kdl").read_text(), "b" * 65536)
-        self.assertEqual((self.root / "new.kdl").read_text(), "ą" * 32768)
+        self.assertEqual((self.root / "settings.conf").read_text(), "b" * 65536)
+        self.assertEqual((self.root / "new.conf").read_text(), "ą" * 32768)
         self.assertTrue(workspace.rollback(str(self.root), plan.sha256))
-        self.assertEqual((self.root / "config.kdl").read_text(), original)
-        self.assertFalse((self.root / "new.kdl").exists())
+        self.assertEqual((self.root / "settings.conf").read_text(), original)
+        self.assertFalse((self.root / "new.conf").exists())
         with self.assertRaises(workspace_executor.ExecutionDenied):
             workspace_executor._root(str(self.root))
 
     def test_guard_refusal_after_lock_creates_no_journal_or_target(self):
-        (self.root / "config.kdl").write_text("old")
-        plan = plan_for(self.root, ["config.kdl", "new.kdl"], ["new", "created"])
+        (self.root / "settings.conf").write_text("old")
+        plan = plan_for(self.root, ["settings.conf", "new.conf"], ["new", "created"])
         locked = []
         real_lock = workspace.fcntl.flock
         def lock(fd, operation):
@@ -110,7 +110,7 @@ class TaskFilesystemTests(unittest.TestCase):
             locked.append(True)
         def denied():
             self.assertEqual(locked, [True])
-            self.assertEqual((self.root / "config.kdl").read_text(), "old")
+            self.assertEqual((self.root / "settings.conf").read_text(), "old")
             raise ValueError("policy revoked")
         with patch.object(workspace.fcntl, "flock", side_effect=lock), \
                 patch.object(workspace, "_write") as write, patch.object(workspace, "_save") as save:
@@ -118,38 +118,38 @@ class TaskFilesystemTests(unittest.TestCase):
                 workspace.apply(plan, plan.authorize("SAVE " + plan.sha256), write_guard=denied)
             write.assert_not_called()
             save.assert_not_called()
-        self.assertEqual(sorted(path.name for path in self.root.iterdir()), ["config.kdl"])
+        self.assertEqual(sorted(path.name for path in self.root.iterdir()), ["settings.conf"])
 
     def test_journal_capacity_refusal_precedes_any_mutation(self):
-        (self.root / "config.kdl").write_text("old")
-        plan = plan_for(self.root, ["config.kdl", "new.kdl"], ["new", "created"])
+        (self.root / "settings.conf").write_text("old")
+        plan = plan_for(self.root, ["settings.conf", "new.conf"], ["new", "created"])
         with patch.object(workspace, "MAX_JOURNAL", 1), patch.object(workspace, "_write") as write:
             with self.assertRaises(workspace.JournalLimit):
                 workspace.apply(plan, plan.authorize("SAVE " + plan.sha256))
             write.assert_not_called()
-        self.assertEqual(sorted(path.name for path in self.root.iterdir()), ["config.kdl"])
+        self.assertEqual(sorted(path.name for path in self.root.iterdir()), ["settings.conf"])
 
     def test_new_selection_and_recheck_refuse_appeared_file_without_reading_it(self):
-        before = workspace.snapshot(str(self.root), ["new.kdl"], must_be_absent=["new.kdl"])
-        (self.root / "new.kdl").write_text("unapproved private data")
+        before = workspace.snapshot(str(self.root), ["new.conf"], must_be_absent=["new.conf"])
+        (self.root / "new.conf").write_text("unapproved private data")
         with patch.object(workspace, "read_file") as read:
             with self.assertRaises(ValueError):
-                workspace.snapshot(str(self.root), ["new.kdl"], must_be_absent=["new.kdl"])
+                workspace.snapshot(str(self.root), ["new.conf"], must_be_absent=["new.conf"])
             with self.assertRaises(ValueError):
                 workspace.unchanged(before)
             read.assert_not_called()
 
     def test_appeared_new_target_after_guard_is_not_read_or_overwritten(self):
-        plan = plan_for(self.root, ["new.kdl"], ["created"])
+        plan = plan_for(self.root, ["new.conf"], ["created"])
         real_read = workspace.read_file
         def read(parent, name):
-            self.assertNotEqual(name, "new.kdl")
+            self.assertNotEqual(name, "new.conf")
             return real_read(parent, name)
         with patch.object(workspace, "read_file", side_effect=read):
             with self.assertRaises(ValueError):
                 workspace.apply(plan, plan.authorize("SAVE " + plan.sha256),
-                    write_guard=lambda: (self.root / "new.kdl").write_text("private concurrent edit"))
-        self.assertEqual((self.root / "new.kdl").read_text(), "private concurrent edit")
+                    write_guard=lambda: (self.root / "new.conf").write_text("private concurrent edit"))
+        self.assertEqual((self.root / "new.conf").read_text(), "private concurrent edit")
 
     def test_root_and_parent_boundaries_and_no_new_directory_creation(self):
         for allowed in (self.home, self.home / ".ssh", self.home / ".config" / "ai-desktop",

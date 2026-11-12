@@ -27,6 +27,15 @@ class ReferenceLayoutTests(unittest.TestCase):
                     self.assertTrue(any("Odpowiedź [1][2]." in line for line in lines))
                     self.assertNotIn("\x1b]8", rendered)
 
+    def test_a_sources_heading_in_any_language_keeps_items_apart(self):
+        for heading in ("Sources:", "Fuentes:", "Quellen:", "出典:"):
+            with self.subTest(heading=heading):
+                rendered = terminal._render(heading + "\n[1] Alpha\n[2] Beta", width=80, styled=False)
+                self.assertEqual([x.strip() for x in rendered.splitlines()],
+                                 [heading, "", "[1] Alpha", "", "[2] Beta"])
+        rendered = terminal._render("Not a heading\n[1] Alpha\n[2] Beta", width=80, styled=False)
+        self.assertNotIn("[1] Alpha\n\n[2] Beta", rendered)
+
     def test_bracket_numbered_list_without_heading_keeps_each_item(self):
         rendered = terminal._render("[1] Alpha\n[2] Beta\n[3] Gamma", width=80, styled=False)
         self.assertEqual([x.strip() for x in rendered.splitlines()],

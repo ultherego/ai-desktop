@@ -83,7 +83,7 @@ class TaskBudgetTests(unittest.TestCase):
 
 class TaskPathTests(unittest.TestCase):
     def test_explicit_dotfiles_and_previously_blocked_names_roundtrip(self):
-        names = (".config/niri/config.kdl", ".ssh/config", ".local/share/note.txt",
+        names = (".config/gizmo/settings.conf", ".ssh/config", ".local/share/note.txt",
                  ".env", "secrets/token.txt", "backup/copy.txt", ".git/config")
         before = {"instruction": "Change the selected synthetic text", "files": [
             {"path": name, "content": "synthetic original\n", "writable": True}
@@ -106,8 +106,8 @@ class TaskPathTests(unittest.TestCase):
                      "/".join(["x" * 40] * 4)):
             with self.subTest(name=name), self.assertRaises(ValueError):
                 contract.path(name)
-        self.assertEqual(contract.path(".config/niri/themes/current/palette"),
-                         ".config/niri/themes/current/palette")
+        self.assertEqual(contract.path(".config/gizmo/themes/current/palette"),
+                         ".config/gizmo/themes/current/palette")
 
     def test_selected_dotfile_still_cannot_authorize_another_path(self):
         before = {"instruction": "Change one selected file", "files": [

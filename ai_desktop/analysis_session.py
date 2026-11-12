@@ -11,6 +11,7 @@ from .analysis_contract import AnalysisDenied, REASONS
 from .analysis_sandbox import trusted_file
 from .analysis_session_admin import BOOTSTRAP, ENV, READY, STOPPED, REFUSED, unit_policy, properties, units
 from . import e2_account
+from .host_accounts import is_regular_uid
 
 # The helper unit's TimeoutStopSec (60 s, analysis_session_admin.session_command) bounds its cleanup; 30 s margin.
 CLEANUP_SECONDS = 90
@@ -18,7 +19,7 @@ CLEANUP_SECONDS = 90
 
 def identity(*, terminal=False):
     uid = os.geteuid()
-    if uid < 1000 or uid != os.getuid():
+    if not is_regular_uid(uid) or uid != os.getuid():
         raise AnalysisDenied("identity")
     if terminal and (not os.isatty(0) or not os.isatty(1)):
         raise AnalysisDenied("consent")

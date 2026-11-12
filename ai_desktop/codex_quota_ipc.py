@@ -14,6 +14,7 @@ from . import activation_socket, e2_account, e2_ipc
 from .account_store import PLANS, named_account, quota
 from .analysis_contract import AnalysisDenied
 from .analysis_sandbox import service_identity
+from .host_accounts import is_regular_uid
 
 
 DIRECTORY = "/run/ai-desktop-codex-limits"
@@ -35,7 +36,7 @@ class QuotaError(ValueError):
 def validated_uid(value):
     if type(value) is str and re.fullmatch(r"[1-9][0-9]{0,9}", value, re.ASCII):
         value = int(value)
-    if type(value) is not int or not 1000 <= value < 2**32 - 1:
+    if not is_regular_uid(value):
         raise QuotaError()
     return value
 

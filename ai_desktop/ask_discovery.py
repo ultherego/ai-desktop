@@ -18,6 +18,7 @@ from .discovery_contract import (CEILING_TOTAL_ENTRIES, REFUSAL_CODES, MAX_SELEC
 REFUSAL_RESERVE = 2400
 WEB_MINIMUM = 512          # bytes of a shortened web answer below which it is not worth sending
 OVERHEAD = 1024            # envelope of a document with its counters; leaves room for the remaining steps' framing
+MAX_PAGES = 8              # public pages opened in one question (S10 stage A); a program bound, not a setting
 
 
 class BudgetExhausted(Exception):
@@ -67,6 +68,10 @@ class DiscoveryLedger:
         self.corrections_left = self.limits.plan_corrections
         self.commands_left = self.limits.command_rounds
         self.listed, self.files, self.directories = set(), set(), set()
+        # Addresses the program may open without asking: typed by the user, found by the search, linked by an opened page.
+        from .web_broker import urls_in
+        self.known_urls = set(urls_in(question))
+        self.pages_left = MAX_PAGES
 
     # -- state ---------------------------------------------------------------------------------------------------
     def document(self):
@@ -172,6 +177,28 @@ class DiscoveryLedger:
         if text and "/" not in name:
             self.hints += "\n" + text
 
+    def add_page(self, step):
+        """One page step (opened, declined, refused or failed) as data for the next round; its links become known."""
+        if self.pages_left <= 0:
+            raise BudgetExhausted("pages")
+        document = self.document()
+        document["steps"].append(step)
+        if self._diagnostic_bytes(validate_discovery(document)) > self.limits.discovery_bytes:
+            raise BudgetExhausted("discovery_bytes")
+        self.pages_left -= 1
+        self.steps.append(step)
+        self.known_urls.update(step["links"])
+        return step
+
+    def add_download(self, step):
+        """One downloaded (or declined, refused, failed, cancelled) file as data for the next round."""
+        document = self.document()
+        document["steps"].append(step)
+        if self._diagnostic_bytes(validate_discovery(document)) > self.limits.discovery_bytes:
+            raise BudgetExhausted("discovery_bytes")
+        self.steps.append(step)
+        return step
+
     def add_web(self, text):
         """The checked answer of this question's web search, as data for the next round (at most once)."""
         if any(step["op"] == "web" for step in self.steps):
@@ -182,6 +209,8 @@ class DiscoveryLedger:
         original = web_data(text)
         if original is None:
             raise ValueError("web")
+        from .web_broker import urls_in
+        self.known_urls.update(urls_in(original))          # the search's own sources may be opened without asking
         limit = len(original.encode("utf-8"))
         for _ in range(8):
             shortened = web_data(original, limit)

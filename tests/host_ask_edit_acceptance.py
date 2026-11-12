@@ -59,11 +59,11 @@ FILES = {"main.py": ORIGINAL_MAIN, "tests/__init__.py": "", "tests/test_main.py"
          "context/01.txt": LARGE_CONTEXT,
          **{"context/0" + str(index) + ".txt": "SYNTHETIC CONTEXT " + str(index) + "\n" for index in range(2, 7)}}
 DENIED = "SYNTHETIC DENIED FILE; MUST STAY UNCHANGED\n"
-QUESTION = ("W syntetycznym projekcie aideditfixture odczytaj cały dozwolony zakres, także pliki context/ i tests/. "
-            "Napraw main.py: zamień wyłącznie return a - b na return a + b; zachowaj wszystkie pozostałe bajty. "
-            "Utwórz result.txt w istniejącym katalogu projektu: wartość result_marker z ostatniej linii "
-            "context/01.txt i jeden znak nowej linii. Zmień tylko main.py i result.txt. "
-            "Przetestuj przez python-unittest. Pokaż diff przed zgodą na zapis.")
+QUESTION = ("In the synthetic project aideditfixture read the whole allowed scope, including context/ and tests/. "
+            "Fix main.py: replace only return a - b with return a + b; keep every other byte. "
+            "Create result.txt in the existing project directory: the result_marker value from the last line of "
+            "context/01.txt and one newline. Change only main.py and result.txt. "
+            "Test with python-unittest. Show the diff before the write consent.")
 POLICY_MARKER = "ASK EDIT POLICY: PASS read=PASS write=PASS deny=PASS readonly=PASS"
 REFUSAL_MARKER = "ASK EDIT REFUSAL: PASS requests=0 tests=0 diffs=0 writes=0"
 NATIVE_MARKER = "ASK EDIT NATIVE: PASS question-approvals=1 test-approvals=1 write-approvals=1 requests=2 source-files=9 request-over-32KiB=PASS test=PASS diff=PASS apply=PASS"

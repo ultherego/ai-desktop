@@ -116,6 +116,8 @@ def build_parser(*, prog="ai-desktop claude", provider_neutral=False):
     if provider_neutral:
         save = commands.add_parser("save", help="Whether conversations save themselves (on by default)")
         save.add_argument("state", nargs="?", choices=("on", "off"), help="on or off; without it, show the setting")
+        place = commands.add_parser("weather-city", help="City for weather questions that name none")
+        place.add_argument("city", nargs="*", help="city name, or off to forget it; without it, show the setting")
     settings = commands.add_parser("set", help="Change the settings of the active profile")
     if provider_neutral:
         settings.add_argument("--provider", choices=execution.PROVIDERS,
@@ -186,7 +188,7 @@ def _models(provider="claude"):
     if provider == "claude":
         print("Model and level availability depends on your Claude account and the client. The model never changes automatically.")
     elif provider == "local":
-        print("Use default for the current server model or set the alias configured in llama-server.")
+        print("Use default for the current server model or set the model alias configured in the local server.")
     else:
         print("The Codex client picks the default model. Availability and level depend on your account and the client.")
 
@@ -571,6 +573,22 @@ def main(argv=None, *, reader=input, store=None, chooser=None,
                                                  "finished question (--no-save for one temporary conversation)"
                                                  if local_settings.saving() else
                                                  "off: only --session new saves a conversation"))
+            return 0
+        if args.command == "weather-city":
+            from . import local_settings, weather_context
+            from .analysis_contract import terminal_text
+            value = " ".join(args.city).strip()
+            if value.casefold() == "off":
+                local_settings.set_weather_city(None)
+            elif value:
+                try:
+                    local_settings.set_weather_city(value)
+                except weather_context.WeatherError:
+                    print("Invalid city name.")
+                    return 2
+            city = local_settings.weather_city()
+            print("Weather city: " + (terminal_text(city) + " (forget it: ai-desktop settings weather-city off)."
+                                      if city else "none; a weather question without a city asks for one."))
             return 0
         if args.command == "models":
             if provider_neutral:

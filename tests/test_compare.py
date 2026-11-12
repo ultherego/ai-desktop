@@ -18,7 +18,7 @@ class CompareTests(unittest.TestCase):
     def test_changes_are_deterministic(self):
         before = report_fixture()
         after = copy.deepcopy(before)
-        after["shell"] = "bash"
+        after["shell"] = "zsh"
         after["systemd_health"]["failed_units"] = 2
         result = compare(before, after)
         self.assertEqual(result["change_count"], 2)

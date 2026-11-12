@@ -82,18 +82,18 @@ class UserSkillTests(unittest.TestCase):
         self.enterContext(patch.object(skills, "user_root", return_value=self.root))
 
     def test_new_creates_a_private_valid_skill_that_lists_and_loads(self):
-        target = skills.create("moj-system")
+        target = skills.create("example-own")
         self.assertEqual(target.stat().st_mode & 0o777, 0o600)
         self.assertEqual(target.parent.stat().st_mode & 0o777, 0o700)
-        self.assertIn("moj-system", skills.names())
-        self.assertEqual(skills.locate("moj-system"), self.root)
-        self.assertIn("Skill moj-system:", profiles.instructions_for(profiles.Profile(skills=("moj-system",))))
+        self.assertIn("example-own", skills.names())
+        self.assertEqual(skills.locate("example-own"), self.root)
+        self.assertIn("Skill example-own:", profiles.instructions_for(profiles.Profile(skills=("example-own",))))
 
     def test_new_never_overwrites(self):
-        target = skills.create("moj-system")
+        target = skills.create("example-own")
         target.write_text("edited")
         with self.assertRaises(FileExistsError):
-            skills.create("moj-system")
+            skills.create("example-own")
         self.assertEqual(target.read_text(), "edited")
 
     def test_bad_names_are_refused(self):
@@ -107,18 +107,18 @@ class UserSkillTests(unittest.TestCase):
         self.assertEqual(skills.locate("code-review"), skills.ROOT)
         target = self.root / "code-review/SKILL.md"
         target.parent.mkdir(parents=True)
-        target.write_text("---\nname: code-review\ndescription: moj\n---\n\ntresc wlasna\n")
+        target.write_text("---\nname: code-review\ndescription: own\n---\n\nown content\n")
         self.assertEqual(skills.locate("code-review"), skills.ROOT)
-        self.assertNotIn("tresc wlasna", profiles.instructions_for(profiles.Profile(skills=("code-review",))))
+        self.assertNotIn("own content", profiles.instructions_for(profiles.Profile(skills=("code-review",))))
         self.assertEqual(skills.shadowed(), ("code-review",))
         self.assertTrue(target.exists())                                    # never removed or rewritten
         with self.assertRaises(ValueError) as caught:
             skills.create("arch")
         self.assertIn("comes with AI Desktop", str(caught.exception))
-        own = self.root / "moj-pulpit/SKILL.md"
+        own = self.root / "my-notes/SKILL.md"
         own.parent.mkdir(parents=True)
-        own.write_text("---\nname: moj-pulpit\ndescription: moj\n---\n\ntresc wlasna\n")
-        self.assertEqual(skills.locate("moj-pulpit"), self.root)
+        own.write_text("---\nname: my-notes\ndescription: own\n---\n\nown content\n")
+        self.assertEqual(skills.locate("my-notes"), self.root)
 
     def test_a_former_packaged_name_is_refused_and_an_own_skill_of_that_name_is_not_renamed(self):
         # Installer audit: profiles map arch-docker to arch, so an own Skill named arch-docker would silently be lost.
@@ -129,7 +129,7 @@ class UserSkillTests(unittest.TestCase):
         self.assertEqual(profiles.renamed_skills(("arch-docker", "code-review")), ("arch", "code-review"))
         own = self.root / "arch-docker/SKILL.md"
         own.parent.mkdir(parents=True)
-        own.write_text("---\nname: arch-docker\ndescription: moj\n---\n\ntresc\n")
+        own.write_text("---\nname: arch-docker\ndescription: own\n---\n\nown content\n")
         self.assertEqual(skills.user_names(), ("arch-docker",))
         self.assertEqual(profiles.renamed_skills(("arch-docker", "cachyos-kernel")), ("arch-docker", "cachyos"))
 
@@ -140,10 +140,10 @@ class UserSkillTests(unittest.TestCase):
         (self.root / "link/SKILL.md").symlink_to(outside)
         with self.assertRaises(profiles.ProfileError):
             profiles.instructions_for(profiles.Profile(skills=("link",)))
-        target = skills.create("wspolny")
+        target = skills.create("shared-example")
         os.chmod(target, 0o666)
         with self.assertRaises(profiles.ProfileError):
-            profiles.instructions_for(profiles.Profile(skills=("wspolny",)))
+            profiles.instructions_for(profiles.Profile(skills=("shared-example",)))
 
 
 if __name__ == "__main__":

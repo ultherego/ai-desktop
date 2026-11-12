@@ -42,7 +42,7 @@ class StdinPipelineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             before = report_fixture()
             after = copy.deepcopy(before)
-            after["shell"] = "bash"
+            after["shell"] = "zsh"
             old = Path(tmp) / "old.json"
             old.write_text(serialize_report(before), encoding="utf-8")
             original = old.read_bytes()
@@ -51,8 +51,8 @@ class StdinPipelineTests(unittest.TestCase):
             self.assertEqual(result.returncode, 3, result.stderr)
             self.assertEqual(json.loads(result.stdout),
                              {"changed": True, "change_count": 1, "fields": ["shell"]})
-            self.assertNotIn("fish", result.stdout)
             self.assertNotIn("bash", result.stdout)
+            self.assertNotIn("zsh", result.stdout)
             self.assertEqual(old.read_bytes(), original)
 
     def test_compare_stdin_to_new_file(self):
@@ -101,7 +101,7 @@ class StdinPipelineTests(unittest.TestCase):
             new = Path(tmp) / "new.json"
             old.write_text(serialize_report(report), encoding="utf-8")
             after = copy.deepcopy(report)
-            after["shell"] = "bash"
+            after["shell"] = "zsh"
             new.write_text(serialize_report(after), encoding="utf-8")
             self.assertEqual(invoke("validate-report", old).returncode, 0)
             result = invoke("compare", old, new)

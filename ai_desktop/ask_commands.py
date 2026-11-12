@@ -24,9 +24,8 @@ COMMANDS = (
     ("/test", "run an offline suite in the current authorized project"),
     ("/exit", "end the conversation"),
 )
-# The older Polish command names keep working; they are simply no longer listed.
-_ALIASES = {"/pomoc": "/help", "/?": "/help", "/sila": "/effort", "/ustawienia": "/settings", "/uprawnienia": "/permissions",
-            "/koniec": "/exit", "/quit": "/exit", "/q": "/exit"}
+# Short forms of listed commands.
+_ALIASES = {"/?": "/help", "/quit": "/exit", "/q": "/exit"}
 _SHAPE = re.compile(r"/[^/\s]*\Z")           # `/etc/fstab what is it?` is a question, `/model` is a command
 EXIT = "exit"
 

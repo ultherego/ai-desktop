@@ -95,7 +95,7 @@ def _idle(frame, picker):
         raise MenuInputError("menu-terminal")
     original = termios.tcgetattr(fd)
     # What the command printed before its menu (the settings, "Getting the model list…") is part of the
-    # conversation: the menu returns below it, never over it (CachyOS check of candidate 155).
+    # conversation: the menu returns below it, never over it.
     enter = getattr(frame, "enter", None)
     if callable(enter):
         enter()

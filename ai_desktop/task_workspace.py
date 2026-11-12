@@ -68,7 +68,9 @@ def _root(workspace):
                 os.close(fd)
                 fd = nxt
             info = os.fstat(fd)
-            if not stat.S_ISDIR(info.st_mode) or info.st_uid != uid or info.st_mode & 0o7022:
+            # Your own folder, whatever its mode (a shared disk may be 0777): every write below goes through opened,
+            # no-follow handles and re-checked identities, so another account cannot redirect it.
+            if not stat.S_ISDIR(info.st_mode) or info.st_uid != uid:
                 raise ValueError("root policy")
             return fd
         except BaseException:
@@ -393,7 +395,8 @@ def _detached_completed(root, value):
 
 # Entries of the recoverable-deletion feature (workspace_trash) share this private directory but are not task journals.
 _PENDING = re.compile(r"\.pending-[a-f0-9]+")
-_TRASH_ENTRY = re.compile(r"[a-f0-9]{32}\.trash\.json|trash-[a-f0-9]{32}")
+# Deletions (trash) and moves/copies (transfer) keep their own journals and folders here; they are listed by their modules.
+_SIDE_ENTRY = re.compile(r"[a-f0-9]{32}\.(?:trash|transfer)\.json|(?:trash|transfer)-[a-f0-9]{32}")
 
 
 def _conflict_settled(root, value, *, rebound=False):
@@ -426,7 +429,7 @@ def recovery_records(workspace):
             return []
         try:
             # A .pending file is an unfinished temporary write (full disk, Ctrl-C): never authoritative, so it blocks nothing.
-            names = [name for name in os.listdir(fd) if name != ".gitignore" and not _TRASH_ENTRY.fullmatch(name)
+            names = [name for name in os.listdir(fd) if name != ".gitignore" and not _SIDE_ENTRY.fullmatch(name)
                      and not _PENDING.fullmatch(name)]
             if len(names) > MAX_JOURNALS:
                 raise ValueError("journal count")

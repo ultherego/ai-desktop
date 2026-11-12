@@ -43,7 +43,7 @@ class TemplateTests(unittest.TestCase):
         # A unit with or without its type, as systemctl takes it; never something that starts like an option.
         good = [["uname", "-r"], ["systemctl", "status", "sshd.service", "--no-pager"], ["systemctl", "status", "sshd", "--no-pager"],
                 ["systemctl", "status", "power-profiles-daemon", "--no-pager"], ["journalctl", "-b", "-n", "50"],
-                ["lsblk", "-d", "nvme0n1"]]
+                ["lsblk", "-d", "sda"]]
         bad = [["uname"], ["uname", "-a"], ["uname", "-r", "x"], ["UNAME", "-r"], ["systemctl", "status", "--all", "--no-pager"],
                ["systemctl", "status", "-sshd", "--no-pager"], ["systemctl", "status", ".hidden", "--no-pager"],
                ["systemctl", "status", "a b.service", "--no-pager"], ["systemctl", "status", "x.service;id", "--no-pager"],

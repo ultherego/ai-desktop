@@ -8,11 +8,12 @@ import stat
 import time
 
 from . import execution
+from .host_accounts import is_regular_uid
 
 
 def _runtime():
     uid = os.getuid()
-    if uid != os.geteuid() or uid < 1000:
+    if uid != os.geteuid() or not is_regular_uid(uid):
         raise OSError("runtime identity")
     return Path("/run/user") / str(uid)
 

@@ -234,7 +234,7 @@ class MaterialProjectTests(Base):
 
     def test_the_exit_words_match_ask(self):
         session = self.session()
-        for line in ("/exit", "/quit", "/koniec", "/q"):
+        for line in ("/exit", "/quit", "/q"):
             self.assertIs(session._dispatch(line), False, line)
         self.assertEqual(material_cli.EXIT_COMMANDS, project_cli.EXIT_COMMANDS)
 

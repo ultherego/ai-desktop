@@ -562,7 +562,7 @@ LIVE_MODES = {"assistant": True, "question": False}
 STREAM_RAW_LIMIT = 64 * 1024 * 1024     # everything one analysis may write, partial-message events included
 
 
-WEB_RETRIES = 1                         # the maintainer's choice (2026-11-09): one silent retry of an unverifiable web answer
+WEB_RETRIES = 1                         # one silent retry of an unverifiable web answer
 
 
 def _retry_web(action, refused, attempt, elapsed, budget, cancelled):

@@ -55,7 +55,7 @@ class SystemInstallTests(unittest.TestCase):
         self.run.assert_not_called()
 
     def install_context(self):
-        # The widget link is the owner's real DMS configuration: never touched by a test.
+        # The desktop widget link belongs to the real desktop: never touched by a test.
         from ai_desktop import desktop_widget
         self.widget = self.enterContext(patch.object(desktop_widget, "install", return_value="no-dms"))
         self.enterContext(patch.object(install.sys.stdin, "isatty", return_value=True))

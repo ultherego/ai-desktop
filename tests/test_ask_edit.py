@@ -312,7 +312,7 @@ class AskEditTests(unittest.TestCase):
         self.assertIsInstance(stopped.exception, ask_cli.LOCAL_REFUSALS)   # the conversation goes on
 
     def test_a_file_saved_elsewhere_before_the_yes_is_a_conflict_not_a_policy_problem(self):
-        """CachyOS check of 133: "aaaaa" written to the file while its diff was shown gave the generic policy hint,
+        """Regression: "aaaaa" written to the file while its diff was shown gave the generic policy hint,
         because the write approval's own check turned the version conflict into a plain refusal."""
         from ai_desktop import conversation_state
         prepared = self.prepare()

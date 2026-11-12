@@ -13,7 +13,7 @@ from . import e2_account, skills, system_clients
 
 MINIMUM_PYTHON = (3, 12)
 TOOLS = ("bwrap", "findmnt", "systemctl")
-SKILL = "cachyos"
+SKILL = "arch"                      # the general procedures every Arch-family system gets
 # Historical skill installation presence only; NOT an approved Claude/OAuth profile.
 PROFILE = Path.home() / ".local/state/ai-desktop/claude"
 

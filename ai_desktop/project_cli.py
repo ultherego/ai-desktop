@@ -63,6 +63,14 @@ Optional (local commands, nothing is sent):
   /exit             quit (also /quit, /q or Ctrl+D)"""
 
 
+def _not_writable(root):
+    """Name the real project directory and the files.write entry that would cover it."""
+    home = os.path.expanduser("~")
+    shown = "~" + root[len(home):] if root == home or root.startswith(home + "/") else root
+    return ("files.write in permissions.toml does not cover this project %s (it needs an entry like %s/**)."
+            % (shown, shown))
+
+
 def _entries(count):
     return "1 entry" if count == 1 else "%d entries" % count
 
@@ -107,7 +115,7 @@ def build_edit_plan(project, snapshot, decision):
     root = project.root
     writes = [s for s in policy.write_scopes() if s.mode == "tree" and (root == s.base or root.startswith(s.base + "/"))]
     if not writes:
-        raise EditRefused("files.write in permissions.toml does not cover this project (it needs an entry like ~/Projects/**).")
+        raise EditRefused(_not_writable(root))
     write = max(writes, key=lambda s: len(s.base))
     reads = [s for s in policy.scopes() if s.mode == "tree"]
 
@@ -155,7 +163,7 @@ def build_delete_plan(project, snapshot, decision):
     root = project.root
     writes = [s for s in policy.write_scopes() if s.mode == "tree" and (root == s.base or root.startswith(s.base + "/"))]
     if not writes:
-        raise EditRefused("files.write in permissions.toml does not cover this project (it needs an entry like ~/Projects/**).")
+        raise EditRefused(_not_writable(root))
     scope = max(writes, key=lambda s: len(s.base))
     names, absolute = [], []
     try:
@@ -684,7 +692,7 @@ class ProjectSession(Session):
             workspace = snapshot.policy.write_workspace(int(plan["write"][1:]))
         except ValueError:
             return ("The write scope in permissions.toml does not point to a safe working directory "
-                    "(e.g. a whole HOME needs policy version = 2; an entry like ~/Projects/** is recommended).")
+                    "(e.g. a whole HOME needs policy version = 2; an entry for the project's own directory is recommended).")
         try:
             task_workspace._can_apply(workspace)
         except task_workspace.JournalLimit:
@@ -941,7 +949,7 @@ class ProjectSession(Session):
     def _dispatch(self, line):
         if not line:
             return True
-        if line.casefold() in ("koniec", "exit"):         # the bare word ends the session too, it is not a question
+        if line.casefold() in ("exit", "quit"):           # the bare word ends the session too, it is not a question
             return False
         if not line.startswith("/"):
             self.question(line)
@@ -954,7 +962,7 @@ class ProjectSession(Session):
             return True
         if command in EXIT_COMMANDS:
             return False
-        if command in ("/pomoc", "/help", "/?"):
+        if command in ("/help", "/?"):
             print(recipient(HELP))
         elif command == "/test":
             self.test_project(rest)
@@ -962,7 +970,7 @@ class ProjectSession(Session):
             self.files(rest)
         elif command in ("/search", "/szukaj"):
             self.search(rest)
-        elif command in ("/log", "/rejestr"):
+        elif command == "/log":
             self.ledger()
         elif command in ("/refresh", "/odswiez"):
             self._refresh(announce=True)

@@ -49,14 +49,14 @@ class UsageDisplayTests(unittest.TestCase):
         return out.getvalue()
 
     def test_window_percentages_line_up_and_resets_use_local_zone(self):
-        output = self.display(zone="Europe/Berlin", argv=["--provider", "claude"])
+        output = self.display(zone="America/Chicago", argv=["--provider", "claude"])
         self.assertEqual(output.count("Claude"), 1)
         self.assertIn("Account  personal (selected)", output)
         self.assertIn("Plan     pro", output)
         self.assertIn("Status   login previously confirmed", output)
-        self.assertIn("Resets in 1h 15m (2026-07-01 13:15 CEST)", output)
-        self.assertIn("Resets in 2d 3h (2026-07-03 15:00 CEST)", output)
-        self.assertIn("Last reported 2026-07-01 11:55 CEST", output)
+        self.assertIn("Resets in 1h 15m (2026-07-01 06:15 CDT)", output)
+        self.assertIn("Resets in 2d 3h (2026-07-03 08:00 CDT)", output)
+        self.assertIn("Last reported 2026-07-01 04:55 CDT", output)
         lines = [line for line in output.splitlines() if " used" in line]
         self.assertEqual([line.index("%") for line in lines], [lines[0].index("%")] * 2)
         self.assertRegex(lines[0], r"5-hour .+37\.5% used")
@@ -86,9 +86,9 @@ class UsageDisplayTests(unittest.TestCase):
         row = self.rows()[-1]
         row["windows"]["five_hour"]["observed_at"] = NOW - 3600
         with patch.object(self, "rows", return_value=[row]):
-            text = self.display(argv=["--provider", "codex"], zone="Europe/Berlin")
-        self.assertIn("Reported 2026-07-01 11:00 CEST", text)
-        self.assertIn("Last reported 2026-07-01 11:55 CEST", text)
+            text = self.display(argv=["--provider", "codex"], zone="America/Chicago")
+        self.assertIn("Reported 2026-07-01 04:00 CDT", text)
+        self.assertIn("Last reported 2026-07-01 04:55 CDT", text)
         summary = accounts._window_text(row["observed_at"], row["windows"], NOW)
         self.assertIn("reported 2026-07-01 09:00 UTC", summary)
 

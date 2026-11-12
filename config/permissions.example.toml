@@ -6,6 +6,7 @@ codex = false
 local = false
 weather = true
 web = false
+downloads = false
 
 [local]
 port = 8080

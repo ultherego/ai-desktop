@@ -218,7 +218,7 @@ class ConnectionTests(unittest.TestCase):
 
 class RealHelperTests(unittest.TestCase):
     """The real `Session` on a real process and pipes: a helper that ends without `SESSION1 STOPPED` is a cleanup
-    failure, never a quiet success (external review of candidate 137)."""
+    failure, never a quiet success (regression)."""
 
     def opener(self, script):
         @contextmanager

@@ -235,7 +235,7 @@ class ExcerptEditFlowTests(Base):
                 self.wire.append(json.loads(wire.parse_request(approval.payload.encode())[0]))
                 return next(replies)
             with execution.using(profile):
-                result = flow.run("Zmień limit w big.conf na 200", options(), self.reader, request)
+                result = flow.run("Change the limit in big.conf to 200", options(), self.reader, request)
         self.assertEqual(result, "ZAPISANO")
         refusal = self.wire[1]["discovery"]["steps"][0]
         self.assertEqual((refusal["op"], refusal["code"]), ("refusal", "files-size"))

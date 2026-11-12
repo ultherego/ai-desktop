@@ -20,7 +20,7 @@ PUBLIC_COMMANDS = ("ask", "material", "project", "task", "status", "stop", "sett
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="ai-desktop",
-        description="AI Desktop: controlled tools for CachyOS (full list; short help: ai-desktop --help)",
+        description="AI Desktop: controlled tools for Arch Linux and CachyOS (full list; short help: ai-desktop --help)",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -111,7 +111,7 @@ def build_parser():
     return parser
 
 
-SHORT_HELP = """AI Desktop: controlled tools for CachyOS
+SHORT_HELP = """AI Desktop: controlled tools for Arch Linux and CachyOS
 
 Run ai-desktop in a terminal to start a conversation; ai-desktop -c continues the last one.
 At the start a list offers the saved conversations of the current agent, or a new one (all of them: ai-desktop sessions).

@@ -200,7 +200,10 @@ class TaskKernelTests(unittest.TestCase):
                 result = task_sandbox.run_copy(files, recipe, executable=executable)
                 if (os.environ.get("AI_DESKTOP_REQUIRE_PROJECT_SUITES") != "1" and not result["passed"]
                         and any(message in result["output"] for message in
-                                ("Failed to connect", "Test refused: the transient user scope", "fixed test tool is not installed"))):
+                                ("Failed to connect", "Test refused: the transient user scope", "fixed test tool is not installed",
+                                 # the host's own tool is broken (e.g. node built against a newer shared library than
+                                 # the one installed): an environment problem, not a sandbox failure
+                                 "error while loading shared libraries"))):
                     self.assertNotEqual(result["exit_code"], 0)
                     continue
                 self.assertTrue(result["passed"], result)

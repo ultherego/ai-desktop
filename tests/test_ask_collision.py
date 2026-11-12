@@ -17,17 +17,17 @@ from tests.profile_fixture import DEFAULT_PROFILE
 
 OLD = '# synthetic original\nprint("old value")\n'
 NEW = 'print("hello world")\n'
-QUESTION = 'Utwórz hello.py wypisujący hello world.'
+QUESTION = 'Create hello.py that prints hello world.'
 
 
-DONE = {'action': 'answer', 'text': 'Gotowe.'}
+DONE = {'action': 'answer', 'text': 'Done.'}
 
 
 class FollowupTextTests(unittest.TestCase):
     def test_free_text_preserves_context_but_is_not_a_write_approval(self):
         out = io.StringIO()
         with redirect_stdout(out):
-            result = ask_followup.clarify(QUESTION, 'hello.py', workspace='/home/tester', reader=lambda _: 'zachowaj stary, utwórz hello2.py')
+            result = ask_followup.clarify(QUESTION, 'hello.py', workspace='/home/tester', reader=lambda _: 'keep the old one, create hello2.py')
         self.assertIn(QUESTION, result)
         self.assertIn('hello2.py', result)
         self.assertIn('Edit it, create a new one, or cancel?', out.getvalue())
@@ -38,14 +38,14 @@ class FollowupTextTests(unittest.TestCase):
         out = io.StringIO()
         def reader(prompt):
             self.assertEqual(prompt, "> ")
-            print(prompt + "edytuj istniejący")
-            return "edytuj istniejący"
+            print(prompt + "edit the existing one")
+            return "edit the existing one"
         with redirect_stdout(out):
             revised = ask_followup.clarify(QUESTION, "hello.py", workspace="/home/tester", reader=reader)
         self.assertEqual(out.getvalue(),
             '\nFile "hello.py" exists in "/home/tester".\n'
             'Edit it, create a new one, or cancel?\n'
-            '> edytuj istniejący\n\n'
+            '> edit the existing one\n\n'
             'I will prepare a new plan based on this answer.\n')
         self.assertIn(QUESTION, revised)
         self.assertIn('"hello.py"', revised)
@@ -56,7 +56,7 @@ class FollowupTextTests(unittest.TestCase):
         out = io.StringIO()
         with redirect_stdout(out):
             revised = ask_followup.clarify(QUESTION, "scripts/hello.py", workspace=location,
-                                          reader=lambda _: "podmień")
+                                          reader=lambda _: "swap in the new one")
         shown = json.dumps(location + '/scripts', ensure_ascii=False).replace("\u2028", "\\u2028")
         self.assertTrue(out.getvalue().startswith('\nFile "hello.py" exists in ' + shown + '.\n'))
         self.assertNotIn("\u2028", out.getvalue())
@@ -81,7 +81,7 @@ class FollowupTextTests(unittest.TestCase):
 
     def test_cancel_and_empty_never_form_a_new_question(self):
         with redirect_stdout(io.StringIO()):
-            for answer in ('anuluj', ' NIE ', 'stop', 'rezygnuję', '', '  '):
+            for answer in ('cancel', ' NO ', 'stop', 'quit', '', '  '):
                 self.assertIsNone(ask_followup.clarify(QUESTION, 'hello.py', workspace='/home/tester', reader=lambda _, value=answer: value))
 
     def test_input_and_context_budgets_are_fail_closed(self):
@@ -140,12 +140,12 @@ class CollisionFilesystemTests(unittest.TestCase):
         self.enterContext(patch.object(task_cli.task_sandbox, 'run', return_value={'passed': True, 'output': 'synthetic test', 'check': 'python-syntax'}))
         self.payloads = []
 
-    def run_flow(self, choice='podmień', target='hello.py', write='yes', *, mutation=None, deny_read=False, details=False, echo=False, refused=False):
+    def run_flow(self, choice='swap in the new one', target='hello.py', write='yes', *, mutation=None, deny_read=False, details=False, echo=False, refused=False):
         if deny_read:
             self.config.write_text(self.config.read_text().replace('read=["~/**"]', 'read=[]'))
         # A declined turn returns to the prompt (the conversation stays open), so each script ends with the empty line.
         script = [QUESTION, 'yes', choice]
-        if choice != 'anuluj' and not deny_read and not refused:
+        if choice != 'cancel' and not deny_read and not refused:
             script.append(write)           # a refused plan ends the turn before any write question
         if mutation and refused:
             script.append('yes')           # an edited permissions.toml asks for the conversation's consent again
@@ -182,7 +182,7 @@ class CollisionFilesystemTests(unittest.TestCase):
         self.assertEqual([p['mode'] for p in self.payloads], ['assistant', 'assistant', 'workspace', 'assistant'])
         self.assertNotIn(OLD, json.dumps(self.payloads[:2]))
         self.assertEqual(self.payloads[2]['task']['files'][0]['content'], OLD)
-        self.assertIn('podmień', self.payloads[1]['question'])
+        self.assertIn('swap in the new one', self.payloads[1]['question'])
         self.assertEqual(self.payloads[2]['task']['instruction'], self.payloads[1]['question'])
         self.assertEqual(self.target.read_text(), NEW)
         records = task_workspace.recovery_records(str(self.home))
@@ -226,13 +226,13 @@ class CollisionFilesystemTests(unittest.TestCase):
         self.assertEqual(journal.read_bytes(), original)
 
     def test_full_collision_dialogue_spacing_keeps_write_refusal(self):
-        code, sent = self.run_flow('edytuj istniejący', write='no', echo=True)
+        code, sent = self.run_flow('edit the existing one', write='no', echo=True)
         self.assertEqual(code, 2)
         self.assertEqual(sent.call_count, 3)
         output = self.out.getvalue()
         self.assertIn('Waiting for Claude… Ctrl+C stops waiting.\n\n'
                       'File "hello.py" exists in ' + json.dumps(str(self.home)) + '.\n'
-                      'Edit it, create a new one, or cancel?\n> edytuj istniejący\n\n'
+                      'Edit it, create a new one, or cancel?\n> edit the existing one\n\n'
                       'I will prepare a new plan based on this answer.\n', output)
         self.assertIn('Waiting for Claude… Ctrl+C stops waiting.\n\nProposal:\n', output)
         self.assertIn('\n\n=== Changes to save ===\n', output)
@@ -246,7 +246,7 @@ class CollisionFilesystemTests(unittest.TestCase):
 
     def test_new_name_does_not_read_or_overwrite_existing_file(self):
         with patch.object(permissions, 'read_selected', wraps=permissions.read_selected) as read:
-            code, sent = self.run_flow('zachowaj stary i utwórz hello2.py', target='hello2.py')
+            code, sent = self.run_flow('keep the old one and create hello2.py', target='hello2.py')
         self.assertEqual(code, 0, self.out.getvalue()); read.assert_not_called()
         self.assertEqual(sent.call_count, 4)
         self.assertEqual(self.target.read_text(), OLD)
@@ -254,7 +254,7 @@ class CollisionFilesystemTests(unittest.TestCase):
         self.assertNotIn(OLD, json.dumps(self.payloads))
 
     def test_cancel_after_collision_leaves_original_and_history_untouched(self):
-        code, sent = self.run_flow('anuluj')
+        code, sent = self.run_flow('cancel')
         self.assertEqual(code, 2); self.assertEqual(sent.call_count, 1)
         self.assertEqual(self.target.read_text(), OLD)
         self.assertFalse((self.home/task_workspace.STATE).exists())
@@ -320,7 +320,7 @@ class CollisionFilesystemTests(unittest.TestCase):
         self.assertEqual(questions[0], QUESTION)
         for question in questions[1:]:
             self.assertEqual(question, ask_cli.CONTINUE_PREFIX + QUESTION)   # the task stays, the prefix never stacks
-        self.assertIn('Gotowe.', self.out.getvalue())
+        self.assertIn('Done.', self.out.getvalue())
 
     def test_declining_one_step_ends_the_task_and_returns_to_the_user(self):
         code, questions = self.steps_flow(3, ['yes', 'no'])
@@ -397,10 +397,10 @@ class CollisionFilesystemTests(unittest.TestCase):
         self.assertEqual(self.target.read_text(), OLD)
 
     def test_a_write_scope_without_a_directory_is_not_offered_to_the_model(self):
-        self.config.write_text(self.config.read_text().replace('write=["~/**"]', 'write=["~/brak/","~/**"]'))
+        self.config.write_text(self.config.read_text().replace('write=["~/**"]', 'write=["~/missing/","~/**"]'))
         from ai_desktop import assistant_flow
         self.assertEqual([item['id'] for item in assistant_flow.capture_access().access['write']], ['w1'])
-        self.config.write_text(self.config.read_text().replace('write=["~/brak/","~/**"]', 'write=["~/brak/"]'))
+        self.config.write_text(self.config.read_text().replace('write=["~/missing/","~/**"]', 'write=["~/missing/"]'))
         self.assertNotIn('write', assistant_flow.capture_access().access)
 
     def test_replace_reply_does_not_substitute_for_final_write_consent(self):

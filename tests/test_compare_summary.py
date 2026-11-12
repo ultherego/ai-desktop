@@ -15,7 +15,7 @@ class CompareSummaryTests(unittest.TestCase):
     def test_values_are_absent(self):
         before = report_fixture()
         after = copy.deepcopy(before)
-        after["shell"] = "bash"
+        after["shell"] = "zsh"
         after["systemd_health"]["failed_units"] = 2
         result = summarize(before, after)
         self.assertEqual(result, {
@@ -24,8 +24,8 @@ class CompareSummaryTests(unittest.TestCase):
             "fields": ["shell", "systemd_health.failed_units"],
         })
         serialized = json.dumps(result)
+        self.assertNotIn("zsh", serialized)
         self.assertNotIn("bash", serialized)
-        self.assertNotIn("fish", serialized)
 
     def test_identical_reports_have_no_fields(self):
         report = report_fixture()
@@ -54,9 +54,9 @@ class CompareSummaryTests(unittest.TestCase):
     def test_default_cli_still_includes_values(self):
         before = report_fixture()
         after = copy.deepcopy(before)
-        after["shell"] = "bash"
+        after["shell"] = "zsh"
         self.assertEqual(compare(before, after)["changes"][0], {
-            "field": "shell", "before": "fish", "after": "bash"
+            "field": "shell", "before": "bash", "after": "zsh"
         })
 
     def test_invalid_report_rejected_before_summary(self):

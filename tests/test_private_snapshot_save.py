@@ -38,7 +38,7 @@ class PrivateSnapshotSaveTests(unittest.TestCase):
             self.assertEqual(stat.S_IMODE(dest.stat().st_mode), 0o600)
             self.assertEqual(read_snapshot(dest), report_fixture())
             self.assertTrue(dest.read_bytes().endswith(b"\n"))
-            self.assertNotIn("fish", output)
+            self.assertNotIn("bash", output)
 
     def test_existing_file_never_overwritten(self):
         with tempfile.TemporaryDirectory() as tmp:

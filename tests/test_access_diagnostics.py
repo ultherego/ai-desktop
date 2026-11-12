@@ -66,7 +66,7 @@ class AccessDiagnosticsTests(unittest.TestCase):
                     session = stack.enter_context(patch.object(ask_cli, "managed_session"))
                     send = stack.enter_context(patch.object(ask_cli, "send_once"))
                     stack.enter_context(redirect_stdout(output))
-                    code = ask_cli.main(["--question", "Sprawdź monitory Niri DMS"] + context)
+                    code = ask_cli.main(["--question", "Check the synthetic gizmo settings"] + context)
                 self.assertEqual(code, 2, output.getvalue())
                 self.assertIn("network.codex=false", output.getvalue())
                 self.assertIn("codex = true in [network]", output.getvalue())
@@ -95,11 +95,11 @@ class AccessDiagnosticsTests(unittest.TestCase):
         self.assertNotIn("write", snapshot.access)
         self.assertNotIn("web", snapshot.access)
 
-    def test_config_allow_with_gh_deny_reads_niri_dms_without_touching_gh(self):
-        niri = self.file(".config/niri/config.kdl", 'output "Virtual-1" { scale 2; }')
-        dms = self.file(".config/DankMaterialShell/settings.json", '{"monitor":"Virtual-1"}')
+    def test_config_allow_with_gh_deny_reads_gadget_and_gizmo_without_touching_gh(self):
+        gadget = self.file(".config/gadget/config.conf", 'panel = "left"')
+        gizmo = self.file(".config/gizmo/settings.conf", 'mode = "basic"')
         secret = self.file(".config/gh/hosts.yml", "PRIVATE GH TOKEN")
-        (secret.parent / "link").symlink_to(niri)
+        (secret.parent / "link").symlink_to(gadget)
         os.mkfifo(secret.parent / "fifo", mode=0o600)
         secret.parent.chmod(0o000)
         self.addCleanup(secret.parent.chmod, 0o700)
@@ -124,7 +124,7 @@ class AccessDiagnosticsTests(unittest.TestCase):
                 patch.object(permissions.os, "scandir", side_effect=guarded_scandir):
             paths = policy.expand((0,))
             result = permissions.read_selected(policy, paths)
-        self.assertEqual(paths, tuple(sorted((str(niri), str(dms)))))
+        self.assertEqual(paths, tuple(sorted((str(gadget), str(gizmo)))))
         self.assertNotIn("PRIVATE GH TOKEN", json.dumps(result))
         self.assertFalse(policy.allows(str(secret)))
         with patch.object(permissions.os, "open", side_effect=AssertionError("denied direct selection performed I/O")):
@@ -138,7 +138,7 @@ class AccessDiagnosticsTests(unittest.TestCase):
         file_link.symlink_to(source)
         cases = ((directory_link / "source.txt", "files-symlink"),
                  (file_link, "files-symlink"),
-                 (source / "config.kdl", "files-directory"))
+                 (source / "settings.conf", "files-directory"))
         for path, reason in cases:
             with self.subTest(reason=reason, path=path), \
                     patch.object(permissions.os, "read", side_effect=AssertionError("refused target content was read")):
@@ -172,10 +172,10 @@ class FileRefusalDiagnosticsTests(unittest.TestCase):
             permit = QuestionConsent("Pytanie", snapshot)
             permit.approve()
             with redirect_stdout(output), self.assertRaises(file_context.FileReadDenied):
-                file_context.collect(policy, [{"id": "f0", "path": "niri/**"}], args, question_consent=permit)
+                file_context.collect(policy, [{"id": "f0", "path": "gizmo/**"}], args, question_consent=permit)
         text = output.getvalue()
         self.assertIn("symbolic link", text)
-        self.assertIn('Selected: "~/.config/** → niri/**"', text)
+        self.assertIn('Selected: "~/.config/** → gizmo/**"', text)
         self.assertIn("The file contents were not sent to Codex.", text)
         self.assertNotIn("Claude", text)
         self.assertNotIn("unrelated", text)

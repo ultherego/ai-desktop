@@ -32,7 +32,9 @@ HINTS = {
     "timeout": "The time limit was exceeded. The result is not confirmed; a timed-out request is not retried automatically.",
     "client": "The client did not finish the analysis. Check your network access and subscription. There is no automatic retry or switch to the API.",
     "consent": "The send was not approved or the approval expired. On a new analysis, check the preview and type yes (y) to approve or no (n) to decline. The report was not sent.",
-    "authorization": "Could not get permission to start a separate session. The report was not sent.",
+    "authorization": ("Could not get administrator permission through sudo to start a separate session (a wrong "
+                      "password, or this account may not use sudo: an administrator allows it, e.g. through the "
+                      "wheel group in sudoers). The report was not sent."),
     "cleanup": "Could not confirm that the session stopped. Run ai-desktop stop; do not resend automatically.",
     "cancelled": "The analysis was stopped. Data already sent cannot be taken back; there is no automatic retry.",
 }

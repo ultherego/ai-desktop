@@ -246,10 +246,10 @@ class PolicyTests(unittest.TestCase):
         for path in forbidden:
             if not path.endswith(("/*", "/**")):
                 self.assertFalse(policy.can_write(path))
-        niri = self.policy(read=["~/.config/niri/**"], write=["~/.config/niri/**"])
-        self.assertTrue(niri.can_write("~/.config/niri/config.kdl"))
-        self.assertEqual(p.validate_write_path(str(self.home / ".config/niri"), str(self.home)),
-                         str(self.home / ".config/niri"))
+        gizmo = self.policy(read=["~/.config/gizmo/**"], write=["~/.config/gizmo/**"])
+        self.assertTrue(gizmo.can_write("~/.config/gizmo/settings.conf"))
+        self.assertEqual(p.validate_write_path(str(self.home / ".config/gizmo"), str(self.home)),
+                         str(self.home / ".config/gizmo"))
 
     def test_selected_write_scope_cannot_borrow_other_rule_in_same_workspace(self):
         policy = self.policy(write=["~/project/first.txt", "~/project/second.txt", "~/project/sub/**"])
@@ -287,12 +287,10 @@ class PolicyTests(unittest.TestCase):
         self.assertFalse((self.project / "new.txt").exists())
         for index in (True, False, -1, 2, "0", None):
             self.assert_code(lambda: policy.write_workspace(index))
-        self.project.chmod(0o770)
-        self.assert_code(lambda: policy.write_workspace(0))
-        self.project.chmod(0o700)
-        for mode in (0o1700, 0o2700, 0o4700):
+        # A folder of yours on a shared disk may be writable by others (writes go through no-follow handles).
+        for mode in (0o770, 0o777, 0o1777, 0o2770):
             self.project.chmod(mode)
-            self.assert_code(lambda: policy.write_workspace(0))
+            self.assertEqual(policy.write_workspace(0), str(self.project))
         self.project.chmod(0o700)
         self.assert_code(lambda: self.policy(write=["~/project/missing/new.txt"]).write_workspace(0))
         self.assertFalse((self.project / "missing").exists())

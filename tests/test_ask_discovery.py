@@ -204,7 +204,7 @@ class SkillsOnDemandTests(Base):
         directory_context.recheck_discovery(directory_context.DiscoverySnapshot(policy, document, ()))
 
     def test_a_repeated_or_one_too_many_skill_request_is_a_correction_not_the_end_of_the_question(self):
-        # CachyOS check (candidate 164): a fourth Skill round, or asking again for a loaded one, ended with plan-action.
+        # Regression: a fourth Skill round, or asking again for a loaded one, ended with plan-action.
         from ai_desktop import assistant_contract as plans
         ask = lambda *names: json.dumps({"action": "skill", "names": list(names)})
         bodies = {name: "procedure " + name for name in ("a/one", "a/two", "a/three", "a/four")}
@@ -273,7 +273,7 @@ class SkillsOnDemandTests(Base):
     def test_packaged_procedures_reach_the_final_answer_without_loading_other_bodies(self):
         """Exercise real procedure sizes through consent, discovery and the final file hand-off."""
         from ai_desktop import agent_profiles, skills
-        for name in ("arch/btrfs", "arch/systemd", "arch/amdgpu"):
+        for name in ("arch/btrfs", "arch/systemd", "arch/network"):
             with self.subTest(skill=name), patch.object(skills, "user_root", return_value=self.home / "no-skills"):
                 catalog = agent_profiles.catalog_for(agent_profiles.Profile(skills=("arch",)))
                 self.assertIn("- " + name + ":", catalog)
@@ -382,7 +382,7 @@ class FullFlowTests(Base):
         self.assertEqual(self.steps(2)[:1], self.steps(1))                 # cumulative, earlier steps untouched
         self.assertEqual([entry["path"] for entry in self.steps(2)[1]["directories"][0]["entries"]],
                          ["GizmoSuite/notes", "GizmoSuite/panels.json"] + ["GizmoSuite/settings-link"][:0])
-        self.assertEqual(self.wire[2]["discovery"]["remaining"], {"rounds": 2, "corrections": 2, "commands": 24})
+        self.assertEqual(self.wire[2]["discovery"]["remaining"], {"rounds": p.MAX_DISCOVERY_ROUNDS - 2, "corrections": 2, "commands": 24})
         files = self.wire[3]["context"][0]["files"]
         self.assertEqual([item["path"] for item in files], [str(self.home / ".config/gizmo-suite/panels.json")])
         self.assertEqual(self.confirm.call_count, 1)                       # ONE consent for the whole finite flow
@@ -417,11 +417,11 @@ class GroundingTests(Base):
         self.assertEqual(result, ANSWER)
         self.assertEqual(self.steps(1), [{"op": "refusal", "code": "discovery-required",
                                           "selectors": [sel("gizmo/settings.conf")], "limit": None}])
-        self.assertEqual(self.wire[1]["discovery"]["remaining"], {"rounds": 4, "corrections": 1, "commands": 24})
+        self.assertEqual(self.wire[1]["discovery"]["remaining"], {"rounds": p.MAX_DISCOVERY_ROUNDS, "corrections": 1, "commands": 24})
 
     def test_a_path_the_user_typed_needs_no_discovery(self):
         result = self.run_flow([read(sel("gizmo/settings.conf")), ANSWER],
-                               question="Pokaż gizmo/settings.conf proszę")
+                               question="Show gizmo/settings.conf please")
         self.assertEqual(result, ANSWER)
         self.assertEqual(len(self.wire), 2)
 
@@ -457,13 +457,13 @@ class LargeDirectoryTests(Base):
         self.assertEqual(result, ANSWER)
         self.assertEqual(len(self.steps(1)[0]["directories"][0]["entries"]), 128)
         self.assertEqual(len(self.steps(2)[1]["directories"][0]["entries"]), 83)
-        self.assertEqual(self.wire[2]["discovery"]["remaining"]["rounds"], 2)
+        self.assertEqual(self.wire[2]["discovery"]["remaining"]["rounds"], p.MAX_DISCOVERY_ROUNDS - 2)
 
     def test_owner_limits_bound_the_page_the_scan_and_the_results(self):
         self.write_policy("listing_entries = 16\nsearch_results = 5\nsearch_scan = 100\n")
         policy = permissions.load_policy()
         self.assertEqual((policy.limits().listing_entries, policy.limits().search_results, policy.limits().search_scan),
-                         (16, 5, 100))
+                         (16, p.MAX_SEARCH_RESULTS, 100))                        # search_results is retired: ignored
         step, _ = directory_context.list_step(policy, [sel("bulk")], None, policy.limits(),
                                               directory_context.Scan(policy.limits().search_scan), 60000, self.permit)
         self.assertEqual(len(step["directories"][0]["entries"]), 16)
@@ -471,7 +471,7 @@ class LargeDirectoryTests(Base):
         scan = directory_context.Scan(policy.limits().search_scan)
         found, _ = directory_context.find_step(policy, "f0", ["zz-data"], "file", policy.limits(), scan, 60000, self.permit)
         self.assertTrue(found["truncated"])
-        self.assertLessEqual(len(found["matches"]), 5)
+        self.assertLessEqual(len(found["matches"]), 100)                  # the scan (100 entries) bounds the search now
 
     def test_a_cut_scan_offers_no_paging_point_because_the_order_is_unknown(self):
         step, _ = directory_context.list_step(self.policy, [sel("bulk")], None, self.policy.limits(),
@@ -589,17 +589,24 @@ class NarrowingAndCorrectionTests(Base):
 
 
 class BudgetTests(Base):
+    def rounds(self, count):
+        """The step bound is internal now (MAX_DISCOVERY_ROUNDS); a test lowers it to reach it quickly."""
+        from dataclasses import replace
+        original = p.Policy.limits
+        return patch.object(p.Policy, "limits", lambda policy: replace(original(policy), discovery_rounds=count))
+
     def test_round_budget_stops_the_flow_with_the_key_name(self):
-        self.write_policy("discovery_rounds = 1\n")
-        out = self.refused([plan("list", "f0"), plan("list", sel("gizmo")), ANSWER])
-        self.assertIn("discovery_rounds=1", out)
+        with self.rounds(1):
+            out = self.refused([plan("list", "f0"), plan("list", sel("gizmo")), ANSWER])
+        self.assertIn("used all 1 steps the program allows for looking around (discovery_rounds)", out)
+        self.assertNotIn("permissions.toml", out)                               # not a setting any more
         self.assertEqual(len(self.wire), 2)
 
     def test_the_budget_is_shared_per_question_across_list_and_find(self):
-        self.write_policy("discovery_rounds = 2\n")
-        out = self.refused([plan("list", "f0"), plan("find", "f0", queries=["gizmo"], kind="any"),
-                            plan("list", sel("gizmo")), ANSWER])
-        self.assertIn("discovery_rounds=2", out)
+        with self.rounds(2):
+            out = self.refused([plan("list", "f0"), plan("find", "f0", queries=["gizmo"], kind="any"),
+                                plan("list", sel("gizmo")), ANSWER])
+        self.assertIn("used all 2 steps", out)
 
     def test_scan_budget_ends_discovery_softly_and_tells_the_model(self):
         self.write_policy("search_scan = 100\n")
@@ -657,15 +664,17 @@ class LimitsConfigurationTests(Base):
                           'discovery_bytes = "8KiB"\nsearch_results = 7\nsearch_scan = 500\ndiscovery_rounds = 2\n'
                           'plan_corrections = 1\n')
         limits = permissions.load_policy().limits()
+        # search_results and discovery_rounds are retired settings: an older file keeps loading, the program decides.
         self.assertEqual((limits.read_files, limits.read_file_size, limits.read_total_size, limits.listing_entries,
                           limits.discovery_bytes, limits.search_results, limits.search_scan, limits.discovery_rounds,
-                          limits.plan_corrections), (3, 2048, 8192, 32, 8192, 7, 500, 2, 1))
+                          limits.plan_corrections),
+                         (3, 2048, 8192, 32, 8192, p.MAX_SEARCH_RESULTS, 500, p.MAX_DISCOVERY_ROUNDS, 1))
 
     def test_invalid_values_name_only_the_key_and_never_the_value(self):
         for line, key in (("read_files = 0", "read_files"), ("read_files = 513", "read_files"),
                           ('read_files = "3"', "read_files"), ("read_files = true", "read_files"),
                           ("read_file_size = 1", "read_file_size"), ('read_total_size = "17MiB"', "read_total_size"),
-                          ("discovery_rounds = 9", "discovery_rounds"), ("plan_corrections = -1", "plan_corrections"),
+                          ("plan_corrections = -1", "plan_corrections"),
                           ("search_scan = 99", "search_scan"), ("listing_entries = 513", "listing_entries"),
                           ("read_file_size = 65536\nread_total_size = 2048", "read_file_size")):
             with self.subTest(line=line):
@@ -758,11 +767,11 @@ class ReviewFindingsTests(Base):
         self.assertEqual(result, ANSWER)
 
     def test_user_typed_path_must_match_on_boundaries_not_as_a_substring(self):
-        ledger = ask_discovery.DiscoveryLedger(permissions.load_policy(), "Opisz dokumenty i descriptor")
+        ledger = ask_discovery.DiscoveryLedger(permissions.load_policy(), "Describe the documents and descriptor")
         for guess in ("doc", "src", "scri", "descr"):
             with self.subTest(guess=guess), self.assertRaises(ask_discovery.Recoverable):
                 ledger.ground([sel(guess)])
-        typed = ask_discovery.DiscoveryLedger(permissions.load_policy(), "Pokaż gizmo/settings.conf, proszę. Albo ~/.config/bulk")
+        typed = ask_discovery.DiscoveryLedger(permissions.load_policy(), "Show gizmo/settings.conf, please. Or ~/.config/bulk")
         typed.ground([sel("gizmo/settings.conf"), sel("bulk")])
 
     def test_entry_and_byte_totals_cannot_break_the_wire_contract_at_the_ceilings(self):
@@ -940,7 +949,7 @@ class InstructionPathHintTests(Base):
     """Paths the owner writes into the agent's instructions or Skills count as named by the user, never as permission."""
 
     def test_a_path_named_in_the_instructions_needs_no_discovery(self):
-        hint = "Znane lokalizacje: konfiguracja gizmo to ~/.config/gizmo/settings.conf (odczytuj tylko ją)."
+        hint = "Known locations: the gizmo configuration is ~/.config/gizmo/settings.conf (read only that file)."
         result = self.run_flow([read(sel("gizmo/settings.conf")), ANSWER], instructions=hint)
         self.assertEqual(result, ANSWER)
         self.assertEqual(len(self.wire), 2)                                       # no list, no correction round

@@ -13,16 +13,16 @@ from ai_desktop.weather_context import WeatherError
 from ai_desktop.question_consent import QuestionConsent
 
 
-LOCATION = {"id": 1000001, "name": "Example City", "country": "Exampleland",
-            "admin1": "Example Region", "latitude": 45.00012, "longitude": 10.00988}
+LOCATION = {"id": 1001, "name": "Example City", "country": "Exampleland",
+            "admin1": "Example Region", "latitude": 10.0, "longitude": 20.0}
 OTHER = {"id": 2, "name": "Other City", "country": "Otherland",
-         "admin1": "Other Region", "latitude": 40.0, "longitude": 30.0}
+         "admin1": "Other Region", "latitude": 30.0, "longitude": -40.0}
 WEATHER = {"kind": "weather", "source": "Open-Meteo",
            "source_url": "https://open-meteo.com/en/docs",
-           "observed_at": "2026-10-30T12:12:00Z", "valid_at": "2026-10-30T12:00:00Z",
+           "observed_at": "2026-01-15T12:12:00Z", "valid_at": "2026-01-15T12:00:00Z",
            "basis": "model", "location": LOCATION,
-           "current": {"temperature_c": 7.2, "apparent_temperature_c": 5.5,
-                       "precipitation_mm": 0.1, "weather_code": 3, "wind_kmh": 11.8,
+           "current": {"temperature_c": 10.0, "apparent_temperature_c": 8.0,
+                       "precipitation_mm": 0.1, "weather_code": 3, "wind_kmh": 12.0,
                        "interval_seconds": 900}}
 
 
@@ -54,7 +54,7 @@ def inventory(scope="system", view="enabled"):
     state = {"installed": "disabled", "all": "inactive"}.get(view, view)
     return {"kind": "systemd", "source": "systemctl", "scope": scope, "view": view,
             "listing": "unit-files" if unit_file else "units",
-            "observed_at": "2026-10-30T12:12:00Z", "status": "ok", "truncated": False,
+            "observed_at": "2026-01-15T12:12:00Z", "status": "ok", "truncated": False,
             "total": 1, "items": [{"name": "synthetic.service", "state": state,
                                     "substate": None if unit_file else
                                     ("running" if state == "active" else "dead")}]}
@@ -100,6 +100,41 @@ class AskContextTests(unittest.TestCase):
         self.confirm.assert_not_called()
         self.reader.assert_not_called()
         self.assertEqual(self.output.getvalue(), "")
+
+    def test_here_uses_the_remembered_city_without_asking(self):
+        permit, _ = self.permit()
+        self.geocode.return_value = [LOCATION]
+        self.current.return_value = WEATHER
+        with patch("ai_desktop.local_settings.weather_city", return_value="Example City"), \
+                patch("ai_desktop.local_settings.set_weather_city") as remember:
+            ask_context._weather(ask_context.HERE, options(), self.reader, question_consent=permit)
+        self.geocode.assert_called_once_with("Example City")
+        self.assertIn("remembered city Example City", self.output.getvalue())
+        remember.assert_not_called()
+
+    def test_here_without_a_remembered_city_asks_and_offers_to_remember_it(self):
+        for answer, remembered in (("y", ["Example City"]), ("n", [])):
+            with self.subTest(answer=answer):
+                permit, _ = self.permit()
+                self.geocode.return_value = [LOCATION]
+                self.current.return_value = WEATHER
+                replies = iter(["Example City", answer])
+                calls = []
+                with patch("ai_desktop.local_settings.weather_city", return_value=None), \
+                        patch("ai_desktop.local_settings.set_weather_city", side_effect=calls.append):
+                    ask_context._weather(ask_context.HERE, options(), lambda prompt: next(replies),
+                                         question_consent=permit)
+                self.assertEqual(calls, remembered)
+                self.geocode.assert_called_with("Example City")
+
+    def test_an_unknown_city_is_one_clear_message_without_the_command_line_hint(self):
+        permit, _ = self.permit()
+        self.geocode.return_value = []
+        with self.assertRaises(ask_context.weather_context.WeatherError) as caught:
+            ask_context._weather("Example City", options(), self.reader, question_consent=permit)
+        self.assertEqual(caught.exception.reason, "not-found")
+        self.current.assert_not_called()
+        self.assertNotIn("--weather", ask_context.WEATHER_HINTS["not-found"] + ask_context.WEATHER_HINTS["input"])
 
     def test_approved_question_weather_is_quiet_and_preserves_exact_observations(self):
         permit, _ = self.permit()
@@ -411,8 +446,8 @@ class AskContextTests(unittest.TestCase):
         self.assertEqual(result, [context])
         output = self.output.getvalue()
         self.assertIn("Weather: Other City, Other Region, Otherland", output)
-        self.assertIn("2026-10-30T12:00:00Z", output)
-        self.assertIn("Temperature: 7.2 °C; feels like: 5.5 °C; precipitation: 0.1 mm; wind: 11.8 km/h", output)
+        self.assertIn("2026-01-15T12:00:00Z", output)
+        self.assertIn("Temperature: 10.0 °C; feels like: 8.0 °C; precipitation: 0.1 mm; wind: 12.0 km/h", output)
         self.assertIn("WMO weather code: 3", output)
         self.assertIn("900 s", output)
         self.assertIn(context["source_url"], output)
@@ -434,7 +469,7 @@ class AskContextTests(unittest.TestCase):
         self.assertIn("Weather: Example City, Example Region, Exampleland", output)
         self.assertIn("Open-Meteo", output)
         self.assertIn(WEATHER["source_url"], output)
-        for hidden in ("synthetic.service", "Temperature:", "7.2", "5.5", "0.1", "11.8", "900 s",
+        for hidden in ("synthetic.service", "Temperature:", "10.0", "8.0", "0.1", "12.0", "900 s",
                        "latitude", "temperature_c", "{", "}"):
             with self.subTest(hidden=hidden):
                 self.assertNotIn(hidden, output)

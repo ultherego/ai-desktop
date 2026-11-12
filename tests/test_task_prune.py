@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from ai_desktop import task_cli as cli, task_workspace as tw, workspace_trash as trash
+from ai_desktop import task_cli as cli, task_workspace as tw, workspace_trash as trash, workspace_transfer as transfer
 from ai_desktop.analysis_contract import canonical
 from ai_desktop.task_plan import TaskPlan
 
@@ -166,20 +166,34 @@ class PruneCliTests(unittest.TestCase):
             value["kind"] = kind
         return value
 
-    def run_prune(self, records, answers):
+    def run_prune(self, records, answers, moved=None):
         replies = iter(answers)
         output = io.StringIO()
         with patch.object(cli, "confirm", side_effect=lambda action, reader: next(replies) == "y") as confirm, \
                 patch.object(cli.workspace, "prune", return_value=1) as tasks, \
+                patch.object(transfer, "prune", return_value=1) as transfers, \
                 patch.object(trash, "prune", return_value=1) as deleted, contextlib.redirect_stdout(output):
             code = cli.prune_history(self.args(), records, lambda prompt: next(replies))
+        if moved is not None:
+            moved.append(transfers)
         return code, output.getvalue(), confirm, tasks, deleted
+
+    def test_a_finished_move_reaches_the_transfer_engine_and_is_shown_as_a_move(self):
+        record = dict(self.record("d" * 32, "undone", kind="transfer"), operation="move", files=[],
+                      **{"from": "source/package", "to": "target/package"})
+        moved = []
+        code, text, _, tasks, deleted = self.run_prune([record], ["1", "y"], moved)
+        self.assertEqual(code, 0)
+        self.assertIn("Move: source/package  ->  target/package", text)
+        moved[0].assert_called_once_with("/tmp/project", {"d" * 32: "f" * 64})
+        tasks.assert_not_called()
+        deleted.assert_not_called()
 
     def test_nothing_finished_asks_nothing(self):
         code, text, confirm, tasks, _ = self.run_prune([self.record("a" * 64, "prepared", False)], [])
         self.assertEqual(code, 0)
         self.assertIn("Nothing to remove", text)
-        self.assertIn("Files still in the trash and unfinished tasks stay", text)
+        self.assertIn("Files still in the trash, moves and copies that can still be undone, and unfinished tasks stay", text)
         confirm.assert_not_called()
         tasks.assert_not_called()
 

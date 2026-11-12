@@ -292,11 +292,11 @@ class NaturalTests(Base):
 
     # --- small file: the whole file after consent ---------------------------------------
     def test_a_plain_sentence_about_a_small_file_sends_the_whole_file_after_consent(self):
-        self.model = script({"action": "answer", "text": "Plik wygląda poprawnie.", "sources": [{"first": 1, "last": 3}]})
-        code = self.run_cli(["przeanalizuj ten plik i wskaż możliwe błędy", "/log", "/exit"], ["yes"],
+        self.model = script({"action": "answer", "text": "The file looks correct.", "sources": [{"first": 1, "last": 3}]})
+        code = self.run_cli(["analyze this file and point out possible errors", "/log", "/exit"], ["yes"],
                             argv=[str(self.file), "--v"])
         self.assertEqual(code, 0, self.output)
-        for text in ("Loaded locally.", "What do you want to do with it?", "the whole file", "Plik wygląda poprawnie.", "state: answered"):
+        for text in ("Loaded locally.", "What do you want to do with it?", "the whole file", "The file looks correct.", "state: answered"):
             self.assertIn(text, self.output)
         self.assertRegex(self.output, r"Without\s+Internet, file writes or running code")           # the full card is --v
         self.assertRegex(self.output, r"Confirmed\s+lines 1–3")
@@ -304,14 +304,14 @@ class NaturalTests(Base):
         self.assertEqual(self.prompts.count(PROMPTS["material-transfer"]), 1)
         (payload,) = self.payloads()
         self.assertEqual(payload["mode"], "material")
-        self.assertEqual(payload["question"], "przeanalizuj ten plik i wskaż możliwe błędy")
+        self.assertEqual(payload["question"], "analyze this file and point out possible errors")
         text = "".join(o["text"] for o in payload["material"]["observations"] if o["kind"] == "read")
         self.assertEqual(text, TEXT)                                         # exactly the file, nothing more
         self.assertEqual(payload["material"]["history"], [])
 
     def test_any_wording_is_a_question_nothing_is_parsed_for_ranges_or_keywords(self):
-        sentences = ["przeanalizuj ten plik", "5 powodów, dla których to się wywala?", "/ask przeanalizuj ten plik",
-                     "Jaki jest sens wiersza 12-14?", "what does this file do"]
+        sentences = ["analyze this file", "5 reasons why this fails?", "/ask analyze this file",
+                     "What do lines 12-14 mean?", "what does this file do"]
         self.model = script(*[{"action": "answer", "text": "ok", "sources": []}] * len(sentences))
         self.run_cli(sentences + ["/exit"], ["yes"] * len(sentences))
         asked = [p["question"] for p in self.payloads()]
@@ -323,7 +323,7 @@ class NaturalTests(Base):
         for answers in (["no"], [EOFError()], [KeyboardInterrupt()]):
             with self.subTest(answers=str(answers)):
                 self.sent.clear()
-                code = self.run_cli(["przeanalizuj ten plik", "/log", "/exit"], answers)
+                code = self.run_cli(["analyze this file", "/log", "/exit"], answers)
                 self.assertEqual(code, 0)
                 self.assertEqual((self.sent, self.ready, self.fake.opens), ([], 0, 0))
                 self.assertIn("Cancelled. No data was sent.", self.output)
@@ -332,7 +332,7 @@ class NaturalTests(Base):
     def test_blocked_claude_policy_keeps_local_commands_and_refuses_questions(self):
         self.network = "claude = false\n"
         self.write_policy()
-        self.run_cli(["/find ERROR", "przeanalizuj ten plik", "/exit"], [])
+        self.run_cli(["/find ERROR", "analyze this file", "/exit"], [])
         self.assertIn("line 120", self.output)
         self.assertIn("network.claude=false", self.output)
         self.assertEqual((self.sent, self.prompts.count(PROMPTS["material-transfer"])), ([], 0))
@@ -387,13 +387,13 @@ class NaturalTests(Base):
         self.big()
         self.model = script({"action": "search", "needle": "ERROR"},
                             {"action": "read", "ranges": [{"first": 118, "last": 122}]},
-                            {"action": "answer", "text": "Backend odmówił połączenia (wiersz 120).",
+                            {"action": "answer", "text": "The backend refused the connection (line 120).",
                              "sources": [{"first": 119, "last": 121}]})
-        self.run_cli(["Dlaczego pojawia się błąd?", "/log", "/exit"], ["yes"], argv=[str(self.file), "--v"])
+        self.run_cli(["Why does the error appear?", "/log", "/exit"], ["yes"], argv=[str(self.file), "--v"])
         self.assertEqual(self.prompts.count(PROMPTS["material-task"]), 1)       # consent once for the whole task
         self.assertEqual(len(self.sent), 3)
         for text in ("Claude will ask to search for a phrase or read lines", "Step 1/8: Claude asked for a search for \"ERROR\"",
-                     "Step 2/8: Claude asked for lines 118–122", "Backend odmówił połączenia",
+                     "Step 2/8: Claude asked for lines 118–122", "The backend refused the connection",
                      "the rest of the file was not sent"):
             self.assertIn(text, self.output)
         self.assertRegex(self.output, r"Confirmed\s+lines 119–121")
@@ -412,14 +412,14 @@ class NaturalTests(Base):
         self.big()
         self.model = script({"action": "read", "ranges": [{"first": 120, "last": 121}]},
                             {"action": "answer", "text": "Coś.", "sources": [{"first": 120, "last": 120}, {"first": 900, "last": 910}]})
-        self.run_cli(["Dlaczego błąd?", "/exit"], ["yes"])
+        self.run_cli(["Why the error?", "/exit"], ["yes"])
         self.assertIn("── Note ", self.output)                                  # by default only what needs care is shown
         self.assertRegex(self.output, r"Rejected\s+lines 900–910")
         self.assertIn("(Claude cited sources it did not receive)", self.output)
         self.assertNotIn("Potwierdzone", self.output)
         self.model = script({"action": "read", "ranges": [{"first": 120, "last": 121}]},
                             {"action": "answer", "text": "Coś.", "sources": [{"first": 120, "last": 120}, {"first": 900, "last": 910}]})
-        self.run_cli(["Dlaczego błąd?", "/exit"], ["yes"], argv=[str(self.file), "--v"])
+        self.run_cli(["Why the error?", "/exit"], ["yes"], argv=[str(self.file), "--v"])
         self.assertRegex(self.output, r"Confirmed\s+line 120")
         self.assertNotIn("lines 900", self.output.split("Scope")[0].split("Confirmed")[1])
 
@@ -490,12 +490,12 @@ class NaturalTests(Base):
 
     def test_ask_user_returns_to_the_prompt_and_is_remembered(self):
         self.big()
-        self.model = script({"action": "ask_user", "text": "Jaki jest komunikat błędu z konsoli?"},
-                            {"action": "answer", "text": "Dziękuję.", "sources": []})
-        self.run_cli(["Dlaczego to się wywala?", "Komunikat to: timeout", "/exit"], ["yes", "yes"])
-        self.assertIn("Claude asks: Jaki jest komunikat błędu z konsoli?", self.output)
+        self.model = script({"action": "ask_user", "text": "What is the error message in the console?"},
+                            {"action": "answer", "text": "Thank you.", "sources": []})
+        self.run_cli(["Why does this fail?", "The message is: timeout", "/exit"], ["yes", "yes"])
+        self.assertIn("Claude asks: What is the error message in the console?", self.output)
         history = self.payloads()[1]["material"]["history"]
-        self.assertEqual(history[0]["question"], "Dlaczego to się wywala?")
+        self.assertEqual(history[0]["question"], "Why does this fail?")
         self.assertIn("Claude asked", history[0]["answer"])
 
     # --- conversation memory (LC3, bounded) -------------------------------------------------
@@ -906,15 +906,15 @@ class WholeTests(Base):
         self.assertIn("PARTIAL ANALYSIS", self.output)
 
     def test_model_claims_cannot_raise_coverage_or_confirm_unseen_sources(self):
-        lie = json.dumps({"action": "answer", "text": "Przeanalizowałem 100% pliku, wszystko sprawdzone.",
+        lie = json.dumps({"action": "answer", "text": "I analyzed 100% of the file, everything checked.",
                           "sources": [{"first": 200, "last": 200}, {"first": 49800, "last": 49800}]})
         seen = self.run_whole(["yes", "no"], whole_model(reduce_reply=lie))
         # stage two was declined, so no reduce ran: the claim never even reaches the screen as a result
-        self.assertNotIn("Przeanalizowałem 100%", self.output)
+        self.assertNotIn("I analyzed 100%", self.output)
         self.assertEqual(self.output.count("Coverage (counted by the app)"), 1)
         self.sent.clear()
         seen = self.run_whole(["yes", "yes"], whole_model(fail_part=PARTS, reduce_reply=lie))
-        self.assertIn("Przeanalizowałem 100% pliku", self.output)              # shown as the model's text...
+        self.assertIn("I analyzed 100% of the file", self.output)              # shown as the model's text...
         self.assertIn("Coverage (counted by the app): %d of %d parts" % (PARTS - 1, PARTS), self.output)   # ...next to the real numbers
         self.assertIn("PARTIAL ANALYSIS", self.output)
         self.assertIn("Claude cited sources it did not receive (left out): 49800–49800", self.output)

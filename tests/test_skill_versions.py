@@ -87,8 +87,8 @@ class SkillVersionTests(unittest.TestCase):
 
 class PackagedReferenceTests(unittest.TestCase):
     def test_an_exact_or_ranged_version_names_one_tool(self):
-        """A version is compared with every tool listed; two tools never share one exact release (CachyOS check,
-        candidate 164: limine-snapper-sync 1.32.1 was compared with limine and reported as not matching)."""
+        """A version is compared with every tool listed; two tools never share one exact release (regression:
+        tool-a-sync 1.2.3 was compared with tool-a and reported as not matching)."""
         from pathlib import Path
         for path in sorted(Path(skills.ROOT).glob("*/references/*.md")):
             meta = skills.parse_reference(path.read_text(encoding="utf-8"), path.stem)

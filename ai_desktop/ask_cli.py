@@ -596,7 +596,8 @@ def _main(argv, *, reader, link):
                 if args.details:
                     print("ASK: REFUSED stage=" + state["phase"] + " check=prepare-"
                           + ("os" if isinstance(exc, OSError) else "value"))
-                print("Could not finish this question (prepare-" + state["phase"] + ").")
+                if not isinstance(exc, assistant_flow.ContextUnavailable):
+                    print("Could not finish this question (prepare-" + state["phase"] + ").")
                 print("The conversation continues. You can ask the question again.")
                 keep_actions()
                 answer, code = None, 2
@@ -735,7 +736,8 @@ def _main(argv, *, reader, link):
         if args.details:
             kind = "os" if isinstance(exc, OSError) else "type" if isinstance(exc, TypeError) else "key" if isinstance(exc, KeyError) else "value"
             print("ASK: REFUSED stage=" + state["phase"] + " check=prepare-" + kind)
-        print("Could not finish the question (prepare-" + state["phase"] + ").")
+        if not isinstance(exc, assistant_flow.ContextUnavailable):
+            print("Could not finish the question (prepare-" + state["phase"] + ").")
         return 2
     finally:
         from . import terminal_frame, terminal_input

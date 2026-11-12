@@ -230,7 +230,7 @@ finally:
 
     def test_followup_terminal_has_only_bare_prompt_and_restores_state(self):
         self.assertEqual(editor.FOLLOWUP_PROMPT, "> ")
-        for payload, marker in (("edytuj istniejący\n".encode(), b"RESULT="),
+        for payload, marker in (("edit the existing one\n".encode(), b"RESULT="),
                                 (b"\x03", b"REFUSED=KeyboardInterrupt"),
                                 (b"\x04", b"REFUSED=EOFError")):
             with self.subTest(payload=payload), self.child(followup=True) as (master, process, output):
@@ -538,7 +538,7 @@ class PromptSessionTerminalTests(unittest.TestCase):
         self.assertEqual([r[0] for r in self.results(output)], ["/", "/model", "/model"])
 
     def test_enter_on_a_skill_command_completes_it_with_a_space_and_waits_for_the_question(self):
-        # CachyOS check (candidate 164): `/arc` + Enter sent `/arch` with no question; it now becomes `/arch ` to type on.
+        # Regression: `/arc` + Enter sent `/arch` with no question; it now becomes `/arch ` to type on.
         body = ("session.commands = (('/help', 'list'), ('/arch', 'skill'))\n"
                 "session.with_text = frozenset({'/arch'})\n" + self.READS.format(attach=True, count=3))
         output = self.run_script(body, [b"/arc\r\rfirewall?\r", b"/arch\rx\r", b"/he\r"])

@@ -77,7 +77,7 @@ def failure_hint(reason, fallback, *, config=execution.UNSET, diagnostic=None):
         if reason == "authorization":
             return "Local inference needs network.local=true and the approved port in permissions.toml."
         if reason in {"network", "provider-unavailable", "endpoint"}:
-            return "The approved local llama.cpp server is unavailable. Check its address and model alias."
+            return "The approved local OpenAI-compatible server is unavailable. Check its address and model alias."
     if selected is not None and selected["provider"] == "codex":
         from .analysis_diagnostics import codex_diagnostic
         code = codex_diagnostic(diagnostic, reason)
@@ -216,10 +216,10 @@ def conversation_command(line, *, saved=False):
     """Idle-only conversation controls; never called from a model response. `saved`: a saved conversation, which keeps
     its agent (same_agent binds the role); its model and reasoning level may change."""
     command, _, value = line.partition(" ")
-    if command not in ("/settings", "/ustawienia", "/model", "/sila", "/effort", "/agent"):
+    if command not in ("/settings", "/model", "/effort", "/agent"):
         return False
     value = value.strip()
-    if command in ("/settings", "/ustawienia") or not value:
+    if command == "/settings" or not value:
         print(label())
         selected = execution.current()
         provider = selected["provider"] if selected is not None else "claude"

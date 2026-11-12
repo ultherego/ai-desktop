@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import http.client
 import ipaddress
 import json
+import os
 import math
 from pathlib import Path
 import re
@@ -181,12 +182,14 @@ class _PinnedHTTPS(http.client.HTTPSConnection):
 
 
 def _endpoint(kind, parameters):
-    if kind == "geocode" and type(parameters) is dict and set(parameters) == {"city"}:
+    if kind == "geocode" and type(parameters) is dict and set(parameters) == {"city", "language"}:
         city = validate_city(parameters["city"])
-        # "pl" stays on purpose: with "en" the geocoder no longer finds the main city for Polish names (e.g. "Example City"),
-        # while with "pl" English names ("Other City") still match.
+        # The user's own language (from the system locale): local city names are found in that language, while English
+        # names still match.
+        if type(parameters["language"]) is not str or not re.fullmatch(r"[a-z]{2}", parameters["language"]):
+            raise WeatherError("input")
         return "geocoding-api.open-meteo.com", "/v1/search?" + urlencode({
-            "name": city, "count": MAX_CANDIDATES, "language": "pl", "format": "json"})
+            "name": city, "count": MAX_CANDIDATES, "language": parameters["language"], "format": "json"})
     if kind == "current" and type(parameters) is dict and set(parameters) == {"latitude", "longitude"}:
         return "api.open-meteo.com", "/v1/forecast?" + urlencode({
             "latitude": _number(parameters["latitude"], -90, 90),
@@ -271,9 +274,64 @@ def _worker():
         return 2
 
 
+def language(environ=None):
+    """The two-letter language of the user's locale, English when unset or C/POSIX. GNU's LANGUAGE priority list
+    (e.g. "pl:en") comes first, as gettext reads it, unless LC_ALL is C/POSIX."""
+    environ = os.environ if environ is None else environ
+    preferred = environ.get("LANGUAGE", "").split(":")[0]
+    if preferred and environ.get("LC_ALL", "") not in ("C", "POSIX") and not environ.get("LC_ALL", "").startswith("C."):
+        match = re.match(r"([a-z]{2})(?:[_.@]|\Z)", preferred)
+        if match:
+            return match.group(1)
+    for name in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        value = environ.get(name, "")
+        if value:
+            match = re.match(r"([a-z]{2})(?:[_.@]|\Z)", value)
+            return match.group(1) if match else "en"
+    return "en"
+
+
+IMPERIAL_TERRITORIES = ("US", "LR", "MM")       # where glibc locales measure in imperial units
+
+
+def measurement_system(environ=None):
+    """"imperial" or "metric", from the territory of the user's measurement locale (LC_ALL, LC_MEASUREMENT, LANG)."""
+    environ = os.environ if environ is None else environ
+    for name in ("LC_ALL", "LC_MEASUREMENT", "LANG"):
+        value = environ.get(name, "")
+        if value:
+            match = re.match(r"[a-z]{2,3}_([A-Z]{2})", value)
+            return "imperial" if match and match.group(1) in IMPERIAL_TERRITORIES else "metric"
+    return "metric"
+
+
+def shown(current, system=None):
+    """The current values as the user reads them: (temperature, feels like, precipitation, wind), with units."""
+    system = measurement_system() if system is None else system
+    if system == "imperial":
+        f = lambda c: "%.1f °F" % (c * 9 / 5 + 32)
+        return (f(current["temperature_c"]), f(current["apparent_temperature_c"]),
+                "%.2f in" % (current["precipitation_mm"] / 25.4), "%.1f mph" % (current["wind_kmh"] / 1.609344))
+    return ("%s °C" % current["temperature_c"], "%s °C" % current["apparent_temperature_c"],
+            "%s mm" % current["precipitation_mm"], "%s km/h" % current["wind_kmh"])
+
+
+def local_time(valid_at):
+    """An ISO UTC time shown in the user's own time zone (falls back to the text as given)."""
+    from datetime import datetime
+    try:
+        moment = datetime.fromisoformat(valid_at.replace("Z", "+00:00"))
+        if moment.tzinfo is None:
+            from datetime import timezone
+            moment = moment.replace(tzinfo=timezone.utc)
+        return moment.astimezone().strftime("%Y-%m-%d %H:%M %Z") + " (" + valid_at + ")"
+    except (ValueError, TypeError, AttributeError):
+        return str(valid_at)
+
+
 def geocode(city):
     """Return at most five candidates; the UI must resolve multiple matches."""
-    result = _request("geocode", {"city": validate_city(city)})
+    result = _request("geocode", {"city": validate_city(city), "language": language()})
     rows = result.get("results", [])
     if type(rows) is not list or len(rows) > MAX_CANDIDATES or result.get("error"):
         raise WeatherError("response")

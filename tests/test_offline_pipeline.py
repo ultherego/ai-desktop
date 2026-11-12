@@ -32,7 +32,7 @@ class OfflinePipelineE2ETests(unittest.TestCase):
         before = report_fixture()
         after = copy.deepcopy(before)
         if changed:
-            after["shell"] = "bash"
+            after["shell"] = "zsh"
             after["systemd_health"]["failed_units"] = 2
         old = Path(directory) / "old.json"
         new = Path(directory) / "new.json"
@@ -56,8 +56,8 @@ class OfflinePipelineE2ETests(unittest.TestCase):
                 "change_count": 2,
                 "fields": ["shell", "systemd_health.failed_units"],
             })
+            self.assertNotIn("zsh", diff.stdout)
             self.assertNotIn("bash", diff.stdout)
-            self.assertNotIn("fish", diff.stdout)
             self.assertEqual((old.read_bytes(), new.read_bytes()), original)
 
     def test_identical_reports_pass_and_legacy_diff_stays_compatible(self):

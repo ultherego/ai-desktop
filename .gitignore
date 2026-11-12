@@ -23,4 +23,6 @@ packaging/arch/*.pkg.tar.*
 
 # local acceptance runner (edited by the assistant)
 /local-run.fish
+
+# Local working notes (audits); never published
 .audit/

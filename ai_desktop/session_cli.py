@@ -56,7 +56,7 @@ def thread_label(value, active=False):
     first = history[0]["question"] if history else value["id"]
     title = value.get("title") or " ".join(first.split())
     title = title if len(title) <= 60 else title[:59].rstrip() + "…"
-    stamp = time.strftime("%d.%m %H:%M", time.localtime(value["updated"]))
+    stamp = time.strftime("%Y-%m-%d %H:%M", time.localtime(value["updated"]))
     return "%s · %s · exchanges: %d%s" % (stamp, _safe(title, 80).replace("\n", " "), _history_count(value),
                                      " [active]" if active else "")
 

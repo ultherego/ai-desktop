@@ -16,7 +16,7 @@ class CompareExitCodeTests(unittest.TestCase):
         before = report_fixture()
         after = copy.deepcopy(before)
         if changed:
-            after["shell"] = "bash"
+            after["shell"] = "zsh"
         old = Path(directory) / "old.json"
         new = Path(directory) / "new.json"
         old.write_text(json.dumps(before), encoding="utf-8")
@@ -54,8 +54,8 @@ class CompareExitCodeTests(unittest.TestCase):
                     self.assertEqual(code, 3)
                     self.assertEqual(json.loads(output),
                                      {"changed": True, "change_count": 1, "fields": ["shell"]})
+                    self.assertNotIn("zsh", output)
                     self.assertNotIn("bash", output)
-                    self.assertNotIn("fish", output)
 
     def test_invalid_report_returns_one_without_values(self):
         with tempfile.TemporaryDirectory() as tmp:

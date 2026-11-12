@@ -8,7 +8,7 @@ from ai_desktop import analysis_contract, assistant_contract as contract
 from test_report_policy import report_fixture
 
 
-ACCESS = {"files": [{"id": "f0", "pattern": "~/.config/niri/**"},
+ACCESS = {"files": [{"id": "f0", "pattern": "~/.config/gizmo/**"},
                     {"id": "f63", "pattern": "~/projects/example/**"}],
           "systemd": ["system", "user"], "weather": True}
 EMPTY = {"files": [], "systemd": [], "weather": False}
@@ -137,7 +137,7 @@ class AssistantContractTests(unittest.TestCase):
 
     def test_narrow_selectors_are_detached_data_in_read_and_edit_plans(self):
         selectors = [{"id": "f0", "path": "test/hello.py"},
-                     {"id": "f0", "path": ".config/niri/**"},
+                     {"id": "f0", "path": ".config/gizmo/**"},
                      {"id": "f0", "path": "folder/*"}, "f63"]
         for template in (READ, EDIT):
             with self.subTest(action=template["action"]), \

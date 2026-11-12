@@ -26,7 +26,7 @@ MAX_PROFILES = 24
 MAX_INSTRUCTIONS = 4096
 # The whole system prompt is one argv string for the Claude client, and Linux caps one string at 128 KiB (MAX_ARG_STRLEN).
 # This is what remains after the application's own prompt, with a margin. tests/test_user_skills.py guards the sum.
-MAX_EXECUTION_INSTRUCTIONS = 103 * 1024   # a Skill (96 KiB) + role text (4 KiB) + label always fit; the rest is prompt room
+MAX_EXECUTION_INSTRUCTIONS = 101 * 1024   # a Skill (96 KiB) + role text (4 KiB) + label always fit; the rest is prompt room
 ACCESSES = ("read-only", "changes")
 SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 _PROFILE_KEYS = frozenset(("provider", "model", "effort", "instructions", "access", "skills"))
@@ -38,7 +38,7 @@ PRESET_SKILLS = MappingProxyType({
     "reviewer": ("code-review",),
     "analyst": ("project-analysis",),
 })
-# Candidate 164 merged the per-topic system Skills into two area Skills with topic guides (as Omarchy does). A saved
+# The per-topic system Skills were merged into two area Skills with topic guides. A saved
 # profile that still names an old one gets the area Skill instead, so it keeps working after the update.
 _AREA_TOPICS = {
     "arch": ("amdgpu", "apparmor", "audio", "bluetooth", "btrfs", "dns-time", "docker", "firewall", "flatpak",
@@ -553,6 +553,12 @@ def catalog_for(selected):
     return _text("\n\n".join(parts), MAX_EXECUTION_INSTRUCTIONS)
 
 
+def for_this_distribution(names):
+    """The distribution's own Skill only where os-release names it: CachyOS advice does not belong on plain Arch."""
+    from .distro import is_cachyos
+    return tuple(name for name in names if name != "cachyos" or is_cachyos())
+
+
 def with_presets(name, selected):
     """The built-in Skills of a built-in profile are always on: the installed preset Skills come first, then the
     owner's own additions. A Skill that is not installed is left out rather than failing the role."""
@@ -564,8 +570,11 @@ def with_presets(name, selected):
         installed = set(skills.names())
     except (OSError, ValueError):
         return selected
-    always = tuple(skill for skill in preset if skill in installed)
-    merged = always + tuple(skill for skill in selected.skills if skill not in always)
+    applicable = set(for_this_distribution(preset))
+    always = tuple(skill for skill in preset if skill in installed and skill in applicable)
+    # A preset Skill for another distribution stays out even though the stored profile lists it.
+    merged = always + tuple(skill for skill in selected.skills
+                            if skill not in always and (skill not in preset or skill in applicable))
     return selected if merged == selected.skills else replace(selected, skills=merged)
 
 

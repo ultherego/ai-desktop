@@ -66,7 +66,7 @@ class ControlsTests(unittest.TestCase):
         return items, out.getvalue(), pick
 
     def test_during_a_turn_read_only_commands_show_at_once_and_queue_nothing(self):
-        for line in ("/help", "/permissions", "/pomoc"):
+        for line in ("/help", "/permissions", "/?"):
             items, output, pick = self.during(line)
             self.assertEqual(items, [], line)
             self.assertTrue(output.strip(), line)
@@ -99,8 +99,8 @@ class ControlsTests(unittest.TestCase):
         output = self.run_line("/help")[1]
         for name, _ in commands.COMMANDS:
             self.assertIn(name, output)
-        self.assertEqual(self.run_line("/pomoc")[1], output)
-        for line in ("/koniec", "/exit", "/q"):
+        self.assertEqual(self.run_line("/?")[1], output)
+        for line in ("/quit", "/exit", "/q"):
             self.assertEqual(self.run_line(line)[0], commands.EXIT)
 
     def test_model_and_effort_change_the_next_question_and_say_consent_is_asked_again(self):

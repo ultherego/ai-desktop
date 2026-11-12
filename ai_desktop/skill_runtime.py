@@ -165,13 +165,15 @@ def task_scope():
     selected = execution.current()
     registry = None
     if selected is not None and agent_profiles.CATALOG_HEADER in selected["instructions"]:
-        profile = agent_profiles.Store().load().config.profiles.get(selected["profile"])
+        stored = agent_profiles.Store().load().config.profiles.get(selected["profile"])
+        # The same resolution as agent_profiles.resolve (built-in Skills first, another distribution's Skill left out).
+        profile = None if stored is None else agent_profiles.with_presets(selected["profile"], stored)
         if profile is None or agent_profiles.catalog_for(profile) != selected["instructions"]:
             raise ValueError("Skill catalog changed")
         registry = Registry(profile.skills)
         def role_check():
             live = agent_profiles.Store().load().config.profiles.get(selected["profile"])
-            if live is None or (live.skills, live.instructions, live.access) != (profile.skills, profile.instructions, profile.access):
+            if live is None or (live.skills, live.instructions, live.access) != (stored.skills, stored.instructions, stored.access):
                 raise ValueError("Skill assignment changed")
         registry.role_check = role_check
     token = _active.set(registry)
