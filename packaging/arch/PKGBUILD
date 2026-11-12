@@ -11,7 +11,7 @@ url='https://github.com/ultherego/ai-desktop'
 license=('Apache-2.0')
 depends=('python>=3.12' 'bubblewrap' 'xdg-dbus-proxy>=0.1.9' 'systemd' 'ca-certificates' 'libseccomp' 'sudo' 'python-rich>=13.7' 'python-cryptography')
 optdepends=('claude-code: independently installed native Claude client' 'openai-codex: independently installed native Codex client'
-            'xdg-terminal-exec: open your preferred terminal from the example Niri shortcuts'
+            'xdg-terminal-exec: open your preferred terminal from the example keyboard shortcuts'
             'fish: check the syntax of fish scripts in a task'
             'python-pytest: run the offline pytest recipe' 'go: run the offline go-test recipe' 'npm: run the offline npm-test recipe')
 install=ai-desktop.install
@@ -76,7 +76,7 @@ package() {
     # Clients are installed independently. Legacy ignored
     # staging files are neither read nor included in this application artifact.
 
-    # Optional launchers and examples. The package never changes a user's Niri or DMS configuration.
+    # Optional launchers and examples. The package never changes a desktop's or a shell's configuration.
     local desktop="${root}/packaging/desktop" widget="dms/AiDesktop"
     [[ -d "${desktop}" && ! -L "${desktop}" && ! -L "${desktop}/dms" && ! -L "${desktop}/${widget}" ]] || return 1
     [[ -d "${desktop}/${widget}/usage" && ! -L "${desktop}/${widget}/usage" ]] || return 1
@@ -85,7 +85,7 @@ package() {
         [[ -f "${desktop}/${src}" && ! -L "${desktop}/${src}" ]] || return 1
         install -Dm644 "${desktop}/${src}" "${pkgdir}/usr/share/applications/${src}" || return 1
     done
-    for src in niri-bindings.kdl "${widget}"/{plugin.json,Widget.qml,Settings.qml,usage/QuotaCard.qml,usage/Status.js}; do
+    for src in shortcuts/{niri.kdl,hyprland.conf,sway-i3.conf} "${widget}"/{plugin.json,Widget.qml,Settings.qml,usage/QuotaCard.qml,usage/Status.js}; do
         [[ -f "${desktop}/${src}" && ! -L "${desktop}/${src}" ]] || return 1
         install -Dm644 "${desktop}/${src}" "${pkgdir}/usr/share/ai-desktop/${src}" || return 1
     done

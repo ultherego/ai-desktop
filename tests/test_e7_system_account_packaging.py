@@ -98,7 +98,8 @@ class SystemAccountPackagingTests(unittest.TestCase):
             for name in ("ai-desktop.desktop", "ai-desktop-panel.desktop", "ai-desktop-login-claude.desktop",
                          "ai-desktop-login-codex.desktop", "ai-desktop-logout-claude.desktop",
                          "ai-desktop-logout-codex.desktop", "ai-desktop-check-sign-in.desktop",
-                         "ai-desktop-codex-limits.desktop", "ai-desktop-codex-limits-disconnect.desktop", "niri-bindings.kdl",
+                         "ai-desktop-codex-limits.desktop", "ai-desktop-codex-limits-disconnect.desktop", "shortcuts/niri.kdl",
+                         "shortcuts/hyprland.conf", "shortcuts/sway-i3.conf",
                          "dms/AiDesktop/plugin.json", "dms/AiDesktop/Widget.qml", "dms/AiDesktop/Settings.qml",
                          "dms/AiDesktop/usage/QuotaCard.qml", "dms/AiDesktop/usage/Status.js"):
                 base = "usr/share/applications" if name.endswith(".desktop") else "usr/share/ai-desktop"
