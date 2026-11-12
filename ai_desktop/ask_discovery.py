@@ -190,6 +190,15 @@ class DiscoveryLedger:
         self.known_urls.update(step["links"])
         return step
 
+    def add_download(self, step):
+        """One downloaded (or declined, refused, failed, cancelled) file as data for the next round."""
+        document = self.document()
+        document["steps"].append(step)
+        if self._diagnostic_bytes(validate_discovery(document)) > self.limits.discovery_bytes:
+            raise BudgetExhausted("discovery_bytes")
+        self.steps.append(step)
+        return step
+
     def add_web(self, text):
         """The checked answer of this question's web search, as data for the next round (at most once)."""
         if any(step["op"] == "web" for step in self.steps):

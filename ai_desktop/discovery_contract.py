@@ -17,6 +17,7 @@ MAX_WEB_TEXT = 32 * 1024      # the checked web answer with its source list
 # A page step: opened ("ok"); the user declined a model-composed address ("declined"); the broker refused the address
 # (not https, credentials, a private or local host: "refused") or could not read it ("failed").
 PAGE_STATUSES = ("ok", "declined", "refused", "failed")
+DOWNLOAD_STATUSES = ("ok", "declined", "refused", "failed", "cancelled")
 MAX_DIRECTORIES = 4            # directories in one list step
 CEILING_ENTRIES = 512          # entries of one list/find step
 CEILING_TOTAL_ENTRIES = 1024   # entries of the whole document
@@ -232,6 +233,26 @@ def _step(value, total):
         except WebError:
             raise ValueError("discovery") from None
         return {key: (list(item) if key == "links" else item) for key, item in value.items()}
+    if op == "download":
+        # A public file the program's broker downloaded into the quarantine folder (web_download.download), or why not.
+        from .web_broker import WebError, clean_url
+        keys = ("op", "url", "status", "reason", "name", "size", "sha256", "content_type")
+        if (set(value) != set(keys) or value["status"] not in DOWNLOAD_STATUSES
+                or type(value["reason"]) is not str or not re.fullmatch(r"[a-z-]{0,20}", value["reason"])
+                or type(value["name"]) is not str or len(value["name"].encode("utf-8")) > 120
+                or type(value["size"]) is not int or value["size"] < 0
+                or type(value["sha256"]) is not str or not re.fullmatch(r"(?:[a-f0-9]{64})?", value["sha256"])
+                or type(value["content_type"]) is not str or len(value["content_type"]) > 129
+                or any(unicodedata.category(char) in ("Cc", "Cf", "Cs") for char in value["name"] + value["content_type"])
+                or (value["status"] == "ok") != bool(value["name"] and value["sha256"])
+                or value["status"] != "ok" and (value["size"] or value["content_type"])):
+            raise ValueError("discovery")
+        try:
+            if not (value["url"] == "" and value["status"] == "refused") and clean_url(value["url"]) != value["url"]:
+                raise ValueError("discovery")
+        except WebError:
+            raise ValueError("discovery") from None
+        return {key: value[key] for key in keys}
     if op == "refusal":
         if (set(value) != {"op", "code", "selectors", "limit"} or type(value["code"]) is not str
                 or value["code"] not in REFUSAL_CODES or type(value["selectors"]) is not list
@@ -335,7 +356,7 @@ def scope_ids(document):
             found.update(item["id"] for item in step["directories"])
         elif step["op"] in ("find", "content"):
             found.add(step["id"])
-        elif step["op"] in ("run", "skill", "web", "manual", "page"):
+        elif step["op"] in ("run", "skill", "web", "manual", "page", "download"):
             continue
         else:
             found.update(item["id"] for item in step["selectors"])

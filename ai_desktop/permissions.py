@@ -665,6 +665,7 @@ class Policy:
     _host_sockets: tuple = ()
     _denied_commands: tuple = ()
     _protect: bool = True
+    _downloads: bool = False
 
     def protected_locations(self):
         """The default-protected locations in force (version 2), for the owner's view; empty when switched off."""
@@ -707,6 +708,8 @@ class Policy:
         value = {"claude": self._claude, "weather": self._weather, "systemd": list(self._systemd)}
         if self._web:
             value["web"] = True
+        if self._downloads:
+            value["downloads"] = True
         return value
 
     def access(self):
@@ -716,6 +719,8 @@ class Policy:
                  "systemd": list(self._systemd), "weather": self._weather}
         if self._web:
             value["web"] = True
+        if self._downloads:
+            value["downloads"] = True
         if self._write:
             value["write"] = [{"id": "w" + str(i), "pattern": rule.original}
                               for i, rule in enumerate(self._write)]
@@ -1091,8 +1096,8 @@ def load_policy(*, optional=False):
         if type(local) is not dict or set(local) - {"port"} or not valid_local_port(local.get("port", DEFAULT_LOCAL_PORT)):
             raise _Problem("[local] accepts only a numeric loopback port between 1024 and 65535.")
         network, system = value.get("network", {}), value.get("system", {})
-        if type(network) is not dict or set(network) - {"claude", "codex", "local", "weather", "web"}:
-            raise _Problem("[network] only accepts the keys claude, codex, local, weather, web.")
+        if type(network) is not dict or set(network) - {"claude", "codex", "local", "weather", "web", "downloads"}:
+            raise _Problem("[network] only accepts the keys claude, codex, local, weather, web, downloads.")
         if any(type(flag) is not bool for flag in network.values()):
             raise _Problem("Values in [network] must be true or false.")
         if type(system) is not dict or set(system) - {"systemd"}:
@@ -1181,7 +1186,7 @@ def load_policy(*, optional=False):
                         network.get("claude", False), network.get("weather", False), tuple(systemd), value["version"],
                         network.get("web", False), file_size, part_size, network.get("codex", False), limits, commands, changes, share,
                         network.get("local", False), local.get("port", DEFAULT_LOCAL_PORT), _host_sockets=tuple(sockets), _denied_commands=denies,
-                        _protect=protect)
+                        _protect=protect, _downloads=network.get("downloads", False))
         for template in (*commands, *changes):
             for token in template[1:]:
                 if token[:1] == "/":        # templates carry absolute literal paths only (`~` is refused by the parser)

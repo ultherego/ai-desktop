@@ -138,15 +138,16 @@ class _Pinned(http.client.HTTPSConnection):
         raise WebError("network") from error
 
 
-def _get(url, context):
+def _get(url, context, extra=None, *, timeout=CONNECT_SECONDS):
     parts = urlsplit(url)
     host = parts.hostname
-    connection = _Pinned(host, timeout=CONNECT_SECONDS, context=context)
+    connection = _Pinned(host, timeout=timeout, context=context)
     target = (parts.path or "/") + ("?" + parts.query if parts.query else "")
+    headers = {"Host": parts.netloc, "User-Agent": USER_AGENT, "Accept": ", ".join(READABLE) + ";q=0.9, */*;q=0.1",
+               "Accept-Encoding": "identity", "Connection": "close"}
+    headers.update(extra or {})
     try:
-        connection.request("GET", target, headers={
-            "Host": parts.netloc, "User-Agent": USER_AGENT, "Accept": ", ".join(READABLE) + ";q=0.9, */*;q=0.1",
-            "Accept-Encoding": "identity", "Connection": "close"})
+        connection.request("GET", target, headers=headers)
         response = connection.getresponse()
         headers = response.getheaders()
         if sum(len(k) + len(v) for k, v in headers) > MAX_HEADERS:
@@ -304,9 +305,10 @@ def _worker():
         return 2
 
 
-def _sandbox(bootstrap):
+def _sandbox(bootstrap, writable=None):
     """The broker process: Bubblewrap with the network but without the home directory, user runtime directory or
-    capabilities; the system is read-only and the program's own code is the only extra mount."""
+    capabilities; the system is read-only and the program's own code is the only extra mount. A download also gets its
+    one quarantine directory, writable, at /download."""
     import shutil
     bwrap = shutil.which("bwrap", path="/usr/bin:/bin")
     code = str(Path(__file__).resolve().parents[1])
@@ -319,6 +321,7 @@ def _sandbox(bootstrap):
     return [bwrap, "--ro-bind", "/usr", "/usr", "--symlink", "usr/bin", "/bin", "--symlink", "usr/lib", "/lib",
             "--symlink", "usr/lib", "/lib64", "--symlink", "usr/bin", "/sbin", *binds,
             "--ro-bind", code, code, "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp",
+            *(["--bind", writable, "/download"] if writable else []),
             "--unshare-user", "--unshare-pid", "--unshare-ipc", "--unshare-uts", "--unshare-cgroup",
             "--die-with-parent", "--new-session", "--cap-drop", "ALL", "--clearenv",
             "--setenv", "PATH", "/usr/bin", "--setenv", "LANG", "C.UTF-8", "--setenv", "HOME", "/tmp",

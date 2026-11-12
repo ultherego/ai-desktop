@@ -49,6 +49,7 @@ def _text(value, limit, *, multiline=False):
     return value
 
 
+MAX_DOWNLOADS = 8                  # files in one download plan (one consent covers them)
 MAX_COMMAND_BYTES = 256 * 1024     # the policy file's own size limit (permissions.MAX_POLICY_BYTES)
 
 
@@ -56,11 +57,12 @@ def validate_access(value):
     """Copy only configured labels and finite source capabilities, without I/O."""
     if (type(value) is not dict or not {"files", "systemd", "weather"} <= set(value)
             or set(value) - {"files", "systemd", "weather", "write", "web", "commands", "change_commands", "project_test",
-                             "cwd"}
+                             "cwd", "downloads"}
             or type(value["files"]) is not list or len(value["files"]) > MAX_FILE_SCOPES
             or type(value["systemd"]) is not list or len(value["systemd"]) > 2
             or type(value["weather"]) is not bool
-            or "web" in value and type(value["web"]) is not bool):
+            or "web" in value and type(value["web"]) is not bool
+            or "downloads" in value and value["downloads"] is not True):
         raise ValueError("assistant-access")
     files, seen = [], set()
     for item in value["files"]:
@@ -78,6 +80,8 @@ def validate_access(value):
     result = {"files": files, "systemd": scopes, "weather": value["weather"]}
     if "web" in value:
         result["web"] = value["web"]
+    if "downloads" in value:
+        result["downloads"] = True
     if "cwd" in value:
         cwd = _text(value["cwd"], MAX_PATTERN_BYTES)
         if not result["files"] or not (cwd == "~" or cwd.startswith(("/", "~/"))) or "/../" in cwd + "/" \
@@ -218,6 +222,18 @@ def parse_plan(raw, access):
             if set(value) != {"action", "url"} or type(value["url"]) is not str or not 0 < len(value["url"]) <= 2048:
                 raise ValueError("assistant-plan")
             return {"action": "web-open", "url": value["url"]}
+        if value.get("action") == "download":
+            # Public files fetched by the program's broker into a quarantine folder after one consent. With access.downloads.
+            check = "access"
+            if access.get("downloads") is not True:
+                raise ValueError("assistant-plan")
+            check = "shape"
+            urls = value.get("urls")
+            if (set(value) != {"action", "urls"} or type(urls) is not list or not 1 <= len(urls) <= MAX_DOWNLOADS
+                    or any(type(url) is not str or not 0 < len(url) <= 2048 for url in urls)
+                    or len(set(urls)) != len(urls)):
+                raise ValueError("assistant-plan")
+            return {"action": "download", "urls": list(urls)}
         if value.get("action") == "web":
             check = "shape"
             # "continue": the search result comes back as a discovery step and the model plans local work after it

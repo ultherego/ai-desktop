@@ -344,6 +344,91 @@ def _open_page(ledger, url, reader, selected, snapshot):
     _add_page(ledger, step, snapshot)
 
 
+def _download(ledger, urls, reader, selected, snapshot, permit=None):
+    """S10 stage B: public files into a fresh quarantine folder, after one consent for the whole set. An address that did
+    not come from the user, the search or an opened page is marked. Nothing is run, unpacked or installed; every file
+    (also a refusal) is a discovery step for the next round."""
+    from . import web_download
+    from .web_broker import WebError, clean_url
+
+    def step(url, status, reason="", found=None):
+        found = found or {}
+        _add_download(ledger, {"op": "download", "url": url, "status": status, "reason": reason,
+                               "name": found.get("name", ""), "size": found.get("size", 0),
+                               "sha256": found.get("sha256", ""), "content_type": found.get("content_type", "")},
+                      snapshot)
+    clean = []
+    for url in urls:
+        try:
+            clean.append(clean_url(url))
+        except WebError:
+            print(paint("  %s Download refused (not a public https address): %s"
+                        % (symbol("skip"), terminal_text(url[:200])), "muted"))
+            step("", "refused", "url")
+    clean = list(dict.fromkeys(clean))
+    if not clean:
+        return
+    print("Download into a quarantine folder (files are not run, unpacked or installed):")
+    for url in clean:
+        print("  " + terminal_text(url) + ("" if url in ledger.known_urls else
+                                           paint("  (address composed by the model)", "yellow")))
+    if not confirm("download", reader=reader, config=selected):
+        for url in clean:
+            step(url, "declined")
+        return
+    try:
+        folder = web_download.quarantine()
+    except (OSError, WebError):
+        for url in clean:
+            step(url, "failed", "space")
+        print(paint("  %s Could not create the quarantine folder." % symbol("fail"), "red"))
+        return
+    with permit.waiting() if permit is not None else nullcontext():
+        _fetch_all(ledger, clean, folder, step)
+    print("Quarantine folder: " + terminal_text(folder))
+
+
+def _fetch_all(ledger, clean, folder, step):
+    """The approved files one after another; time spent here is the user's chosen transfer, not the question's."""
+    from urllib.parse import urlsplit
+    from . import web_download
+    from .web_broker import WebError
+    stopped = False
+    for url in clean:
+        if stopped:
+            step(url, "cancelled", "cancelled")
+            continue
+        shown = os.path.basename(urlsplit(url).path) or url
+        def progress(size, shown=shown):
+            print(paint("  %s %s · %s so far" % (symbol("dot"), terminal_text(shown[:80]), size_label(size)), "muted"),
+                  flush=True)
+        try:
+            found = web_download.download(url, folder, progress=progress)
+        except KeyboardInterrupt:
+            stopped = True
+            print(paint("  %s Download cancelled; the partial file was removed." % symbol("skip"), "muted"))
+            step(url, "cancelled", "cancelled")
+            continue
+        except WebError as error:
+            status = "refused" if error.code in ("url", "address") else "cancelled" if error.code == "cancelled" else "failed"
+            print(paint("  %s %s · %s (%s)" % (symbol("skip"), terminal_text(url[:160]), status, error.code), "muted"))
+            step(url, status, error.code if error.code in web_download.CODES else "response")
+            continue
+        print(paint("  %s %s · %s · sha256 %s" % (symbol("ok"), terminal_text(found["name"]), size_label(found["size"]),
+                                                 found["sha256"][:16]), "muted"))
+        conversation_state.note_action("Downloaded %s (%d bytes, sha256 %s) into %s"
+                                       % (found["final_url"], found["size"], found["sha256"], folder), read=True)
+        step(url, "ok", "", found)
+
+
+def _add_download(ledger, step, snapshot):
+    try:
+        ledger.add_download(step)
+    except ask_discovery.BudgetExhausted as exhausted:
+        if not ledger.soft_stop(exhausted.name):
+            _budget_stop(snapshot.policy, exhausted.name)
+
+
 def _add_page(ledger, step, snapshot):
     try:
         ledger.add_page(step)
@@ -658,7 +743,7 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                                     "the model continues without it." % symbol("skip"), "muted"))
                         continue
                     break
-                if following["action"] not in ("list", "find", "run", "skill", "read", "read-range", "search-content", "manual", "web-open", "answer", "edit", "delete", "move", "copy", "project-test"):
+                if following["action"] not in ("list", "find", "run", "skill", "read", "read-range", "search-content", "manual", "web-open", "download", "answer", "edit", "delete", "move", "copy", "project-test"):
                     raise PlanError("action")
                 return following
 
@@ -753,6 +838,11 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                 if plan["action"] == "web-open":
                     progress("collect")
                     _open_page(ledger, plan["url"], reader, selected, snapshot)
+                    plan = next_plan()
+                    continue
+                if plan["action"] == "download":
+                    progress("collect")
+                    _download(ledger, plan["urls"], reader, selected, snapshot, permit)
                     plan = next_plan()
                     continue
                 if plan["action"] == "manual":
