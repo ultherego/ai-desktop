@@ -14,6 +14,7 @@ import secrets
 import stat
 
 from . import materials
+from .analysis_contract import terminal_text
 from . import permissions
 
 MAX_FILES = 20000
@@ -43,7 +44,8 @@ class ProjectError(ValueError):
 
 
 class TestScopeRefused(ProjectError):
-    """Local-only diagnostics derived from authorized metadata; never includes a filename."""
+    """Local-only diagnostics for the owner's terminal (limits, and the names of the owner's own files that block a test
+    copy); they are printed, never sent to a model or kept in the conversation."""
 
     def __init__(self, *details):
         super().__init__("TEST_SIZE")
@@ -245,11 +247,17 @@ class Project:
                                 f"(permissions.toml [files] {key} = {configured}; fixed copy ceiling = {ceiling}).")
         if exceeded:
             raise TestScopeRefused(*exceeded)
+        named = []
         for entry in self.files:
             try:
                 copy_contract.path(entry.path)
             except ValueError:
-                raise ProjectError("TEST_FORMAT") from None
+                named.append(entry.path)
+        if named:
+            # Shown to the owner only (never sent): which entries keep the copy from being made.
+            raise TestScopeRefused(*(["%d indexed file name(s) are not supported in a test copy (spaces, @, + and "
+                                      "other characters outside letters, digits, . _ - /), for example:" % len(named)]
+                                     + ["  " + terminal_text(path) for path in named[:5]]))
         return self.files
 
     def test_copy(self, approved):
@@ -268,7 +276,9 @@ class Project:
                 if permissions.contains_private_key(text):
                     raise ValueError("private key")
             except ValueError:
-                raise ProjectError("TEST_FORMAT") from None
+                # Shown to the owner only: the first file whose content cannot go into a test copy.
+                raise TestScopeRefused("A test copy holds plain UTF-8 text only; this file is binary, not UTF-8, has "
+                                       "control characters or holds a private key: " + terminal_text(entry.path)) from None
             files[entry.path] = text
         self.scan()
         if self.test_selection() != approved:

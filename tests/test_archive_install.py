@@ -229,6 +229,10 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(caught.exception.check, "archive")                  # correctable, not the end of the question
         self.assertIsNone(a.label("/etc/passwd"))
         self.assertIsNone(a.label(FOLDER + "/sub/package.zip"))
+        short = dict(install, archive=FOLDER.rsplit("/", 1)[1] + "/package.zip")          # just <id>/<name>
+        self.assertEqual(assistant_contract.parse_plan(json.dumps(short), self.ACCESS), install)
+        self.assertEqual(a.label("downloads/" + FOLDER.rsplit("/", 1)[1] + "/package.zip"), FOLDER + "/package.zip")
+        self.assertIsNone(a.label("package.zip"))
         without = dict(self.ACCESS)
         del without["downloads"]
         for access, value in ((without, inspect), (self.ACCESS, dict(inspect, archive="~/package.zip")),
