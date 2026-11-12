@@ -67,6 +67,21 @@ class AskContentTests(Base):
         self.assertFalse(final["complete"])
         self.assertLess(sum(len(json.dumps(request).encode()) for request in self.wire), 65536)
 
+    def test_a_file_that_is_not_utf8_is_a_correction_for_the_model_and_a_marked_whole_read(self):
+        path = self.home / ".config/legacy.txt"
+        path.write_bytes(b"caf\xe9 and more\n")
+        self.file("other.txt", "additional facts\n")
+        final_read = json.dumps({"action": "read", "files": [sel("legacy.txt"), sel("other.txt")], "systemd": [],
+                                 "weather": None})
+        answer = self.run_flow([self.ranges(path="legacy.txt"), final_read, ANSWER],
+                               question="Read legacy.txt and other.txt")
+        self.assertEqual(answer, ANSWER)
+        refusal = self.wire[1]["discovery"]["steps"][-1]
+        self.assertEqual((refusal["op"], refusal["code"]), ("refusal", "files-text"))     # the question goes on
+        contents = {item["path"].rsplit("/", 1)[1]: item["content"] for item in self.wire[-1]["context"][0]["files"]}
+        self.assertTrue(contents["legacy.txt"].startswith("[AI Desktop: 1 character(s)"))
+        self.assertEqual(contents["other.txt"], "additional facts\n")
+
     def test_selected_excerpts_survive_into_the_final_answer_request(self):
         self.file("large.log", "one\ntwo\nthree\n")
         self.file("other.txt", "additional facts\n")

@@ -4,6 +4,7 @@
 
 - **Install a downloaded file** that is not an archive (a `.jar`, an image, a document) into a folder you allow: plan, one yes, never overwritten or made executable, undo with `task restore`.
 - **Long questions can go on:** when a question uses up its steps, commands, pages or downloads, AI Desktop asks whether to continue instead of stopping; answer `n` and the model answers from what it has.
+- **Files with odd characters** (an old encoding, terminal colour codes) no longer end a question that reads several files: the unreadable characters are shown as `�` and counted; such files still cannot be edited.
 
 ## 0.1.0-168: project tests with any files, stricter plans
 

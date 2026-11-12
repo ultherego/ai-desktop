@@ -882,7 +882,11 @@ class PolicyTests(unittest.TestCase):
         with patch.object(p.os, "fstat", side_effect=foreign_owner):
             self.assertEqual(self.assert_code(lambda: p.read_selected(policy, [str(target)])), "files-owner")
         target.write_bytes(b"not text\xff")
-        self.assertEqual(self.assert_code(lambda: p.read_selected(policy, [str(target)])), "files-text")
+        self.assertEqual(self.assert_code(lambda: p.read_selected(policy, [str(target)])), "files-text")  # for an edit
+        target.write_bytes(b"caf\xe9\x0cnext\x1b[0m\u202e".replace(b"\\u202e", "\u202e".encode()))
+        read = p.read_selected(policy, [str(target)], lossy=True)["files"][0]["content"]  # for an answer: marked, not refused
+        self.assertTrue(read.startswith("[AI Desktop: 3 character(s) of this file were not plain UTF-8 text"))
+        self.assertIn("caf\ufffd\nnext\ufffd[0m\ufffd", read)
         with patch.object(p, "_identity", return_value=(self.uid + 1, str(self.home))):
             self.assertEqual(self.assert_code(lambda: p.read_selected(policy, [str(target)])), "policy-changed")
         self.config.write_bytes(self.config.read_bytes().replace(b'version = 2', b'version = 1'))
