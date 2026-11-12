@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.0-167: safer moves, copies, installs and downloads
+
+- **Every file counts:** moving, copying or installing a folder now checks every file inside it against your `deny` rules and the protected locations, not only the folder itself.
+- **Shared disks:** on a folder other accounts may write to, AI Desktop never removes or publishes a folder someone swapped in during a copy or an installation.
+- **Interrupted changes** (Ctrl-C, a damaged archive) always leave a correct history, and an undo that was blocked can be tried again.
+- **Downloads:** addresses with non-English letters work, an interrupted transfer is never taken for a complete file, slow servers get a real 60-second pause before a retry, and a file name ending in `.part` no longer hangs.
+- **Archives:** decompression bombs are refused sooner, and zip files made on Windows install normally.
+- **Clearer messages:** `/test` names the file that blocks the test copy; questions that need a search search first.
+
 ## 0.1.0-166: downloads, installing archives, moving files
 
 - **Downloading public files** with `downloads = true`: you see the list of addresses and approve it once; files go into a private quarantine folder, only when complete, with their size and SHA-256. Nothing downloaded is run.
