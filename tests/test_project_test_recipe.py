@@ -130,6 +130,26 @@ class ProjectTestRecipeTests(unittest.TestCase):
         self.assertIsNone(self.session.test_project("pytest"))
         self.runner.assert_not_called()
 
+    def test_the_files_that_block_a_test_copy_are_named_but_never_an_excluded_one(self):
+        (self.root / "notes with space.txt").write_text("synthetic\n")
+        (self.root / "private" / "bad name@x.txt").write_text("synthetic-private\n")      # denied: never named
+        with contextlib.chdir(self.root):
+            result = project_checks.current("pytest", lambda _: self.fail("asked to run a refused copy"))
+        self.assertEqual(result.code, 2)
+        output = self.output.getvalue()
+        self.assertIn("1 indexed file name(s) are not supported in a test copy", output)
+        self.assertIn("notes with space.txt", output)
+        self.assertNotIn("bad name@x.txt", output)
+        (self.root / "notes with space.txt").unlink()
+        (self.root / "data.bin").write_bytes(b"\xff\xfe\x00")
+        self.output.seek(0)
+        self.output.truncate()
+        with contextlib.chdir(self.root):
+            project_checks.current("pytest", lambda _: "yes")
+        self.assertIn("this file is binary, not UTF-8", self.output.getvalue())
+        self.assertIn("data.bin", self.output.getvalue())
+        self.runner.assert_not_called()
+
     def test_reports_all_exceeded_fixed_ceilings_without_exposing_excluded_files(self):
         self.config.write_text(self.policy + "test_copy_files = 64\ntest_copy_file_size = 65536\ntest_copy_total_size = 131072\n")
         for relative in ("scripts/verify.py", "ai_desktop/cli.py", "packaging/arch/PKGBUILD"):

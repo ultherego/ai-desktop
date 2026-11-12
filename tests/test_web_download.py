@@ -93,8 +93,9 @@ class StreamTests(unittest.TestCase):
 class HeaderTests(unittest.TestCase):
     def test_only_a_strong_etag_or_a_date_can_prove_the_same_bytes(self):
         self.assertEqual(d._validator(Headers(ETag='"abc"')), {"etag": '"abc"'})
-        self.assertEqual(d._validator(Headers(ETag='W/"abc"', Last_Modified="Wed, 21 Oct 2026 07:28:00 GMT")),
-                         {"last_modified": "Wed, 21 Oct 2026 07:28:00 GMT"})
+        self.assertIsNone(d._validator(Headers(ETag='W/"abc"', Last_Modified="Wed, 21 Oct 2026 07:28:00 GMT")))
+        self.assertEqual(d._validator(Headers(Last_Modified="Wed, 21 Oct 2026 07:28:00 GMT")),
+                         {"last_modified": "Wed, 21 Oct 2026 07:28:00 GMT"})          # a date only without any ETag
         self.assertIsNone(d._validator(Headers(ETag='W/"abc"')))
         self.assertIsNone(d._validator(Headers()))
 
@@ -236,6 +237,7 @@ class FlowTests(unittest.TestCase):
     def setUp(self):
         self.ledger = Mock()
         self.ledger.known_urls = {URL}
+        self.ledger.files_left = 16
         self.steps = []
         self.ledger.add_download.side_effect = self.steps.append
         self.enterContext(contextlib.redirect_stdout(io.StringIO()))
@@ -251,6 +253,22 @@ class FlowTests(unittest.TestCase):
         self.assertNotIn("composed by the model", out.getvalue().split(URL)[1].splitlines()[0])
         self.assertEqual([(s["status"], s["url"]) for s in self.steps],
                          [("refused", ""), ("declined", URL), ("declined", other)])
+
+    def test_the_file_limit_is_checked_before_asking_or_connecting(self):
+        self.ledger.files_left = 1
+        self.ledger.soft_stop.return_value = True
+        with patch.object(assistant_flow, "confirm") as confirm, patch.object(d, "download") as download:
+            assistant_flow._download(self.ledger, [URL, URL + "?2"], Mock(), None, Mock())
+        confirm.assert_not_called()
+        download.assert_not_called()
+        self.ledger.soft_stop.assert_called_once_with("downloads")
+
+    def test_time_spent_on_the_download_question_is_not_the_questions_time(self):
+        permit = Mock()
+        permit.waiting.return_value = contextlib.nullcontext()
+        with patch.object(assistant_flow, "confirm", return_value=False):
+            assistant_flow._download(self.ledger, [URL], Mock(), None, Mock(), permit)
+        permit.waiting.assert_called()
 
     def test_approved_files_become_steps_and_ctrl_c_cancels_the_rest(self):
         found = {"url": URL, "final_url": URL, "name": "tool.tar.gz", "size": 7, "sha256": "a" * 64,
@@ -288,6 +306,62 @@ class PolicyTests(unittest.TestCase):
         path.write_text("version = 2\n[network]\ndownloads = 1\n[files]\nread = []\ndeny = []\n", encoding="utf-8")
         with self.assertRaises(ValueError):
             permissions.load_policy()
+
+
+class ReviewFindingTests(unittest.TestCase):
+    """Regressions from the code review of stages A and B."""
+
+    def setUp(self):
+        home = pwd.getpwuid(os.getuid()).pw_dir
+        self.folder = self.enterContext(tempfile.TemporaryDirectory(prefix="ai-download-", dir=home))
+
+    def test_a_part_name_never_loops_and_never_looks_unfinished(self):
+        self.assertEqual(d.safe_name("notes.part", URL), "notes.part_")
+        Path(self.folder, "notes.part_").write_text("x")
+        self.assertEqual(d._unique(self.folder, "notes.part_"), "notes (2).part_")
+
+    def test_names_stay_within_the_limit_and_keep_a_compound_extension(self):
+        long = d.safe_name("a" * 130 + ".tar.gz", URL)
+        self.assertTrue(long.endswith(".tar.gz"))
+        self.assertLessEqual(len(long.encode()), d.MAX_NAME)
+        Path(self.folder, long).write_text("x")
+        second = d._unique(self.folder, long)
+        self.assertTrue(second.endswith(" (2).tar.gz"))
+        self.assertLessEqual(len(second.encode()), d.MAX_NAME)
+
+    def test_a_cut_chunk_or_tls_stream_is_incomplete(self):
+        import http.client
+
+        class Cut:
+            def read(self, size):
+                raise http.client.IncompleteRead(b"partial")
+        fd, path = tempfile.mkstemp(dir=self.folder)
+        self.addCleanup(os.close, fd)
+        with self.assertRaises(d.DownloadError) as caught:
+            d.stream(Cut(), fd, start=0, expected=None, free=lambda: 10 ** 12, margin=1)
+        self.assertEqual(caught.exception.code, "incomplete")
+
+    def test_the_whole_file_time_limit_is_not_tried_again(self):
+        calls = []
+
+        def run(request, folder, watched):
+            calls.append(request)
+            return {"error": "timeout", "size": 0, "validator": None, "final": True}
+        with self.assertRaises(d.DownloadError) as caught:
+            d.download(URL, self.folder, run=run)
+        self.assertEqual((caught.exception.code, len(calls)), ("timeout", 1))
+
+
+class BrokerReviewTests(unittest.TestCase):
+    def test_addresses_are_ascii_and_deviation_hosts_are_refused(self):
+        from ai_desktop import web_broker
+        self.assertEqual(web_broker.clean_url("https://pl.example.org/wiki/\u017b\u00f3\u0142w"),
+                         "https://pl.example.org/wiki/%C5%BB%C3%B3%C5%82w")
+        self.assertEqual(web_broker.clean_url("https://pl.example.org/wiki/%C5%BB"), "https://pl.example.org/wiki/%C5%BB")
+        with self.assertRaises(web_broker.WebError):
+            web_broker.clean_url("https://fa\u00df.example/")
+        with patch("shutil.which", return_value="/usr/bin/bwrap"):
+            self.assertIn("--disable-userns", web_broker._sandbox("pass"))
 
 
 if __name__ == "__main__":

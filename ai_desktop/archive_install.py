@@ -25,6 +25,16 @@ import unicodedata
 import zipfile
 import zlib
 
+try:                                            # Python 3.14 reads zstd; a corrupt stream raises its own error type
+    from compression.zstd import ZstdError as _ZstdError
+except ImportError:
+    class _ZstdError(Exception):
+        pass
+
+# What a damaged or unusual archive may raise while it is read: always a refusal, never an unexpected error.
+READ_ERRORS = (zipfile.BadZipFile, tarfile.TarError, EOFError, lzma.LZMAError, zlib.error, gzip.BadGzipFile,
+               NotImplementedError, _ZstdError)
+
 from . import task_workspace as tw
 from .fs_publish import rename_noreplace
 from .workspace_executor import ExecutionDenied, _parent
@@ -39,18 +49,22 @@ EXECUTABLE = (".exe", ".dll", ".so", ".dylib", ".jar", ".sh", ".bash", ".zsh", "
               ".ps1", ".bat", ".cmd", ".vbs", ".js", ".mjs", ".lua", ".appimage", ".run", ".bin", ".msi", ".com",
               ".scr", ".apk", ".deb", ".rpm", ".desktop", ".service")
 REASONS = ("format", "encrypted", "path", "link", "type", "duplicate", "count", "depth", "size", "bomb", "space",
-           "exists", "missing", "workspace", "archive", "changed")
+           "exists", "missing", "workspace", "archive", "changed", "denied", "mount", "full", "top")
 _LABEL = re.compile(r"~/\.local/state/ai-desktop/downloads/[0-9]{8}-[0-9]{6}-[a-f0-9]{8}/[^/\x00]{1,120}\Z")
-_WRITTEN = re.compile(r"(?:~|/[^\x00]{1,1024}?)(/\.local/state/ai-desktop/downloads/[0-9]{8}-[0-9]{6}-[a-f0-9]{8}/[^/\x00]{1,120})\Z")
+_WRITTEN = re.compile(r"(?:[^\x00]{0,1024}/)?([0-9]{8}-[0-9]{6}-[a-f0-9]{8}/[^/\x00]{1,120})\Z")
 
 
 def label(value):
-    """The quarantine label of an archive however the model wrote it (`~/...` or the full path the user saw); None
-    when it does not name a file of the download quarantine. Only this user's own quarantine is ever read."""
-    if type(value) is not str:
+    """The quarantine label of an archive however the model wrote it (`~/...`, the full path the user saw, or just
+    `<download id>/<name>`); None when it does not end in a download id and a file name. Whatever comes before the id
+    is ignored: only this account's own quarantine is ever read."""
+    if type(value) is not str or any(unicodedata.category(c) in ("Cc", "Cf", "Cs") for c in value):
         return None
     match = _WRITTEN.fullmatch(value)
-    return "~" + match.group(1) if match and _LABEL.fullmatch("~" + match.group(1)) else None
+    if match and len(match.group(1).rsplit("/", 1)[1].encode("utf-8", "surrogatepass")) > 120:
+        return None
+    candidate = "~/.local/state/ai-desktop/downloads/" + match.group(1) if match else None
+    return candidate if candidate and _LABEL.fullmatch(candidate) else None
 
 
 class ArchiveDenied(ExecutionDenied):
@@ -129,9 +143,18 @@ def clean_name(raw):
     return name
 
 
-def _entries(handle, form):
-    """[(name, is_dir, size, mode, source)] of the archive, each name checked; `source` opens the entry's data."""
+def _entries(handle, form, packed=0):
+    """[(name, is_dir, size, mode, source)] of the archive, each name checked; `source` opens the entry's data. The
+    declared size is summed while listing, so a tar bomb is refused before its whole stream is decompressed."""
     found = []
+    declared = [0]
+
+    def account(size):
+        declared[0] += size
+        if declared[0] > MAX_BYTES:
+            raise ArchiveDenied("size")
+        if declared[0] > BOMB_FLOOR and declared[0] > MAX_RATIO * max(packed, 1):
+            raise ArchiveDenied("bomb")
     if form == "zip":
         try:
             archive = zipfile.ZipFile(handle)
@@ -140,16 +163,18 @@ def _entries(handle, form):
         for info in archive.infolist():
             if info.flag_bits & 0x1:
                 raise ArchiveDenied("encrypted")
-            unix = info.external_attr >> 16
-            if unix and (stat.S_ISLNK(unix) or not (stat.S_ISREG(unix) or stat.S_ISDIR(unix))):
+            # The Unix mode is meaningful only from a Unix system; type bits 0 mean a plain entry (Python's writestr).
+            unix = info.external_attr >> 16 if info.create_system == 3 else 0
+            if stat.S_IFMT(unix) and (stat.S_ISLNK(unix) or not (stat.S_ISREG(unix) or stat.S_ISDIR(unix))):
                 raise ArchiveDenied("link" if stat.S_ISLNK(unix) else "type")
             directory = info.is_dir()
+            account(0 if directory else info.file_size)
             found.append((clean_name(info.filename), directory, 0 if directory else info.file_size,
                           stat.S_IMODE(unix), (lambda info=info: archive.open(info))))
         return found, archive
     try:
         archive = tarfile.open(fileobj=handle, mode="r:*")
-    except (tarfile.TarError, OSError, ValueError, EOFError, lzma.LZMAError):
+    except (OSError, ValueError) + READ_ERRORS:
         raise ArchiveDenied("format") from None
     try:
         for member in archive:
@@ -159,11 +184,12 @@ def _entries(handle, form):
                 raise ArchiveDenied("type")
             if member.name in ("", ".", "./"):
                 continue
+            account(0 if member.isdir() else member.size)
             found.append((clean_name(member.name), member.isdir(), 0 if member.isdir() else member.size,
                           member.mode & 0o7777, (lambda member=member: archive.extractfile(member))))
             if len(found) > MAX_ENTRIES:
                 raise ArchiveDenied("count")
-    except (tarfile.TarError, OSError, EOFError, lzma.LZMAError, zlib.error):
+    except (OSError,) + READ_ERRORS:
         raise ArchiveDenied("format") from None
     return found, archive
 
@@ -172,9 +198,11 @@ def _checked(entries, packed):
     """The whole listing at once: no duplicates, no file where a folder is needed, bounded count, size and ratio."""
     if len(entries) > MAX_ENTRIES:
         raise ArchiveDenied("count")
-    files, folders = {}, set()
+    files, folders, explicit = {}, set(), set()
     for name, directory, size, _, _ in entries:
-        if name in files or (directory and name in folders) or (not directory and name in folders):
+        # A folder entry may come after its own contents (many tools write it that way); only a repeated folder entry,
+        # a name used twice for files, or a file where a folder is needed is a duplicate.
+        if name in files or (directory and name in explicit) or (not directory and name in folders):
             raise ArchiveDenied("duplicate")
         parents = name.split("/")[:-1]
         for index in range(1, len(parents) + 1):
@@ -184,6 +212,7 @@ def _checked(entries, packed):
             folders.add(prefix)
         if directory:
             folders.add(name)
+            explicit.add(name)
         else:
             if any(other.startswith(name + "/") for other in folders):
                 raise ArchiveDenied("duplicate")
@@ -209,7 +238,7 @@ def _executable(name, mode, source):
     try:
         with source() as data:
             return data.read(4).startswith(PROGRAM_MAGIC)
-    except (OSError, ValueError, EOFError, zipfile.BadZipFile, tarfile.TarError, lzma.LZMAError, zlib.error):
+    except (OSError, ValueError) + READ_ERRORS:
         return True                                       # unreadable: say so rather than call it a plain file
 
 
@@ -224,7 +253,7 @@ def inspect(path):
             raise ArchiveDenied("format")
         if form == "tar.zst" and not hasattr(tarfile.TarFile, "zstopen"):
             raise ArchiveDenied("format")                   # this Python cannot read zstd (it can from 3.14)
-        entries, archive = _entries(handle, form)
+        entries, archive = _entries(handle, form, packed)
         try:
             files, folders, total = _checked(entries, packed)
             risky = sorted(name for name, directory, _, mode, source in entries
@@ -234,36 +263,52 @@ def inspect(path):
     if not files and not folders:
         raise ArchiveDenied("format")
     top = sorted({name.split("/")[0] for name in list(files) + list(folders)})
+    names = sorted(set(files) | folders)
     return {"format": form, "files": len(files), "folders": len(folders), "bytes": total, "top": top[:32],
             "top_count": len(top), "single": len(top) == 1 and top[0] in folders,
-            "executables": len(risky), "examples": risky[:8]}
+            "executables": len(risky), "examples": risky[:8], "names": names}
 
 
 def _unpack(path, parent_fd, staging, expected):
-    """Unpack into the new folder `staging` in parent_fd through no-follow handles; real bytes are counted."""
-    os.mkdir(staging, 0o755, dir_fd=parent_fd)
+    """Unpack into the new private folder `staging` in parent_fd through no-follow handles, one folder handle open at a
+    time; real bytes are counted against each declared size. Returns the staging folder's identity from creation."""
+    os.mkdir(staging, 0o700, dir_fd=parent_fd)
+    made = tw.identity(os.stat(staging, dir_fd=parent_fd, follow_symlinks=False))
     root = os.open(staging, tw.DIR, dir_fd=parent_fd)
-    opened = {"": root}
+    current = ["", None]
 
     def folder(relative):
-        if relative in opened:
-            return opened[relative]
-        head, _, leaf = relative.rpartition("/")
-        holder = folder(head)
+        """The folder `relative` below the staging root, created when missing; the previous one is closed."""
+        if current[0] == relative and current[1] is not None:
+            return current[1]
+        if current[1] is not None:
+            os.close(current[1])
+            current[1] = None
+        fd = os.dup(root)
         try:
-            os.mkdir(leaf, 0o755, dir_fd=holder)
-        except FileExistsError:
-            pass
-        opened[relative] = os.open(leaf, tw.DIR, dir_fd=holder)
-        return opened[relative]
-    written = 0
+            for part in [p for p in relative.split("/") if p]:
+                try:
+                    os.mkdir(part, 0o755, dir_fd=fd)
+                except FileExistsError:
+                    pass
+                child = os.open(part, tw.DIR, dir_fd=fd)
+                os.close(fd)
+                fd = child
+        except BaseException:
+            os.close(fd)
+            raise
+        current[0], current[1] = relative, fd
+        return fd
     try:
+        if tw.identity(os.fstat(root)) != made:
+            raise ArchiveDenied("changed")
         with _open(path) as handle:
             form = kind(handle.read(512))
             handle.seek(0)
-            entries, archive = _entries(handle, form)
+            packed = os.fstat(handle.fileno()).st_size
+            entries, archive = _entries(handle, form, packed)
             try:
-                files, _, total = _checked(entries, os.fstat(handle.fileno()).st_size)
+                files, _, total = _checked(entries, packed)
                 if total != expected["bytes"] or len(files) != expected["files"]:
                     raise ArchiveDenied("changed")
                 for name, directory, size, _, source in entries:
@@ -293,30 +338,40 @@ def _unpack(path, parent_fd, staging, expected):
                         os.fsync(out)
                     finally:
                         os.close(out)
-                    written += size
             finally:
                 archive.close()
-    except (zipfile.BadZipFile, tarfile.TarError, EOFError, lzma.LZMAError, zlib.error, gzip.BadGzipFile):
+        os.fchmod(root, 0o755)
+    except READ_ERRORS:
         raise ArchiveDenied("format") from None
     finally:
-        for fd in opened.values():
-            os.close(fd)
-    return written
+        if current[1] is not None:
+            os.close(current[1])
+        os.close(root)
+    return made
 
 
 # -- the plan and the installation -------------------------------------------------------------------------------------
 
-def prepare(workspace, label, archive_path, to, *, clock=time.monotonic):
+def prepare(workspace, label, archive_path, to, *, clock=time.monotonic, policy=None, index=None):
     """Check the archive and the destination BEFORE the owner's question; nothing is written. With one top-level
-    folder the archive creates `to/<that folder>`; otherwise it creates the new folder `to` itself."""
+    folder the archive creates `to/<that folder>`; otherwise it creates the new folder `to` itself. With `policy`,
+    every path the archive would create is checked against the write rule `index`, deny rules and the default
+    protection."""
     facts = inspect(archive_path)
     if to != ".":
         to = transfer.path(to)
     single = facts["single"]
+    if not single and to == ".":
+        raise ArchiveDenied("top")                          # several top entries need a new folder of their own
     target = (facts["top"][0] if to == "." else to + "/" + facts["top"][0]) if single else to
-    if target == ".":
-        raise ArchiveDenied("exists")
     target = transfer.path(target)
+    if policy is not None:
+        inside = [name.split("/", 1)[1] if single and "/" in name else ("" if single else name)
+                  for name in facts["names"]]
+        for relative in {""} | set(inside):
+            destination = workspace + "/" + target + ("/" + relative if relative else "")
+            if not policy.can_write(destination, index=index) or policy.excludes(destination):
+                raise ArchiveDenied("denied")
     root = tw._root(workspace)
     try:
         try:
@@ -332,15 +387,19 @@ def prepare(workspace, label, archive_path, to, *, clock=time.monotonic):
             holder = os.fstat(parent)
             if holder.st_uid != os.geteuid():
                 raise ArchiveDenied("workspace")
+            if holder.st_dev != os.fstat(root).st_dev:
+                raise ArchiveDenied("mount")                        # undo keeps the installation in the workspace state
             free = os.statvfs(parent)
             if facts["bytes"] + transfer.SPACE_MARGIN > free.f_bavail * free.f_frsize:
                 raise ArchiveDenied("space")
             archive = os.stat(archive_path, follow_symlinks=False)
+            inspection = {key: value for key, value in facts.items() if key != "names"}
             data = {"workspace": workspace, "root": tw.identity(os.fstat(root)), "operation": "install",
                     "from": label, "to": target, "kind": "folder", "entry": tw.identity(archive),
                     "files": facts["files"], "folders": facts["folders"], "bytes": facts["bytes"],
                     "target_parent": tw.identity(holder), "plan": secrets.token_hex(16),
-                    "archive": archive_path, "single": single, "inspection": facts, "sha256": _digest(archive_path)}
+                    "archive": archive_path, "single": single, "inspection": inspection,
+                    "sha256": _digest(archive_path)}
             return transfer.TransferPlan(data, clock=clock)
         finally:
             os.close(parent)
@@ -373,38 +432,55 @@ def execute(prepared, authorization):
                 raise ArchiveDenied("changed")
             state = tw._state_dir(root, create=True)
             try:
+                try:
+                    transfer._journal_room(state)
+                except transfer.TransferDenied:
+                    raise ArchiveDenied("full") from None
+                name = transfer._journal_name(plan)
                 journal = {"schema": 1, "plan": plan, "workspace": workspace, "operation": "install",
                            "from": before["from"], "to": before["to"], "kind": "folder", "entry": before["entry"],
                            "files": before["files"], "bytes": before["bytes"], "status": "prepared"}
-                tw._save(state, transfer._journal_name(plan), journal, first=True)
+                tw._save(state, name, journal, first=True)
                 staging = ".ai-desktop-copy-" + plan
+                made, published = None, False
                 try:
                     try:
-                        _unpack(before["archive"], parent, staging, before["inspection"])
+                        made = _unpack(before["archive"], parent, staging, before["inspection"])
                         if before["single"]:
-                            # the archive's one top folder becomes the destination; the staging folder is then empty
+                            # The archive's one top folder becomes the destination. The private staging folder (0700,
+                            # checked by identity) is then empty and removed.
                             inner = os.open(staging, tw.DIR, dir_fd=parent)
                             try:
-                                rename_noreplace(inner, before["inspection"]["top"][0], parent, leaf)
+                                if tw.identity(os.fstat(inner)) != made:
+                                    raise ArchiveDenied("changed")
+                                top = before["inspection"]["top"][0]
+                                entry = tw.identity(os.stat(top, dir_fd=inner, follow_symlinks=False))
+                                rename_noreplace(inner, top, parent, leaf)
+                                published = tw.identity(os.stat(leaf, dir_fd=parent, follow_symlinks=False)) == entry
                             finally:
                                 os.close(inner)
-                            os.rmdir(staging, dir_fd=parent)
+                            if not published:
+                                raise ArchiveDenied("changed")
+                            transfer._discard_staging(parent, staging, made)
                         else:
-                            rename_noreplace(parent, staging, parent, leaf)
+                            published = transfer.publish(parent, staging, leaf, made)
+                            if not published:
+                                raise ArchiveDenied("changed")
                         os.fsync(parent)
                     except BaseException:
-                        transfer._discard_staging(parent, staging)
+                        if not published:
+                            transfer._discard_staging(parent, staging, made)
                         raise
                     journal["entry"] = tw.identity(os.stat(leaf, dir_fd=parent, follow_symlinks=False))
-                    journal["status"] = "done"
-                    tw._save(state, transfer._journal_name(plan), journal)
-                except (OSError, ValueError, ExecutionDenied) as error:
-                    journal["status"] = "failed"
-                    tw._save(state, transfer._journal_name(plan), journal)
+                    transfer.finish(state, name, journal, True)
+                except BaseException as error:
+                    transfer.finish(state, name, journal, published, error)
                     if isinstance(error, OSError) and getattr(error, "errno", None) == 17:
                         raise ArchiveDenied("exists") from None
                     if isinstance(error, OSError) and getattr(error, "errno", None) == 28:
                         raise ArchiveDenied("space") from None
+                    if isinstance(error, READ_ERRORS):
+                        raise ArchiveDenied("format") from None
                     raise
             finally:
                 os.close(state)

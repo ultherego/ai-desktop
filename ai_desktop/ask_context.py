@@ -106,7 +106,10 @@ def _weather(city, args, reader, *, check=lambda: None, question_consent=None):
 def _offer_to_remember(city, reader):
     """After a city typed for a question without one: remember it locally, only on an explicit yes."""
     from . import local_settings
-    answer = _read("Remember " + terminal_text(city) + " for weather questions without a city? [y/n]: ", reader, 16)
+    try:
+        answer = _read("Remember " + terminal_text(city) + " for weather questions without a city? [y/n]: ", reader, 16)
+    except ValueError:
+        answer = ""                                      # an unreadable or long answer is a no, never the end of the answer
     if answer.casefold() in ("y", "yes"):
         try:
             local_settings.set_weather_city(city)

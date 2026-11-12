@@ -10,6 +10,7 @@ missing part; otherwise the file starts again from zero. Downloaded files are pr
 and nothing is run, unpacked or installed here (stage C does inspection and installation).
 """
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path
@@ -41,10 +42,11 @@ class DownloadError(WebError):
 # -- the broker side (runs in the sandbox) -----------------------------------------------------------------------------
 
 def _validator(response):
-    """A strong ETag, or a Last-Modified date: what If-Range may carry. A weak ETag cannot prove the same bytes."""
+    """A strong ETag, or a Last-Modified date when the server sent no ETag at all: what If-Range may carry (RFC 9110).
+    A weak ETag cannot prove the same bytes, so it disables resuming."""
     etag = (response.getheader("ETag") or "").strip()
-    if etag and not etag.startswith("W/") and len(etag) <= 256 and etag.isprintable():
-        return {"etag": etag}
+    if etag:
+        return {"etag": etag} if not etag.startswith("W/") and len(etag) <= 256 and etag.isprintable() else None
     modified = (response.getheader("Last-Modified") or "").strip()
     if modified and len(modified) <= 64 and modified.isprintable():
         return {"last_modified": modified}
@@ -82,8 +84,8 @@ def stream(response, fd, *, start, expected, free, limit=MAX_FILE, margin=MARGIN
             block = response.read(CHUNK)
         except TimeoutError:
             raise DownloadError("timeout") from None
-        except OSError:
-            raise DownloadError("incomplete") from None
+        except (OSError, http.client.HTTPException):
+            raise DownloadError("incomplete") from None    # a reset, a cut TLS stream or a cut chunk: resumable
         if not block:
             break
         if written + len(block) > limit or (expected is not None and written + len(block) > expected):
@@ -141,8 +143,10 @@ def _worker():
         try:
             if response.status == 206 and offset:
                 match = _RANGE.fullmatch((response.getheader("Content-Range") or "").strip())
-                if not match or int(match.group(1)) != offset or match.group(3) == "*":
-                    raise DownloadError("response")       # not exactly the missing part: start again from zero
+                if (not match or int(match.group(1)) != offset or match.group(3) == "*"
+                        or int(match.group(2)) != int(match.group(3)) - 1
+                        or _validator(response) not in (None, validator)):
+                    raise DownloadError("response")       # not exactly the missing rest of the same version
                 expected = int(match.group(3))
             elif 200 <= response.status < 300 and response.status != 206:
                 offset = 0
@@ -182,7 +186,9 @@ def _worker():
         return 0
     except WebError as exc:
         code = exc.code if exc.code in CODES else "response"
-    except (OSError, ValueError, TypeError):
+    except (http.client.IncompleteRead, http.client.RemoteDisconnected):
+        code = "incomplete"
+    except (OSError, ValueError, TypeError, http.client.HTTPException):
         code = "response"
     os.write(1, json.dumps({"error": code, "size": state["size"], "validator": state["validator"]}).encode())
     return 2
@@ -206,28 +212,43 @@ def quarantine(home=None):
     return str(folder)
 
 
+MAX_NAME = 120
+_EXTENSION = re.compile(r"(.+?)(\.tar\.(?:gz|xz|zst|bz2)|\.[^.]{1,16})?\Z", re.DOTALL)
+
+
+def _fit(stem, extension, suffix=""):
+    """stem + suffix + extension within MAX_NAME UTF-8 bytes; only the stem is shortened (a .tar.gz stays whole)."""
+    while stem and len((stem + suffix + extension).encode("utf-8")) > MAX_NAME:
+        stem = stem[:-1]
+    return (stem.rstrip(" .") or "download") + suffix + extension
+
+
 def safe_name(raw, url):
     """A plain file name from the server's suggestion or the address: no directories, no leading dot, no control
-    characters, at most 120 bytes; "download" when nothing usable is left."""
+    characters, at most 120 bytes, never ending in .part (the name of an unfinished file); "download" when nothing
+    usable is left."""
     candidate = raw if type(raw) is str and raw.strip() else unquote(urlsplit(url).path.rsplit("/", 1)[-1])
     candidate = candidate.replace("\\", "/").rsplit("/", 1)[-1]
     candidate = "".join(c if (c.isalnum() or c in "._-+() ") and c.isprintable() else "_" for c in candidate)
     candidate = candidate.strip(" .")
-    while len(candidate.encode("utf-8")) > 120:
-        stem, dot, extension = candidate.rpartition(".")
-        candidate = (stem[:-1] + dot + extension) if dot and len(extension) <= 16 and stem else candidate[:-1]
-    return candidate or "download"
+    if candidate.endswith(".part"):
+        candidate += "_"
+    if not candidate:
+        return "download"
+    stem, extension = _EXTENSION.fullmatch(candidate).groups()
+    extension = extension or ""
+    if len(extension.encode("utf-8")) > 40:
+        stem, extension = candidate, ""
+    return _fit(stem, extension)
 
 
 def _unique(folder, name):
-    match = re.fullmatch(r"(.+?)(\.tar\.(?:gz|xz|zst|bz2)|\.[^.]{1,16})?", name)
-    stem, extension = match.group(1), match.group(2) or ""
-    dot = ""
-    if extension:
-        dot, extension = ".", extension[1:]
+    """The name, or `stem (N).ext` within MAX_NAME bytes, that does not exist in the folder yet."""
+    stem, extension = _EXTENSION.fullmatch(name).groups()
+    extension = extension or ""
     candidate, number = name, 2
-    while os.path.lexists(os.path.join(folder, candidate)) or candidate.endswith(".part"):
-        candidate = "%s (%d)%s%s" % (stem, number, dot, extension)
+    while os.path.lexists(os.path.join(folder, candidate)):
+        candidate = _fit(stem, extension, " (%d)" % number)
         number += 1
     return candidate
 
@@ -246,7 +267,9 @@ def _run(request, folder, cancelled):
     except AnalysisDenied as exc:
         if exc.reason == "cancelled":
             return {"error": "cancelled", "size": 0, "validator": None}
-        return {"error": "timeout" if exc.reason == "timeout" else "network", "size": 0, "validator": None}
+        if exc.reason == "timeout":            # the whole-file limit, not a stalled read: never tried again
+            return {"error": "timeout", "size": 0, "validator": None, "final": True}
+        return {"error": "network", "size": 0, "validator": None}
     except OSError:
         return {"error": "network", "size": 0, "validator": None}
     try:
@@ -303,7 +326,7 @@ def download(url, folder, *, cancelled=None, progress=None, run=_run):
             if code == "cancelled" or (cancelled is not None and cancelled()):
                 raise DownloadError("cancelled")
             fresh = _checked_validator(value.get("validator"))
-            if code in ("incomplete", "timeout", "network") and attempt + 1 < ATTEMPTS:
+            if code in ("incomplete", "timeout", "network") and attempt + 1 < ATTEMPTS and value.get("final") is not True:
                 # Resume only with a validator the server gave for these bytes; otherwise start again from zero.
                 offset, validator = (size, fresh) if fresh is not None and size > 0 else (0, None)
                 continue

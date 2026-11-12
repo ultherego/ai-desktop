@@ -67,6 +67,8 @@ def _root(workspace):
                 nxt = os.open(component, DIR, dir_fd=fd)
                 os.close(fd)
                 fd = nxt
+                if os.fstat(fd).st_uid not in (0, uid):
+                    raise ValueError("root owner")      # a folder of another account on the way could be swapped
             info = os.fstat(fd)
             # Your own folder, whatever its mode (a shared disk may be 0777): every write below goes through opened,
             # no-follow handles and re-checked identities, so another account cannot redirect it.

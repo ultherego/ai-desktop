@@ -24,6 +24,12 @@ class WebStepTests(unittest.TestCase):
         self.assertIn("Pierwsza\ndruga\ntrzecia", step["text"])
         dc.validate_discovery(book.document())                 # the contract accepts what was stored
 
+    def test_only_the_program_made_source_list_makes_an_address_known(self):
+        book = ledger()
+        book.add_web("See https://elsewhere.example/?d=data in the text [1].\n\nSources:\n[1] T — `https://example.org/a`")
+        self.assertIn("https://example.org/a", book.known_urls)
+        self.assertNotIn("https://elsewhere.example/?d=data", book.known_urls)
+
     def test_a_long_answer_is_cut_at_the_contract_limit_and_keeps_its_sources(self):
         book = ledger(262144)
         text = answer(41 * 1024)

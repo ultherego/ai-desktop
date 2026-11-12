@@ -196,6 +196,8 @@ class InstallTests(Base):
         path = self.zip("package-1.0.zip", {"package/notes.txt": b"notes", "package/run.sh": b"#!/bin/sh\n"})
         policy = Mock(home=str(self.home))
         policy.write_scopes.return_value = ()
+        policy.excludes.return_value = False
+        policy.can_write.return_value = True
         snapshot = Mock(policy=policy, access={"write": [{"id": "w0", "pattern": "~/project/**"}]})
         plan = {"action": "install", "archive": self.label(path), "write": "w0", "to": "target"}
         for answer, code in ((False, 2), (True, 0)):
@@ -210,6 +212,60 @@ class InstallTests(Base):
             self.assertEqual((self.workspace / "target/package/notes.txt").exists(), answer)
             if answer:
                 self.assertIn("ai-desktop task restore --workspace", out.getvalue())
+
+
+class ReviewFindingTests(Base):
+    """Regressions from the code review of stage C."""
+
+    def policy(self, deny=()):
+        from ai_desktop import permissions
+        rule = permissions._rule(str(self.workspace) + "/**", str(self.home), version=2)
+        return permissions.Policy(uid=os.getuid(), home=str(self.home), _raw=b"", _identity=(), _read=(rule,),
+                                  _deny=tuple(permissions._rule(str(self.workspace) + "/" + d, str(self.home), version=2)
+                                              for d in deny), _write=(rule,), _version=2)
+
+    def test_a_folder_entry_after_its_contents_and_a_plain_zip_entry_are_fine(self):
+        path = self.zip("ordered.zip", {"package/notes.txt": b"x", "package/": b""})
+        self.assertEqual(a.inspect(str(path))["files"], 1)
+        plain = self.quarantine / "plain.zip"
+        with zipfile.ZipFile(plain, "w") as archive:
+            archive.writestr("package/notes.txt", "x")                       # no file-type bits in the mode
+        plain.chmod(0o600)
+        self.assertEqual(a.inspect(str(plain))["files"], 1)
+
+    def test_an_installation_into_a_denied_folder_is_refused(self):
+        path = self.zip("package-1.0.zip", {"package/private/notes.txt": b"x", "package/notes.txt": b"y"})
+        with self.assertRaises(a.ArchiveDenied) as caught:
+            a.prepare(str(self.workspace), self.label(path), str(path), "target",
+                      policy=self.policy(deny=("target/package/private/",)), index=0)
+        self.assertEqual(caught.exception.reason, "denied")
+        a.prepare(str(self.workspace), self.label(path), str(path), "target", policy=self.policy(), index=0)
+
+    def test_several_top_entries_into_the_scope_itself_name_the_real_reason(self):
+        path = self.tar("bundle.tar.gz", {"a.txt": b"a", "b.txt": b"b"})
+        with self.assertRaises(a.ArchiveDenied) as caught:
+            a.prepare(str(self.workspace), self.label(path), str(path), ".")
+        self.assertEqual(caught.exception.reason, "top")
+
+    def test_a_tar_bomb_is_refused_while_listing(self):
+        path = self.tar("bomb.tar.xz", {"package/zero.bin": b"\0" * 400000}, "w:xz")
+        with patch.object(a, "BOMB_FLOOR", 1000), self.assertRaises(a.ArchiveDenied) as caught:
+            with open(path, "rb") as handle:
+                a._entries(handle, "tar.xz", path.stat().st_size)
+        self.assertEqual(caught.exception.reason, "bomb")
+
+    def test_an_unreadable_entry_or_ctrl_c_leaves_a_failed_journal_and_nothing_installed(self):
+        path = self.zip("package-1.0.zip", {"package/notes.txt": b"notes"})
+        for error, expected in ((NotImplementedError("method 9"), a.ArchiveDenied), (KeyboardInterrupt(), KeyboardInterrupt)):
+            with self.subTest(error=type(error).__name__):
+                prepared = a.prepare(str(self.workspace), self.label(path), str(path), "target")
+                with patch.object(zipfile.ZipFile, "open", side_effect=error), self.assertRaises(expected):
+                    a.execute(prepared, prepared.authorize())
+                plan = prepared.data()["plan"]
+                journal = json.loads((self.workspace / ".ai-desktop-tasks" / (plan + ".transfer.json")).read_text())
+                self.assertEqual(journal["status"], "failed")
+                self.assertFalse((self.workspace / "target/package").exists())
+                self.assertFalse([n for n in os.listdir(self.workspace / "target") if n.startswith(".ai-desktop-copy-")])
 
 
 class ContractTests(unittest.TestCase):
@@ -229,6 +285,12 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(caught.exception.check, "archive")                  # correctable, not the end of the question
         self.assertIsNone(a.label("/etc/passwd"))
         self.assertIsNone(a.label(FOLDER + "/sub/package.zip"))
+        short = dict(install, archive=FOLDER.rsplit("/", 1)[1] + "/package.zip")          # just <id>/<name>
+        self.assertEqual(assistant_contract.parse_plan(json.dumps(short), self.ACCESS), install)
+        self.assertEqual(a.label("downloads/" + FOLDER.rsplit("/", 1)[1] + "/package.zip"), FOLDER + "/package.zip")
+        self.assertIsNone(a.label("package.zip"))
+        self.assertIsNone(a.label(FOLDER + "/ex\u200bample.zip"))
+        self.assertIsNone(a.label(FOLDER + "/" + "\u0444" * 70 + ".zip"))                   # over 120 bytes
         without = dict(self.ACCESS)
         del without["downloads"]
         for access, value in ((without, inspect), (self.ACCESS, dict(inspect, archive="~/package.zip")),

@@ -569,6 +569,13 @@ class Controls:
         always = profiles.with_presets(name, profiles.Profile()).skills       # built-in Skills of this agent
         chosen = list(profile.skills if self.skills is None else self.skills)
         chosen = list(always) + [item for item in chosen if item not in always]
+        # A built-in Skill of another distribution (cachyos outside CachyOS) is not applied, so it is not shown as on.
+        preset = profiles.PRESET_SKILLS.get(name, ())
+        offered = set(profiles.for_this_distribution(preset))
+        chosen = [item for item in chosen if item not in preset or item in offered]
+        if value in preset and value not in offered:
+            print("%s is for another distribution and is not used on this system." % value)
+            return
         if value:
             if value in always:
                 print("%s is a built-in Skill of the %s agent and is always on." % (value, name))

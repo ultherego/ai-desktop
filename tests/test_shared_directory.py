@@ -34,6 +34,8 @@ class SharedDirectoryTests(unittest.TestCase):
         self.assertIsNone(self.shared(HOME + "/projects/example", policy(read=("~/projects/example/*",))))   # not recursive
         self.assertIsNone(self.shared(HOME + "/projects/example", real="/elsewhere"))     # reached through a link
         self.assertIsNone(flow.shared_directory(None))
+        self.assertIsNone(self.shared(HOME + "/projects/a\u200db"))                         # the contract refuses it
+        self.assertIsNone(self.shared(HOME + "/" + "/".join(["x" * 60] * 10)))                # over 512 bytes
         with patch.object(flow.os, "getcwd", side_effect=FileNotFoundError()):
             self.assertIsNone(flow.shared_directory(policy()))
 

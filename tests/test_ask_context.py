@@ -127,6 +127,18 @@ class AskContextTests(unittest.TestCase):
                 self.assertEqual(calls, remembered)
                 self.geocode.assert_called_with("Example City")
 
+    def test_a_long_answer_to_the_remember_question_is_a_no(self):
+        permit, _ = self.permit()
+        self.geocode.return_value = [LOCATION]
+        self.current.return_value = WEATHER
+        replies = iter(["Example City", "yes, please remember it for me"])
+        with patch("ai_desktop.local_settings.weather_city", return_value=None), \
+                patch("ai_desktop.local_settings.set_weather_city") as remember:
+            result = ask_context._weather(ask_context.HERE, options(), lambda prompt: next(replies),
+                                          question_consent=permit)
+        self.assertIs(result, WEATHER)
+        remember.assert_not_called()
+
     def test_an_unknown_city_is_one_clear_message_without_the_command_line_hint(self):
         permit, _ = self.permit()
         self.geocode.return_value = []
