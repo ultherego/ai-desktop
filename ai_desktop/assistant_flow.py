@@ -101,6 +101,25 @@ def _usable_writes(policy, access):
     return {**trimmed, "write": usable} if usable else trimmed
 
 
+def shared_directory(policy):
+    """The directory the user started the program in, for relative paths in a question, written like the scope
+    patterns (~ for the home directory). Shared only when a recursive read scope already lets the model list it and no
+    deny rule or default protection covers it; otherwise None and it stays local."""
+    if type(policy) is not permissions.Policy:
+        return None
+    try:
+        root = os.getcwd()
+        if (not root.startswith("/") or os.path.realpath(root) != root or not policy.allows(root + "/_")
+                or policy.excludes(root) or policy._protected(root)
+                or not any(s.mode == "tree" and (root == s.base or root.startswith(s.base + "/")) for s in policy.scopes())):
+            return None
+        if root == policy.home or root.startswith(policy.home + "/"):
+            return "~" + root[len(policy.home):]
+        return root
+    except (OSError, ValueError):
+        return None
+
+
 def capture_access():
     try:
         policy = permissions.load_policy(optional=True)
@@ -114,6 +133,9 @@ def capture_access():
         access = {"files": [], "systemd": [], "weather": False}
     else:
         sources, access = policy.sources(), _usable_writes(policy, policy.access())
+        directory = shared_directory(policy)
+        if directory is not None:
+            access = {**access, "cwd": directory}
     from .execution import current
     selected = current()
     if selected is not None and selected["provider"] in ("codex", "local"):
@@ -129,7 +151,7 @@ def capture_access():
     else:
         from .project_checks import current_directory
         if current_directory(policy) is not None:
-            access = {**access, "project_test": True}  # capability only; cwd stays local
+            access = {**access, "project_test": True}  # capability only; the test runs locally
     return AccessSnapshot(policy, sources, validate_access(access),
                           "claude" if selected is None else selected["provider"])
 

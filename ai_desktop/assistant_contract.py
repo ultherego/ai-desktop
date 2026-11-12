@@ -55,7 +55,8 @@ MAX_COMMAND_BYTES = 256 * 1024     # the policy file's own size limit (permissio
 def validate_access(value):
     """Copy only configured labels and finite source capabilities, without I/O."""
     if (type(value) is not dict or not {"files", "systemd", "weather"} <= set(value)
-            or set(value) - {"files", "systemd", "weather", "write", "web", "commands", "change_commands", "project_test"}
+            or set(value) - {"files", "systemd", "weather", "write", "web", "commands", "change_commands", "project_test",
+                             "cwd"}
             or type(value["files"]) is not list or len(value["files"]) > MAX_FILE_SCOPES
             or type(value["systemd"]) is not list or len(value["systemd"]) > 2
             or type(value["weather"]) is not bool
@@ -77,6 +78,12 @@ def validate_access(value):
     result = {"files": files, "systemd": scopes, "weather": value["weather"]}
     if "web" in value:
         result["web"] = value["web"]
+    if "cwd" in value:
+        cwd = _text(value["cwd"], MAX_PATTERN_BYTES)
+        if not result["files"] or not (cwd == "~" or cwd.startswith(("/", "~/"))) or "/../" in cwd + "/" \
+                or "/./" in cwd + "/" or "//" in cwd:
+            raise ValueError("assistant-access")
+        result["cwd"] = cwd
     if "project_test" in value:
         if value["project_test"] is not True or not result["files"]:
             raise ValueError("assistant-access")

@@ -33,6 +33,8 @@ All `true`/`false`, default `false`.
 
 Rule forms: `~/x` one file, `~/x/*` files directly in it, `~/x/` or `~/x/**` the whole tree.
 
+The model gets the rules as written, not the files. It also gets the directory you started the program in (e.g. `~/Projects/example`), so that `notes/todo.txt` in a question means a file there; only when a whole-tree `read` rule covers that directory and no `deny` rule or default protection does. Elsewhere it stays on the computer.
+
 Limits (default → highest allowed):
 
 - `file_size`: largest local text file to inspect, `"32MiB"` → `"64MiB"`.
