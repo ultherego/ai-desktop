@@ -150,7 +150,7 @@ def _tree(parent, leaf, *, read=False, names=None):
                     else:
                         raise TransferDenied("type")             # a link, device, socket or FIFO inside
                     if names is not None:
-                        names.append(inner)
+                        names.append(inner + "/" if stat.S_ISDIR(child.st_mode) else inner)
                     if files + folders > MAX_FILES:
                         raise TransferDenied("size")
             finally:
@@ -169,7 +169,7 @@ def _authorized(policy, index, workspace, source, target, names, operation):
     move, writable; the destination inside the chosen write rule and not denied. None of it is ever skipped."""
     if policy is None:
         return
-    for relative in [""] + names:
+    for relative in [""] + [name.rstrip("/") for name in names]:
         tail = "/" + relative if relative else ""
         source_path, target_path = workspace + "/" + source + tail, workspace + "/" + target + tail
         if not policy.allows(source_path) or policy.excludes(source_path) or not policy.can_write(target_path, index=index):
@@ -236,7 +236,7 @@ def prepare(workspace, operation, source, target, *, clock=time.monotonic, polic
             data = {"workspace": workspace, "root": tw.identity(os.fstat(root)), "operation": operation,
                     "from": source, "to": target, "kind": kind, "entry": tw.identity(info), "files": files,
                     "folders": folders, "bytes": size, "target_parent": tw.identity(target_dir),
-                    "plan": secrets.token_hex(16)}
+                    "plan": secrets.token_hex(16), "manifest": sorted(names)}
             return TransferPlan(data, clock=clock)
         finally:
             os.close(src_parent)
@@ -273,10 +273,12 @@ def _copy_file(src_dir, name, dst_dir, target):
         os.close(source)
 
 
-def _copy_tree(src_parent, src_leaf, dst_parent, staging, *, files=None, size=None):
+def _copy_tree(src_parent, src_leaf, dst_parent, staging, *, manifest=None, size=None):
     """Recreate the file or folder under `staging` in dst_parent; links and special files refuse the copy. Returns the
-    staging entry's identity, taken right after it was created. With `files`/`size` (the approved plan) a source that
-    grew after the plan is refused rather than copied in full."""
+    staging entry's identity, taken right after it was created. With `manifest` (the approved plan's entries, folders
+    ending in "/") any entry that is not exactly one of them refuses the copy, and with `size` a source that grew
+    after the plan is refused rather than copied in full."""
+    allowed = None if manifest is None else set(manifest)
     info, kind = _held(src_parent, src_leaf)
     if kind == "file":
         _copy_file(src_parent, src_leaf, dst_parent, staging)
@@ -299,8 +301,11 @@ def _copy_tree(src_parent, src_leaf, dst_parent, staging, *, files=None, size=No
                     for name in sorted(os.listdir(source)):
                         child = os.stat(name, dir_fd=source, follow_symlinks=False)
                         entries += 1
-                        if files is not None and entries > files + MAX_FILES:
-                            raise TransferDenied("changed")
+                        inner = relative + "/" + name if relative else name
+                        if allowed is not None and (inner + "/" if stat.S_ISDIR(child.st_mode) else inner) not in allowed:
+                            raise TransferDenied("changed")      # not an entry the owner approved (or its type changed)
+                        if entries > MAX_FILES:
+                            raise TransferDenied("size")
                         if stat.S_ISDIR(child.st_mode):
                             os.mkdir(name, stat.S_IMODE(child.st_mode) & 0o755 | 0o700, dir_fd=target)
                             pending.append(relative + "/" + name if relative else name)
@@ -397,6 +402,10 @@ def execute(prepared, authorization):
             info, _ = _held(src_parent, src_leaf)
             if tw.identity(info) != before["entry"] or tw.identity(os.fstat(dst_parent)) != before["target_parent"]:
                 raise TransferDenied("changed")
+            now = []
+            _tree(src_parent, src_leaf, read=before["operation"] == "copy", names=now)
+            if sorted(now) != before["manifest"]:
+                raise TransferDenied("changed")                    # the tree is not the one the owner approved
             state = tw._state_dir(root, create=True)
             try:
                 _journal_room(state)
@@ -423,7 +432,7 @@ def execute(prepared, authorization):
                         made = None
                         try:
                             made = _copy_tree(src_parent, src_leaf, dst_parent, staging,
-                                              files=before["files"] + before.get("folders", 0), size=before["bytes"])
+                                              manifest=before["manifest"], size=before["bytes"])
                             published = publish(dst_parent, staging, dst_leaf, made)
                             if not published:
                                 raise TransferDenied("changed")

@@ -122,33 +122,41 @@ class ProjectTestRecipeTests(unittest.TestCase):
         self.runner.assert_not_called()
 
     def test_unsupported_or_incomplete_copies_never_run_a_smaller_suite(self):
-        (self.root / "unsupported").write_bytes(b"\xff\xff")
+        (self.root / "secret").write_bytes(b"\xff\x00-----BEGIN OPENSSH PRIVATE KEY-----\nsynthetic\n")
         self.assertIsNone(self.session.test_project("pytest"))
         self.runner.assert_not_called()
-        (self.root / "unsupported").unlink()
+        (self.root / "secret").unlink()
         (self.root / "large").write_bytes(b"a" * (8 * 1024 * 1024 + 1))
         self.assertIsNone(self.session.test_project("pytest"))
         self.runner.assert_not_called()
 
     def test_the_files_that_block_a_test_copy_are_named_but_never_an_excluded_one(self):
-        (self.root / "notes with space.txt").write_text("synthetic\n")
-        (self.root / "private" / "bad name@x.txt").write_text("synthetic-private\n")      # denied: never named
-        with contextlib.chdir(self.root):
-            result = project_checks.current("pytest", lambda _: self.fail("asked to run a refused copy"))
-        self.assertEqual(result.code, 2)
-        output = self.output.getvalue()
-        self.assertIn("1 indexed file name(s) are not supported in a test copy", output)
-        self.assertIn("notes with space.txt", output)
-        self.assertNotIn("bad name@x.txt", output)
-        (self.root / "notes with space.txt").unlink()
-        (self.root / "data.bin").write_bytes(b"\xff\xfe\x00")
+        from ai_desktop import copy_contract
+        for good in ("assets with space/ż@ółw+1.png", "po/en@quot.header", "lib/c++defs.h", ".github/x.yml"):
+            self.assertEqual(copy_contract.path(good), good)
+        for bad in ("a/../b", "/abs", "a//b", "bad\x07name", "a\u202eb", ".ai-desktop-tasks/x", ".ai-desktop-copy-1/x"):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                copy_contract.path(bad)
+        (self.root / "private" / "key.pem").write_text("-----BEGIN OPENSSH PRIVATE KEY-----\n")    # denied: never named
+        (self.root / "key.pem").write_text("-----BEGIN OPENSSH PRIVATE KEY-----\nsynthetic\n")
         self.output.seek(0)
         self.output.truncate()
         with contextlib.chdir(self.root):
             project_checks.current("pytest", lambda _: "yes")
-        self.assertIn("this file is binary, not UTF-8", self.output.getvalue())
-        self.assertIn("data.bin", self.output.getvalue())
+        self.assertIn("never takes a private key", self.output.getvalue())
+        self.assertIn("key.pem", self.output.getvalue())
+        self.assertNotIn("private/key.pem", self.output.getvalue())
         self.runner.assert_not_called()
+
+    def test_binary_assets_and_real_folder_names_are_copied_byte_for_byte(self):
+        (self.root / "assets with space").mkdir()
+        (self.root / "assets with space" / "ż@ółw+1.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00\xff")
+        with contextlib.chdir(self.root):
+            result = project_checks.current("pytest", lambda _: "yes")
+        self.assertEqual(result.code, 0)
+        files = self.runner.call_args.args[0]
+        self.assertEqual(files["assets with space/ż@ółw+1.png"], b"\x89PNG\r\n\x1a\n\x00\xff")
+        self.assertIsInstance(files["test_calc.py"], str)
 
     def test_reports_all_exceeded_fixed_ceilings_without_exposing_excluded_files(self):
         self.config.write_text(self.policy + "test_copy_files = 64\ntest_copy_file_size = 65536\ntest_copy_total_size = 131072\n")

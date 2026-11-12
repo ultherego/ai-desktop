@@ -255,8 +255,8 @@ class Project:
                 named.append(entry.path)
         if named:
             # Shown to the owner only (never sent): which entries keep the copy from being made.
-            raise TestScopeRefused(*(["%d indexed file name(s) are not supported in a test copy (spaces, @, + and "
-                                      "other characters outside letters, digits, . _ - /), for example:" % len(named)]
+            raise TestScopeRefused(*(["%d indexed file name(s) are not supported in a test copy (control or "
+                                      "invisible characters, or a name reserved by the program), for example:" % len(named)]
                                      + ["  " + terminal_text(path) for path in named[:5]]))
         return self.files
 
@@ -271,15 +271,14 @@ class Project:
                                               max(1, entry.size), expected_identity=entry.identity)
             if len(raw) != entry.size:
                 raise ProjectError("TEST_CHANGED")
+            if permissions.contains_private_key(raw.decode("utf-8", "replace")):
+                # Shown to the owner only: a secret never goes into a test copy, text or not.
+                raise TestScopeRefused("A test copy never takes a private key; this file holds one: "
+                                       + terminal_text(entry.path))
             try:
-                text = copy_contract.file_text(raw.decode("utf-8"))
-                if permissions.contains_private_key(text):
-                    raise ValueError("private key")
+                files[entry.path] = copy_contract.file_text(raw.decode("utf-8"))
             except ValueError:
-                # Shown to the owner only: the first file whose content cannot go into a test copy.
-                raise TestScopeRefused("A test copy holds plain UTF-8 text only; this file is binary, not UTF-8, has "
-                                       "control characters or holds a private key: " + terminal_text(entry.path)) from None
-            files[entry.path] = text
+                files[entry.path] = raw               # any other file (an image, a fixture) is copied byte for byte
         self.scan()
         if self.test_selection() != approved:
             raise ProjectError("TEST_CHANGED")

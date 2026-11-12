@@ -143,6 +143,35 @@ def clean_name(raw):
     return name
 
 
+MAX_ZIP_DIRECTORY = 32 * 1024 * 1024     # bytes of a zip central directory: 20000 entries with long names fit easily
+
+
+def _zip_directory(handle):
+    """(entries, central directory bytes) from the end record (ZIP64 when present), read BEFORE zipfile parses the
+    directory, so an archive that announces too many entries or a huge directory is refused without building it."""
+    import struct
+    handle.seek(0, os.SEEK_END)
+    end = handle.tell()
+    handle.seek(max(0, end - 65557))
+    tail = handle.read()
+    at = tail.rfind(b"PK\x05\x06")
+    if at < 0 or len(tail) - at < 22:
+        raise ArchiveDenied("format")
+    entries, size = struct.unpack("<HI", tail[at + 10:at + 16])
+    if entries == 0xFFFF or size == 0xFFFFFFFF:
+        locator = tail.rfind(b"PK\x06\x07", 0, at)
+        if locator < 0 or at - locator < 20:
+            raise ArchiveDenied("format")
+        (record,) = struct.unpack("<Q", tail[locator + 8:locator + 16])
+        handle.seek(record)
+        zip64 = handle.read(56)
+        if len(zip64) < 56 or zip64[:4] != b"PK\x06\x06":
+            raise ArchiveDenied("format")
+        entries, size = struct.unpack("<QQ", zip64[32:48])
+    handle.seek(0)
+    return entries, size
+
+
 def _entries(handle, form, packed=0):
     """[(name, is_dir, size, mode, source)] of the archive, each name checked; `source` opens the entry's data. The
     declared size is summed while listing, so a tar bomb is refused before its whole stream is decompressed."""
@@ -156,6 +185,11 @@ def _entries(handle, form, packed=0):
         if declared[0] > BOMB_FLOOR and declared[0] > MAX_RATIO * max(packed, 1):
             raise ArchiveDenied("bomb")
     if form == "zip":
+        entries, directory = _zip_directory(handle)
+        if entries > MAX_ENTRIES:
+            raise ArchiveDenied("count")
+        if directory > MAX_ZIP_DIRECTORY:
+            raise ArchiveDenied("size")
         try:
             archive = zipfile.ZipFile(handle)
         except (zipfile.BadZipFile, OSError, ValueError):
