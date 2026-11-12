@@ -553,6 +553,12 @@ def catalog_for(selected):
     return _text("\n\n".join(parts), MAX_EXECUTION_INSTRUCTIONS)
 
 
+def for_this_distribution(names):
+    """The distribution's own Skill only where os-release names it: CachyOS advice does not belong on plain Arch."""
+    from .distro import is_cachyos
+    return tuple(name for name in names if name != "cachyos" or is_cachyos())
+
+
 def with_presets(name, selected):
     """The built-in Skills of a built-in profile are always on: the installed preset Skills come first, then the
     owner's own additions. A Skill that is not installed is left out rather than failing the role."""
@@ -564,11 +570,11 @@ def with_presets(name, selected):
         installed = set(skills.names())
     except (OSError, ValueError):
         return selected
-    # The distribution's own Skill only where os-release names it: CachyOS advice does not belong on plain Arch.
-    from .distro import is_cachyos
-    applicable = {skill for skill in preset if skill != "cachyos" or is_cachyos()}
+    applicable = set(for_this_distribution(preset))
     always = tuple(skill for skill in preset if skill in installed and skill in applicable)
-    merged = always + tuple(skill for skill in selected.skills if skill not in always)
+    # A preset Skill for another distribution stays out even though the stored profile lists it.
+    merged = always + tuple(skill for skill in selected.skills
+                            if skill not in always and (skill not in preset or skill in applicable))
     return selected if merged == selected.skills else replace(selected, skills=merged)
 
 

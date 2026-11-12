@@ -405,5 +405,27 @@ class BoundedSkillTests(unittest.TestCase):
             skills.inspect_skill(self.root, "demo")
 
 
+class DistributionSkillTests(unittest.TestCase):
+    def test_the_cachyos_skill_is_offered_only_where_os_release_names_cachyos(self):
+        from unittest.mock import patch
+        from ai_desktop import distro
+        names = ("concise-assistant", "arch", "cachyos", "desktop")
+        for values, expected in (({"ID": "cachyos", "ID_LIKE": "arch"}, names),
+                                 ({"ID": "arch"}, ("concise-assistant", "arch", "desktop")),
+                                 ({"ID": "ubuntu", "ID_LIKE": "debian"}, ("concise-assistant", "arch", "desktop")),
+                                 ({}, ("concise-assistant", "arch", "desktop"))):
+            with self.subTest(values=values), patch.object(distro, "current", return_value=values):
+                self.assertEqual(profiles.for_this_distribution(names), expected)
+
+    def test_a_stored_profile_listing_cachyos_does_not_offer_it_on_another_distribution(self):
+        from unittest.mock import patch
+        from ai_desktop import distro
+        stored = profiles.defaults().profiles["default"]
+        self.assertIn("cachyos", stored.skills)
+        for values, offered in (({"ID": "cachyos", "ID_LIKE": "arch"}, True), ({"ID": "arch"}, False)):
+            with self.subTest(values=values), patch.object(distro, "current", return_value=values):
+                self.assertEqual("cachyos" in profiles.with_presets("default", stored).skills, offered)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -109,7 +109,10 @@ class CiAnalysisGuardTests(unittest.TestCase):
                 for name, profile in store.load().config.entries:
                     with self.subTest(profile=name):
                         selected = agent_profiles.resolve(profile=name, store=store)
-                        for skill in profile.skills:
+                        offered = agent_profiles.for_this_distribution(profile.skills)
+                        for skill in set(profile.skills) - set(offered):            # another distribution's Skill
+                            self.assertNotIn("- " + skill + ":", selected["instructions"])
+                        for skill in offered:
                             self.assertIn("- " + skill + ":", selected["instructions"])
                             snapshot = skills.bundle(skill)
                             for reference in snapshot["references"]:

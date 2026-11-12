@@ -151,7 +151,10 @@ def install(temp, file_home):
     # stdin. Freeze this exact default catalog before entering the namespace;
     # the fixture must not accept arbitrary role text or read host Skills there.
     from ai_desktop import agent_profiles
+    import dataclasses
     selected = agent_profiles.defaults().profiles["default"]
+    # The same distribution rule as the running program: the CI runner is not CachyOS.
+    selected = dataclasses.replace(selected, skills=agent_profiles.for_this_distribution(selected.skills))
     execution_expected = {"provider": selected.provider, "model": selected.model, "effort": selected.effort,
                           "instructions": agent_profiles.catalog_for(selected), "profile": "default",
                           "access": selected.access}

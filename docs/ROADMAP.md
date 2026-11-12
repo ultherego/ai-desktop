@@ -285,6 +285,7 @@ Earlier dated entries preserve the evidence and status at that point. The latest
 
 - The project now lives at `https://github.com/ultherego/ai-desktop` with a rewritten history. README, SECURITY, INSTALLATION and the PKGBUILD point to the new address; the pacman `Server` line in README uses the new release URL.
 - Commit SHAs, PR numbers and CI run numbers in earlier entries refer to the previous repository. They are kept as plain text for the record; they are not links and do not resolve in the new repository.
+- First CI on the new repository (Ubuntu runners, not CachyOS) found that a stored profile listing `cachyos` still offered it on another distribution, only moved to the end of the catalog; `with_presets` now leaves it out and the native fixture builds its expected catalog with the same rule (`for_this_distribution`). The web broker sandbox test no longer needs Bubblewrap on the runner.
 - The `repo` release and the package signing secrets have to be set up again in the new repository before the next published package; until then installation from source (docs/INSTALLATION.md) is the working path.
 
 

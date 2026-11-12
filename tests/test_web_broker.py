@@ -129,7 +129,8 @@ class PageTests(unittest.TestCase):
         self.assertLessEqual(len(result["text"].encode()), w.MAX_TEXT)
 
     def test_the_broker_runs_in_a_sandbox_with_the_network_but_without_the_home_directory(self):
-        argv = w._sandbox("pass")
+        with patch("shutil.which", return_value="/usr/bin/bwrap"):                 # CI runners need not have Bubblewrap
+            argv = w._sandbox("pass")
         self.assertNotIn("--unshare-net", argv)
         self.assertNotIn("--share-net", argv)                                # the network namespace is kept, nothing else
         self.assertIn("--cap-drop", argv)
