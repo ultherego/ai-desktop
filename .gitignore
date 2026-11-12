@@ -23,3 +23,4 @@ packaging/arch/*.pkg.tar.*
 
 # local acceptance runner (edited by the assistant)
 /local-run.fish
+.audit/
