@@ -67,6 +67,10 @@ class Declined(Exception):
     pass
 
 
+class ContextUnavailable(ValueError):
+    """A source did not answer; its hint is already printed, so no second, generic line follows."""
+
+
 @dataclass(frozen=True)
 class AccessSnapshot:
     policy: object
@@ -210,7 +214,7 @@ def collect(plan, snapshot, args, reader, *, question_consent=None, defer=()):
                                         question_consent=question_consent)
         except ask_context.weather_context.WeatherError as exc:
             print(ask_context.WEATHER_HINTS[exc.reason])
-            raise ValueError("context unavailable") from None
+            raise ContextUnavailable("context unavailable") from None
         if item is not None:
             context.append(item)
     question_consent.check()

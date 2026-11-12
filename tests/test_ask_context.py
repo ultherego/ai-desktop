@@ -101,6 +101,41 @@ class AskContextTests(unittest.TestCase):
         self.reader.assert_not_called()
         self.assertEqual(self.output.getvalue(), "")
 
+    def test_here_uses_the_remembered_city_without_asking(self):
+        permit, _ = self.permit()
+        self.geocode.return_value = [LOCATION]
+        self.current.return_value = WEATHER
+        with patch("ai_desktop.local_settings.weather_city", return_value="Example City"), \
+                patch("ai_desktop.local_settings.set_weather_city") as remember:
+            ask_context._weather(ask_context.HERE, options(), self.reader, question_consent=permit)
+        self.geocode.assert_called_once_with("Example City")
+        self.assertIn("remembered city Example City", self.output.getvalue())
+        remember.assert_not_called()
+
+    def test_here_without_a_remembered_city_asks_and_offers_to_remember_it(self):
+        for answer, remembered in (("y", ["Example City"]), ("n", [])):
+            with self.subTest(answer=answer):
+                permit, _ = self.permit()
+                self.geocode.return_value = [LOCATION]
+                self.current.return_value = WEATHER
+                replies = iter(["Example City", answer])
+                calls = []
+                with patch("ai_desktop.local_settings.weather_city", return_value=None), \
+                        patch("ai_desktop.local_settings.set_weather_city", side_effect=calls.append):
+                    ask_context._weather(ask_context.HERE, options(), lambda prompt: next(replies),
+                                         question_consent=permit)
+                self.assertEqual(calls, remembered)
+                self.geocode.assert_called_with("Example City")
+
+    def test_an_unknown_city_is_one_clear_message_without_the_command_line_hint(self):
+        permit, _ = self.permit()
+        self.geocode.return_value = []
+        with self.assertRaises(ask_context.weather_context.WeatherError) as caught:
+            ask_context._weather("Example City", options(), self.reader, question_consent=permit)
+        self.assertEqual(caught.exception.reason, "not-found")
+        self.current.assert_not_called()
+        self.assertNotIn("--weather", ask_context.WEATHER_HINTS["not-found"] + ask_context.WEATHER_HINTS["input"])
+
     def test_approved_question_weather_is_quiet_and_preserves_exact_observations(self):
         permit, _ = self.permit()
         self.geocode.return_value = [LOCATION]

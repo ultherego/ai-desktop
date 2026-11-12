@@ -129,6 +129,12 @@ class AskPreparationDiagnosticsTests(unittest.TestCase):
         self.assertIn("plan-invalid", result.output)
         self.assertNotIn(PRIVATE, result.output)
 
+    def test_a_source_that_already_explained_itself_gets_no_second_generic_line(self):
+        result, _, _, _ = self.run_native_plan("claude", json.dumps(READ), verbose=False,
+            collect_error=Mock(side_effect=assistant_flow.ContextUnavailable("context unavailable")))
+        self.assertEqual(result.code, 2)
+        self.assertNotIn("Could not finish", result.output)
+
     def test_phase_callback_never_exports_untrusted_values(self):
         def bad_flow(*args, phase, **kwargs):
             phase(PRIVATE)

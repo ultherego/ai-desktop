@@ -7,13 +7,13 @@ from .terminal_consent import confirm, fresh_input
 from .question_consent import QuestionConsent
 
 WEATHER_HINTS = {
-    "not-found": "City not found. Give its base name: --weather CITY.",
+    "not-found": "City not found. Give the base name of the city, without a district or postcode.",
     "network": "Could not connect to Open-Meteo. Check the network and try again.",
     "timeout": "Fetching the weather timed out. Try again later.",
     "rate-limit": "Open-Meteo limited the number of requests. Try again later.",
     "unavailable": "The weather source is unavailable. Try again later.",
     "stale": "The source returned out-of-date weather data. It was not passed to Claude.",
-    "input": "Invalid city. Give a name: --weather CITY.",
+    "input": "Invalid city name.",
     "response": "Could not verify the weather data. It was not passed to Claude.",
 }
 
@@ -38,18 +38,29 @@ def _check_source(check, question_consent):
     _check_question(question_consent)
 
 
+HERE = "@here"     # the plan's "the user's own place": the remembered city, or the user is asked; never guessed
+
+
 def _weather(city, args, reader, *, check=lambda: None, question_consent=None):
     _check_question(question_consent)
     if question_consent is not None:
         question_consent.require_weather()
     quiet = question_consent is not None and not getattr(args, "details", False)
+    asked = False
+    if city == HERE:
+        from . import local_settings
+        city = local_settings.weather_city()
+        if city is not None and not args.preview:
+            print("Weather for the remembered city " + terminal_text(city)
+                  + " (change it: ai-desktop settings weather-city CITY).")
+        asked = city is None
     if args.preview and not city:
         if not quiet:
             print("Weather: planned fetch from Open-Meteo; the city must be chosen before connecting. "
                   "Offline preview: no connection and no weather data.")
         return None
     while not city:
-        city = _read("City name: ", reader)
+        city = _read("City name for the weather: ", reader)
         _check_question(question_consent)
     # Validate before any terminal interpolation, DNS or HTTP request.
     weather_context.validate_city(city)
@@ -67,8 +78,7 @@ def _weather(city, args, reader, *, check=lambda: None, question_consent=None):
     candidates = weather_context.geocode(city)
     _check_source(check, question_consent)
     if not candidates:
-        print("City not found. Run again with --weather CITY.")
-        raise AnalysisDenied("input")
+        raise weather_context.WeatherError("not-found")
     if len(candidates) == 1:
         selected = candidates[0]
     else:
@@ -88,7 +98,21 @@ def _weather(city, args, reader, *, check=lambda: None, question_consent=None):
     _check_source(check, question_consent)
     result = weather_context.current(selected)
     _check_source(check, question_consent)
+    if asked and not args.preview:
+        _offer_to_remember(city, reader)
     return result
+
+
+def _offer_to_remember(city, reader):
+    """After a city typed for a question without one: remember it locally, only on an explicit yes."""
+    from . import local_settings
+    answer = _read("Remember " + terminal_text(city) + " for weather questions without a city? [y/n]: ", reader, 16)
+    if answer.casefold() in ("y", "yes"):
+        try:
+            local_settings.set_weather_city(city)
+            print("Remembered in ~/.config/ai-desktop (forget it: ai-desktop settings weather-city off).")
+        except (OSError, weather_context.WeatherError):
+            print("Could not remember the city; this answer is not affected.")
 
 
 def _systemd(scope, view, args, reader, *, check=lambda: None, question_consent=None):
