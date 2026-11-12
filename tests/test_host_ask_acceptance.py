@@ -7,13 +7,16 @@ from unittest.mock import patch
 import host_ask_acceptance as host
 from ai_desktop import systemd_context
 
+WEATHER = host.WEATHER_FLAG + "=Example City"
+
 
 class HostAskGuards(unittest.TestCase):
     def test_flags_root_and_tty_refuse_before_any_host_or_provider(self):
         with contextlib.redirect_stdout(io.StringIO()), patch.object(host.prior, "preflight") as ready, \
                 patch.object(host.prior, "run") as run, patch.object(host, "reject_question") as reject, \
                 patch.object(systemd_context, "collect") as inventory:
-            for args in ([], [host.WEATHER_FLAG], [host.FLAG, "unexpected"], [host.WEATHER_FLAG, host.FLAG]):
+            for args in ([], [host.WEATHER_FLAG], [host.FLAG, "unexpected"], [host.WEATHER_FLAG, host.FLAG],
+                         [host.FLAG, host.WEATHER_FLAG], [host.FLAG, host.WEATHER_FLAG + "=  "], [WEATHER, host.FLAG]):
                 self.assertEqual(host.main(args), 2)
             for uid, tty in ((0, True), (1000, False)):
                 with patch.object(host.os, "geteuid", return_value=uid), patch.object(host.os, "isatty", return_value=tty):
@@ -29,7 +32,7 @@ class HostAskGuards(unittest.TestCase):
                 patch.object(host.prior, "preflight", return_value=(1000, ["socket", "service"])), \
                 patch.object(host, "reject_question"), patch.object(host.prior, "check_stopped") as stopped, \
                 patch.object(host.prior, "run", side_effect=ValueError("PRIVATE-NATIVE-ERROR")) as run:
-            self.assertEqual(host.main([host.FLAG, host.WEATHER_FLAG]), 2)
+            self.assertEqual(host.main([host.FLAG, WEATHER]), 2)
         self.assertNotIn("PRIVATE", out.getvalue())
         self.assertNotIn("HOST ASK: PASS", out.getvalue())
         self.assertEqual(stopped.call_count, 2)
@@ -43,7 +46,7 @@ class HostAskGuards(unittest.TestCase):
                 patch.object(host, "reject_question"), patch.object(host.prior, "check_stopped"), \
                 patch.object(systemd_context, "collect") as inventory, \
                 patch.object(host.prior, "run", side_effect=[None, ValueError("PRIVATE")]) as run:
-            self.assertEqual(host.main([host.FLAG, host.WEATHER_FLAG]), 2)
+            self.assertEqual(host.main([host.FLAG, WEATHER]), 2)
         inventory.assert_not_called()
         self.assertEqual(run.call_count, 2)
         self.assertIn("FAIL stage=systemd", out.getvalue())
@@ -60,7 +63,7 @@ class HostAskGuards(unittest.TestCase):
                     patch.object(host, "reject_question"), patch.object(host.prior, "run") as run, \
                     patch.object(host.prior, "check_stopped",
                                  side_effect=[None, None, None, None, ValueError("PRIVATE")] if cleanup_failure else None):
-                args = [host.FLAG] + ([host.WEATHER_FLAG] if weather else [])
+                args = [host.FLAG] + ([WEATHER] if weather else [])
                 self.assertEqual(host.main(args), 2 if cleanup_failure else 0)
             inventory.assert_not_called()
             self.assertEqual(run.call_count, 3 if weather else 2)
