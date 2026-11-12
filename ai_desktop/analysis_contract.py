@@ -86,7 +86,7 @@ SYSTEM_PROMPT = (
     "With access.downloads=true you may download public files the user needs: {\"action\":\"download\",\"urls\":[\"https://...\"]} "
     "(at most 8, the direct file addresses, from the user, the search or page links). The user approves the set once; "
     "the files go into a quarantine folder and are never run, unpacked or installed; you get discovery op=download "
-    "(name, size, sha256, content_type, status and reason). "
+    "(name, size, sha256, content_type, status, reason and the quarantine folder). "
     "To move or copy a file or a whole folder inside one access.write scope return {\"action\":\"move\" or \"copy\","
     "\"write\":\"w0\",\"from\":\"relative/path\",\"to\":\"relative/new-path\"}; to must not exist (nothing is "
     "overwritten); the program shows the plan, asks the user and can undo it. "

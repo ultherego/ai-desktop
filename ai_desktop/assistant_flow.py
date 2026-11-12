@@ -355,7 +355,8 @@ def _download(ledger, urls, reader, selected, snapshot, permit=None):
         found = found or {}
         _add_download(ledger, {"op": "download", "url": url, "status": status, "reason": reason,
                                "name": found.get("name", ""), "size": found.get("size", 0),
-                               "sha256": found.get("sha256", ""), "content_type": found.get("content_type", "")},
+                               "sha256": found.get("sha256", ""), "content_type": found.get("content_type", ""),
+                               "folder": found.get("folder", "")},
                       snapshot)
     clean = []
     for url in urls:
@@ -418,7 +419,7 @@ def _fetch_all(ledger, clean, folder, step):
                                                  found["sha256"][:16]), "muted"))
         conversation_state.note_action("Downloaded %s (%d bytes, sha256 %s) into %s"
                                        % (found["final_url"], found["size"], found["sha256"], folder), read=True)
-        step(url, "ok", "", found)
+        step(url, "ok", "", dict(found, folder="~/" + os.path.relpath(folder, web_download._home())))
 
 
 def _add_download(ledger, step, snapshot):

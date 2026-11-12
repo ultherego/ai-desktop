@@ -236,7 +236,7 @@ def _step(value, total):
     if op == "download":
         # A public file the program's broker downloaded into the quarantine folder (web_download.download), or why not.
         from .web_broker import WebError, clean_url
-        keys = ("op", "url", "status", "reason", "name", "size", "sha256", "content_type")
+        keys = ("op", "url", "status", "reason", "name", "size", "sha256", "content_type", "folder")
         if (set(value) != set(keys) or value["status"] not in DOWNLOAD_STATUSES
                 or type(value["reason"]) is not str or not re.fullmatch(r"[a-z-]{0,20}", value["reason"])
                 or type(value["name"]) is not str or len(value["name"].encode("utf-8")) > 120
@@ -245,7 +245,10 @@ def _step(value, total):
                 or type(value["content_type"]) is not str or len(value["content_type"]) > 129
                 or any(unicodedata.category(char) in ("Cc", "Cf", "Cs") for char in value["name"] + value["content_type"])
                 or (value["status"] == "ok") != bool(value["name"] and value["sha256"])
-                or value["status"] != "ok" and (value["size"] or value["content_type"])):
+                or value["status"] != "ok" and (value["size"] or value["content_type"])
+                or type(value["folder"]) is not str or len(value["folder"].encode("utf-8")) > 512
+                or not re.fullmatch(r"(?:~/\.local/state/ai-desktop/downloads/[0-9]{8}-[0-9]{6}-[a-f0-9]{8})?", value["folder"])
+                or (value["status"] == "ok") != bool(value["folder"])):
             raise ValueError("discovery")
         try:
             if not (value["url"] == "" and value["status"] == "refused") and clean_url(value["url"]) != value["url"]:

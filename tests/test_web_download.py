@@ -219,13 +219,15 @@ class ContractTests(unittest.TestCase):
 
     def test_the_download_step_the_model_receives(self):
         ok = {"op": "download", "url": URL, "status": "ok", "reason": "", "name": "tool.tar.gz", "size": 7,
-              "sha256": "a" * 64, "content_type": "application/gzip"}
+              "sha256": "a" * 64, "content_type": "application/gzip",
+              "folder": "~/.local/state/ai-desktop/downloads/20261112-114452-5ca00f18"}
         document = {"steps": [ok], "remaining": {"rounds": 1, "corrections": 1, "commands": 1}}
         self.assertEqual(discovery_contract.validate_discovery(document)["steps"][0], ok)
-        failed = dict(ok, status="failed", reason="space", name="", size=0, sha256="", content_type="")
+        failed = dict(ok, status="failed", reason="space", name="", size=0, sha256="", content_type="", folder="")
         discovery_contract.validate_discovery(dict(document, steps=[failed]))
         for bad in (dict(ok, sha256="x"), dict(ok, status="failed"), dict(failed, size=3),
-                    dict(ok, url="http://files.example.org/a"), dict(ok, name="a\x1b"), dict(ok, extra=1)):
+                    dict(ok, url="http://files.example.org/a"), dict(ok, name="a\x1b"), dict(ok, extra=1),
+                    dict(ok, folder=""), dict(ok, folder="~/elsewhere"), dict(failed, folder=ok["folder"])):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 discovery_contract.validate_discovery(dict(document, steps=[bad]))
 
@@ -256,13 +258,15 @@ class FlowTests(unittest.TestCase):
         second, third = URL + "?2", URL + "?3"
         self.ledger.known_urls = {URL, second, third}
         with patch.object(assistant_flow, "confirm", return_value=True), \
-                patch.object(d, "quarantine", return_value="/tmp/quarantine"), \
+                patch.object(d, "quarantine", return_value=d._home() + "/.local/state/ai-desktop/downloads/20261112-114452-5ca00f18"), \
                 patch.object(d, "download", side_effect=[found, KeyboardInterrupt()]) as download, \
                 patch.object(assistant_flow.conversation_state, "note_action"):
             assistant_flow._download(self.ledger, [URL, second, third], Mock(), None, Mock())
         self.assertEqual(download.call_count, 2)
         self.assertEqual([s["status"] for s in self.steps], ["ok", "cancelled", "cancelled"])
         self.assertEqual(self.steps[0]["sha256"], "a" * 64)
+        self.assertEqual(self.steps[0]["folder"], "~/.local/state/ai-desktop/downloads/20261112-114452-5ca00f18")
+        self.assertEqual(self.steps[1]["folder"], "")
 
 
 class PolicyTests(unittest.TestCase):
