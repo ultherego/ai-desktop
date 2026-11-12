@@ -17,21 +17,21 @@ def entry(talk, text):
 class LongConversationTests(unittest.TestCase):
     def build(self):
         talk = conversation_state.Conversation()
-        talk.finish("Przygotuj eksport CSV zamówień", "Dobrze.", ops({"kind": "goal", "status": "active",
-                    "text": "Eksport CSV zamówień"}), ())
-        talk.finish("Separator?", "Średnik.", ops({"kind": "decision", "status": "active",
+        talk.finish("Prepare a CSV export of orders", "Okay.", ops({"kind": "goal", "status": "active",
+                    "text": "CSV export of orders"}), ())
+        talk.finish("Separator?", "Semicolon.", ops({"kind": "decision", "status": "active",
                     "text": "SYNTHETIC separator: semicolon"}), ())
         early = entry(talk, "separator: semicolon")["id"]
-        talk.finish("Jednak przecinek", "Zmieniam.", ops({"kind": "correction", "status": "active",
+        talk.finish("Comma after all", "Changing it.", ops({"kind": "correction", "status": "active",
                     "text": "SYNTHETIC separator: comma", "supersedes": [early]}), ())
-        talk.finish("A może JSON?", "Propozycja.", ops({"kind": "proposal", "status": "active",
+        talk.finish("What about JSON?", "Proposal.", ops({"kind": "proposal", "status": "active",
                     "text": "SYNTHETIC switch the export to JSON"}), ())
         proposal = entry(talk, "switch the export to JSON")["id"]
-        talk.finish("Nie, zostajemy przy CSV", "Rozumiem.", ops(marks=[{"id": proposal, "status": "rejected"}]), ())
-        talk.finish("Zapisz", "Zapisane.", None, (), actions=(
+        talk.finish("No, we stay with CSV", "Understood.", ops(marks=[{"id": proposal, "status": "rejected"}]), ())
+        talk.finish("Save", "Saved.", None, (), actions=(
             "Change applied (test text passed; undo: ai-desktop task rollback): SYNTHETIC export.py [export.py]",))
         for number in range(7, 201):                     # long working phase that fills the memory with notes
-            talk.finish("Pytanie robocze %d" % number, "Odpowiedź %d" % number, ops(
+            talk.finish("Working question %d" % number, "Answer %d" % number, ops(
                 {"kind": "observation", "status": "active", "text": "SYNTHETIC note %d %s" % (number, "x" * 600)}), ())
         return talk
 
@@ -42,7 +42,7 @@ class LongConversationTests(unittest.TestCase):
         for current in (talk, resumed):
             state = current.task_memory()
             self.assertGreater(state["dropped"], 0)                          # the budget really was exceeded
-            goal = entry(current, "Przygotuj eksport CSV")                    # the goal in the user's own words
+            goal = entry(current, "Prepare a CSV export")                    # the goal in the user's own words
             self.assertEqual((goal["kind"], goal["status"]), ("goal", "active"))
             self.assertEqual(entry(current, "separator: comma")["status"], "active")
             self.assertFalse([item for item in state["entries"]               # never both versions as true
@@ -51,7 +51,7 @@ class LongConversationTests(unittest.TestCase):
             applied = entry(current, "Change applied")
             self.assertEqual((applied["status"], applied["kind"]), ("done", "observation"))
         self.assertEqual(len(resumed.transcript), 200)                       # the read-back thread keeps every turn
-        self.assertIn("Pytanie robocze 7", resumed.transcript[6]["question"])
+        self.assertIn("Working question 7", resumed.transcript[6]["question"])
 
     def test_working_notes_go_before_refused_and_completed_entries(self):
         entries = [{"id": "m%d.1" % n, "turn": n, "kind": kind, "status": status, "text": "t"}

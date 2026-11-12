@@ -491,7 +491,7 @@ class TaskHomeWorkspaceTests(unittest.TestCase):
         self.addCleanup(home.stop)
 
     def test_explicit_home_dotfile_edits_and_scoped_creation_roll_back(self):
-        names = (".config/niri/config.kdl", ".ssh/config", ".local/share/note.txt",
+        names = (".config/gizmo/settings.conf", ".ssh/config", ".local/share/note.txt",
                  ".env", "secrets/token.txt", "backup/copy.txt")
         originals = {}
         for index, name in enumerate(names):

@@ -172,7 +172,7 @@ def main(argv=None):
         print("The local model server is unavailable.")
         return 2
     except (ValueError, TypeError, KeyError, RecursionError, UnicodeError):
-        print("Invalid local model catalog. Configure a short model alias in llama-server.")
+        print("Invalid local model catalog. Configure a short model alias in the local OpenAI-compatible server (llama-server, Ollama, LM Studio, ...).")
         return 2
     if action == "status":
         print(f"Local server 127.0.0.1:{port} answered the model catalog request. Advertised models: {len(names)}.")

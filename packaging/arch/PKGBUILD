@@ -12,6 +12,7 @@ license=('Apache-2.0')
 depends=('python>=3.12' 'bubblewrap' 'xdg-dbus-proxy>=0.1.9' 'systemd' 'ca-certificates' 'libseccomp' 'sudo' 'python-rich>=13.7' 'python-cryptography')
 optdepends=('claude-code: independently installed native Claude client' 'openai-codex: independently installed native Codex client'
             'xdg-terminal-exec: open your preferred terminal from the example Niri shortcuts'
+            'fish: check the syntax of fish scripts in a task'
             'python-pytest: run the offline pytest recipe' 'go: run the offline go-test recipe' 'npm: run the offline npm-test recipe')
 install=ai-desktop.install
 source=()

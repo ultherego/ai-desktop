@@ -9,6 +9,7 @@ from .agent_profiles import ProfileError
 from .login_flow import login_status
 from .permissions import load_policy
 from .terminal_consent import fresh_input
+from .host_accounts import is_regular_uid
 
 
 ERRORS = {
@@ -97,7 +98,7 @@ def _admin(action, alias):
 
 
 def manage_limits(store, alias, *, connect):
-    if os.getuid() < 1000 or os.geteuid() != os.getuid() or not os.isatty(0) or not os.isatty(1):
+    if not is_regular_uid(os.getuid()) or os.geteuid() != os.getuid() or not os.isatty(0) or not os.isatty(1):
         print("Open this action in your regular user's terminal.")
         return 2
     _target(store.load().config, alias, selected=connect)

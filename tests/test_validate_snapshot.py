@@ -26,7 +26,7 @@ class ValidateSnapshotTests(unittest.TestCase):
             code, output = self.invoke([str(path)])
             self.assertEqual(code, 0)
             self.assertEqual(json.loads(output), {"valid": True, "field_count": 8})
-            self.assertNotIn("fish", output)
+            self.assertNotIn("bash", output)
             self.assertNotIn("kernel", output)
             self.assertEqual(path.read_bytes(), original)
 

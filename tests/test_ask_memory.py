@@ -162,11 +162,11 @@ class TuningScenarioTests(Harness):
         self.assertNotIn("knowledge", web)
 
     def test_a_different_domain_uses_the_same_mechanism(self):
-        turns = [("Usługa foo.service nie startuje po aktualizacji.", "Sprawdźmy.",
-                  {"add": [{"kind": "goal", "text": "foo.service nie startuje po aktualizacji"}]}),
-                 ("Status: exit-code 203/EXEC.", "To brak pliku wykonywalnego.",
+        turns = [("Service foo.service does not start after an update.", "Let us check.",
+                  {"add": [{"kind": "goal", "text": "foo.service does not start after an update"}]}),
+                 ("Status: exit-code 203/EXEC.", "The executable is missing.",
                   {"add": [{"kind": "observation", "text": "foo.service: status 203/EXEC"}]}),
-                 ("Co ustaliliśmy?", "Podsumowanie.", None)]
+                 ("What have we found?", "Summary.", None)]
 
         def model(payload, number):
             _, text, ops = turns[number - 1]
@@ -175,7 +175,7 @@ class TuningScenarioTests(Harness):
         result = self.run_ui([turns[0][0], YES, turns[1][0], turns[2][0], ""], model)
         self.assertEqual(result.sent.call_count, 3)
         self.assertEqual(len(find(self.payloads[-1], "203/EXEC")), 1)
-        self.assertEqual(len(find(self.payloads[-1], "foo.service nie startuje")), 1)
+        self.assertEqual(len(find(self.payloads[-1], "foo.service does not start")), 1)
 
 
 class MemoryRobustnessTests(Harness):
@@ -267,9 +267,9 @@ class RevocationTests(Harness):
             if number == 1:
                 self.revoked.add("/home/u/secret.conf")
             return result
-        self.run_ui(["Chcę sprawdzić konfigurację sterownika.", YES, "Dalej", ""], model)
+        self.run_ui(["I want to check the synthetic service configuration.", YES, "Dalej", ""], model)
         second = self.payloads[1]
-        self.assertTrue(find(second, "konfigurację sterownika"))
+        self.assertTrue(find(second, "synthetic service configuration"))
         self.assertNotIn(MARKER, json.dumps(second))
 
 

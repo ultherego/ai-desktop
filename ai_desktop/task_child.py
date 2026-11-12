@@ -191,6 +191,11 @@ def main():
         if len(selected) != 1:
             raise ValueError("one shell file required")
         binary = "/usr/bin/bash" if check == "bash-syntax" else "/usr/bin/fish"
+        if not os.access(binary, os.X_OK):
+            # An optional shell: say what is missing instead of a bare failure.
+            print("CHECK: %s is not installed; install the %s package to check this file" % (
+                binary.rsplit("/", 1)[1], binary.rsplit("/", 1)[1]), file=sys.stderr)
+            return 2
         args = [binary, "--noprofile", "--norc", "-n"] if check == "bash-syntax" else [binary, "--no-config", "--no-execute"]
         os.execve(binary, args + ["/work/" + selected[0]["path"]],
                   {"PATH": "/usr/bin", "HOME": "/home/client", "LANG": "C.UTF-8"})

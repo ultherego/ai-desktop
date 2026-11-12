@@ -36,8 +36,9 @@ def _reference_breaks(token):
     if token.type != "inline" or not token.children:
         return
     lines = token.content.split("\n")
-    # Model answers follow the language of the question, so the Polish heading is still recognized.
-    entries = lines[1:] if lines[0] in ("Sources:", "Źródła:") else lines
+    # Answers follow the language of the question: any short heading line ending with ":" may precede the list.
+    heading = lines[0].strip()
+    entries = lines[1:] if heading.endswith(":") and not heading.startswith("[") and len(heading) <= 40 else lines
     if not 1 <= len(entries) <= 32 or len(lines) < 2:
         return
     if any(not re.fullmatch(r"\[" + str(index) + r"\] .+", line)

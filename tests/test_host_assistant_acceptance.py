@@ -24,4 +24,4 @@ class HostAssistantGuards(unittest.TestCase):
         self.assertNotIn("HOST ASSISTANT: PASS", output.getvalue())
         self.assertNotIn("PRIVATE", output.getvalue())
         run.assert_called_once_with("/usr/bin/ai-desktop", "analyze", "--question",
-            "Ktore obserwacje wymagaja dalszego sprawdzenia? Podaj kroki i nie wykonuj zmian.", timeout=420)
+            "Which observations need further checking? Give the steps and make no changes.", timeout=420)

@@ -1,4 +1,4 @@
-"""Synthetic regression for the five-field pre-init notice observed on CachyOS.
+"""Regression: the five-field pre-init notice.
 
 The field layout/session relation came from the offline 2.1.312 probe. Values
 below are synthetic, not a recording, and no native client or network is used.

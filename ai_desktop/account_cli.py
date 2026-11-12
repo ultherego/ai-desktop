@@ -13,9 +13,11 @@ from .account_store import AccountStore, CLOUD, named_account
 from .agent_profiles import ProfileError
 from .login_flow import authenticate_account, login_status
 from .terminal_style import paint
+from .host_accounts import is_regular_uid
 
 
 def _window_text(observed, samples, now):
+    """The stored JSON summary stays in UTC; the screen shows local times (_local_time)."""
     if not samples:
         return "not reported"
     measured = datetime.fromtimestamp(observed, timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -223,7 +225,7 @@ def remember(provider, name, samples, *, plan=None, store=None, now=None):
 def _login(provider, name, *, action="login"):
     from .analysis_sandbox import INSTALL, trusted_file
     from .analysis_contract import AnalysisDenied
-    if os.getuid() < 1000 or os.getuid() != os.geteuid() or not os.isatty(0) or not os.isatty(1):
+    if not is_regular_uid(os.getuid()) or os.getuid() != os.geteuid() or not os.isatty(0) or not os.isatty(1):
         print("Account operations require your regular user's terminal.")
         return 2
     try:
@@ -243,7 +245,7 @@ def _login(provider, name, *, action="login"):
 
 def _check_or_logout(store, provider, name, action, *, authorized=None):
     from .terminal_consent import fresh_input
-    if os.getuid() < 1000 or os.getuid() != os.geteuid() or not os.isatty(0) or not os.isatty(1):
+    if not is_regular_uid(os.getuid()) or os.getuid() != os.geteuid() or not os.isatty(0) or not os.isatty(1):
         print("Open this account action in your regular user's terminal.")
         return 2
     key = (provider, name)
@@ -311,7 +313,7 @@ def _widget_result(result):
 
 def _connect(provider, store, *, from_widget=False):
     """Interactive account picker used by the packaged desktop sign-in actions."""
-    if os.getuid() < 1000 or os.getuid() != os.geteuid() or not os.isatty(0) or not os.isatty(1):
+    if not is_regular_uid(os.getuid()) or os.getuid() != os.geteuid() or not os.isatty(0) or not os.isatty(1):
         print("Open this account picker in your regular user's terminal.")
         return 2
     from .ask_commands import _pick

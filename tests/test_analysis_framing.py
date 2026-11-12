@@ -25,7 +25,7 @@ def incoming(packets):
 class AnalysisFramingTests(unittest.TestCase):
     def test_a_connection_closed_by_the_peer_is_endpoint_not_bad_input(self):
         """`ai-desktop stop` during an answer closes the service's end: that is a lost connection, which a conversation
-        survives, never malformed data (CachyOS check of candidate 138)."""
+        survives, never malformed data (regression)."""
         for partial in (None, lambda body: None):
             with self.subTest(partial=partial is not None):
                 desktop, service = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)

@@ -11,25 +11,25 @@ from ai_desktop import weather_context as weather
 from ai_desktop.analysis_contract import AnalysisDenied
 
 
-LOCATION = {"id": 1000001, "name": "Example City", "country": "Exampleland", "admin1": "Example Region",
-            "latitude": 45.00012, "longitude": 10.00988}
+LOCATION = {"id": 1001, "name": "Example City", "country": "Exampleland", "admin1": "Example Region",
+            "latitude": 10.0, "longitude": 20.0}
 CONTEXT = {"kind": "weather", "source": "Open-Meteo", "source_url": weather.SOURCE_URL,
-           "observed_at": "2026-10-30T12:12:00Z", "valid_at": "2026-10-30T12:00:00Z",
+           "observed_at": "2026-01-15T12:12:00Z", "valid_at": "2026-01-15T12:00:00Z",
            "basis": "model", "location": LOCATION,
-           "current": {"temperature_c": 7.2, "apparent_temperature_c": 5.5,
-                       "precipitation_mm": 0, "weather_code": 3, "wind_kmh": 11.8,
+           "current": {"temperature_c": 10.0, "apparent_temperature_c": 8.0,
+                       "precipitation_mm": 0, "weather_code": 3, "wind_kmh": 12.0,
                        "interval_seconds": 900}}
-PROVIDER = {"latitude": 45.0, "longitude": 10.01, "utc_offset_seconds": 0,
+PROVIDER = {"latitude": 10.0, "longitude": 20.0, "utc_offset_seconds": 0,
             "current_units": weather.UNITS,
-            "current": {"time": "2026-10-30T12:00", "interval": 900, "temperature_2m": 7.2,
-                        "apparent_temperature": 5.5, "precipitation": 0,
-                        "weather_code": 3, "wind_speed_10m": 11.8}}
+            "current": {"time": "2026-01-15T12:00", "interval": 900, "temperature_2m": 10.0,
+                        "apparent_temperature": 8.0, "precipitation": 0,
+                        "weather_code": 3, "wind_speed_10m": 12.0}}
 
 
 class Clock(datetime):
     @classmethod
     def now(cls, tz=None):
-        return cls(2026, 10, 30, 12, 12, tzinfo=timezone.utc)
+        return cls(2026, 1, 15, 12, 12, tzinfo=timezone.utc)
 
 
 def dns(ip="8.8.8.8"):
@@ -62,7 +62,7 @@ class WeatherTests(unittest.TestCase):
         process.assert_not_called()
 
     def test_geocoding_returns_bounded_candidates_without_silently_choosing(self):
-        second = dict(LOCATION, id=2, country="USA", latitude=40.0, longitude=30.0)
+        second = dict(LOCATION, id=2, country="Otherland", latitude=30.0, longitude=-40.0)
         upstream = {"results": [dict(LOCATION, postcodes=["PRIVATE"], elevation=120), second]}
         with patch.object(weather, "_request", return_value=upstream) as request:
             with patch.object(weather, "language", return_value="en"):
@@ -98,13 +98,13 @@ class WeatherTests(unittest.TestCase):
         self.assertEqual(result["source_url"], "https://open-meteo.com/en/docs")
 
     def test_current_refuses_missing_wrong_units_wrong_place_and_stale_data(self):
-        mutations = [dict(PROVIDER, latitude=0), dict(PROVIDER, longitude=-93),
+        mutations = [dict(PROVIDER, latitude=0), dict(PROVIDER, longitude=-40),
                      dict(PROVIDER, utc_offset_seconds=3600), dict(PROVIDER, utc_offset_seconds=False),
                      dict(PROVIDER, current_units=dict(weather.UNITS, temperature_2m="°F")),
                      dict(PROVIDER, current={}), dict(PROVIDER, current=[]),
                      dict(PROVIDER, current=dict(PROVIDER["current"], temperature_2m=None)),
-                     dict(PROVIDER, current=dict(PROVIDER["current"], time="2026-10-29T12:00")),
-                     dict(PROVIDER, current=dict(PROVIDER["current"], time="2026-10-30T13:00"))]
+                     dict(PROVIDER, current=dict(PROVIDER["current"], time="2026-01-14T12:00")),
+                     dict(PROVIDER, current=dict(PROVIDER["current"], time="2026-01-15T13:00"))]
         for value in mutations:
             with patch.object(weather, "datetime", Clock), patch.object(weather, "_request", return_value=value):
                 with self.subTest(value=value), self.assertRaises(weather.WeatherError):
@@ -116,9 +116,9 @@ class WeatherTests(unittest.TestCase):
         request.assert_not_called()
         self.assertEqual(result, CONTEXT)
         result["current"]["temperature_c"] = 99
-        self.assertEqual(CONTEXT["current"]["temperature_c"], 7.2)
+        self.assertEqual(CONTEXT["current"]["temperature_c"], 10.0)
         cases = [dict(CONTEXT, source_url="https://localhost"), dict(CONTEXT, command="curl anything"),
-                 dict(CONTEXT, valid_at="2026-10-99T12:00:00Z"), dict(CONTEXT, basis="observed"),
+                 dict(CONTEXT, valid_at="2026-01-99T12:00:00Z"), dict(CONTEXT, basis="observed"),
                  dict(CONTEXT, current=dict(CONTEXT["current"], temperature_c=10**1000)),
                  dict(CONTEXT, current=dict(CONTEXT["current"], wind_kmh=float("inf"))),
                  dict(CONTEXT, current=dict(CONTEXT["current"], weather_code=True))]
@@ -137,7 +137,7 @@ class WeatherTests(unittest.TestCase):
         self.assertEqual(host, "geocoding-api.open-meteo.com")
         self.assertIn("name=Example+City+%26latitude%3D0", path)
         self.assertIn("count=5", path)
-        host, path = weather._endpoint("current", {"latitude": 45.0, "longitude": 10})
+        host, path = weather._endpoint("current", {"latitude": 10.0, "longitude": 20})
         self.assertEqual(host, "api.open-meteo.com")
         self.assertIn("temperature_unit=celsius", path)
         self.assertIn("timezone=GMT", path)

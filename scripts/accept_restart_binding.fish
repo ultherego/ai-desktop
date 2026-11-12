@@ -1,7 +1,7 @@
 #!/usr/bin/fish
 # E5 restart acceptance: prepare BEFORE and verify AFTER a natural restart.
 # One SHA-pinned worktree per call; tests the INSTALLED package. Never installs,
-# restarts, commits or touches ~/hello.py or any older private journal.
+# restarts or commits, and never touches your files outside ~/ai-restart-check.
 if test (count $argv) -eq 1; and test "$argv[1]" = --help
     printf 'Usage: fish scripts/accept_restart_binding.fish MODE SHA REPO_ROOT [BRANCH]\n'
     printf '  --prepare   new schema-3 task on a synthetic file in ~/ai-restart-check (before restart)\n'
@@ -79,7 +79,7 @@ rmdir "$aid_tmp" 2>/dev/null
 printf '\n=== RESULTS ===\n'
 printf 'MODE=%s SHA_MATCH=%s FETCH=%s WORKTREE=%s SCRIPT_MATCH=%s\n' "$aid_mode" $aid_sha $aid_fetch $aid_worktree $aid_script_match
 printf 'INSTALLED=%s HELPER=%s MAIN_UNCHANGED=%s BACK=%s WORKTREE_CLEANUP=%s\n' $aid_installed $aid_helper $aid_main $aid_back $aid_cleanup
-printf 'The computer was not restarted by this script; ~/hello.py and older journals are not touched.\n'
+printf 'The computer was not restarted by this script; it never touches your files outside ~/ai-restart-check.\n'
 test $aid_helper -eq 0; and test $aid_main -eq 0; and test $aid_back -eq 0; and exit 0
 test $aid_helper -ne 99; and test $aid_helper -ne 0; and exit $aid_helper
 exit 2

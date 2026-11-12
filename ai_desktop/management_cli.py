@@ -186,7 +186,7 @@ def _models(provider="claude"):
     if provider == "claude":
         print("Model and level availability depends on your Claude account and the client. The model never changes automatically.")
     elif provider == "local":
-        print("Use default for the current server model or set the alias configured in llama-server.")
+        print("Use default for the current server model or set the model alias configured in the local server.")
     else:
         print("The Codex client picks the default model. Availability and level depend on your account and the client.")
 

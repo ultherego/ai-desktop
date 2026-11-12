@@ -25,7 +25,7 @@ class E3TransferConsentTests(unittest.TestCase):
     def test_refusal_on_mismatched_payload_and_replay(self):
         report = report_fixture()
         changed = copy.deepcopy(report)
-        changed["shell"] = "bash"
+        changed["shell"] = "zsh"
         g = ConsentSession()
         p = g.preview(report)
         with self.assertRaises(ConsentDenied):

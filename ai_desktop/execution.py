@@ -46,7 +46,7 @@ def valid_local_port(port):
 
 # Claude aliases this program has labels for. Not a list of what may be chosen: the model lists come from the clients
 # (management_cli.model_choices), and any well-formed id the client offers or the owner types is accepted; the client
-# alone decides whether it exists (the maintainer, 2026-11-09: providers add models, this program must not lag behind).
+# alone decides whether it exists (providers add models; this program must not lag behind).
 MODELS = ("default", "best", "fable", "opus", "sonnet", "haiku", "opusplan")
 CLAUDE_EFFORTS = ("default", "low", "medium", "high", "xhigh", "max")
 CODEX_EFFORTS = ("default", "low", "medium", "high", "xhigh")

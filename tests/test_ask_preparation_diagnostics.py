@@ -9,9 +9,9 @@ import test_ask_cli as harness
 
 
 ACCESS = {"files": [{"id": "f0", "pattern": "~/.config/**"}], "systemd": [], "weather": False}
-FILES = {"kind": "files", "files": [{"path": "/home/example/.config/niri/config.kdl", "content": 'output "Virtual-1" {}\n'}]}
-READ = {"action": "read", "files": [{"id": "f0", "path": "niri/config.kdl"}], "systemd": [], "weather": None}
-QUESTION = "show the output section of niri/config.kdl"
+FILES = {"kind": "files", "files": [{"path": "/home/example/.config/gizmo/settings.conf", "content": 'mode = "basic"\n'}]}
+READ = {"action": "read", "files": [{"id": "f0", "path": "gizmo/settings.conf"}], "systemd": [], "weather": None}
+QUESTION = "show my gizmo/settings.conf"
 PRIVATE = "PRIVATE_NATIVE_ERROR token=not-a-real-token path=/private/native"
 
 
@@ -20,7 +20,7 @@ class AskPreparationDiagnosticsTests(unittest.TestCase):
     run_ui = harness.AskCliTests.run_ui
 
     def run_native_plan(self, provider, raw, *, meta=None, verbose=False, collect_error=None):
-        profile = {"provider": provider, "model": "default", "effort": "default", "instructions": "Diagnozuj.",
+        profile = {"provider": provider, "model": "default", "effort": "default", "instructions": "Diagnose.",
                    "profile": "diagnostic", "access": "read-only"}
         conn = MagicMock()
         conn.__enter__.return_value = conn
@@ -28,7 +28,7 @@ class AskPreparationDiagnosticsTests(unittest.TestCase):
         def native(approval):
             body = json.loads(approval.payload)
             mode = body["mode"]
-            text = raw if mode == "assistant" else 'output "Virtual-1" {}'
+            text = raw if mode == "assistant" else 'mode = "basic"'
             packet = contract.result_packet(approval.sha256, text=text, mode=mode, meta=meta)
             with patch.object(service, "receive_message", return_value=packet):
                 result = service.send_once(approval)
@@ -60,7 +60,7 @@ class AskPreparationDiagnosticsTests(unittest.TestCase):
                     self.assertEqual({body["execution"]["provider"] for body in requests}, {provider})
                     self.assertEqual(sent.call_count, 2)
                     self.assertEqual(result.collect.call_count, 1)
-                    self.assertIn('output "Virtual-1" {}', result.output)
+                    self.assertIn('mode = "basic"', result.output)
 
     def test_invalid_model_plans_have_finite_reason_without_read_and_only_selector_errors_are_corrected(self):
         cases = [

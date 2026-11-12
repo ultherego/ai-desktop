@@ -22,9 +22,9 @@ from host_file_access_acceptance import _new_file
 from ai_desktop.terminal_consent import PROMPTS
 
 FLAG = "--allow-subscription-web-test"
-QUESTION = ("Sprawdź w Internecie na oficjalnej stronie python.org, jaka jest obecnie najnowsza "
-            "stabilna wersja Python. Podaj numer wersji i datę jej wydania w najwyżej dwóch "
-            "zdaniach oraz źródło. Wykonaj wyszukiwanie WebSearch; nie korzystaj z danych lokalnych.")
+QUESTION = ("Check on the official python.org website online which is currently the latest "
+            "stable Python version. Give the version number and its release date in at most two "
+            "sentences, and the source. Use WebSearch; do not use local data.")
 POLICY_MARKER = "WEB POLICY: PASS web=enabled local-sources=disabled"
 REFUSAL_MARKER = "WEB REFUSAL: PASS requests=0 sessions=0 local-reads=0"
 NATIVE_MARKER = ("WEB NATIVE: PASS question-approvals=1 requests=2 modes=assistant,web "

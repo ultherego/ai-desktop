@@ -13,16 +13,16 @@ from ai_desktop.weather_context import WeatherError
 from ai_desktop.question_consent import QuestionConsent
 
 
-LOCATION = {"id": 1000001, "name": "Example City", "country": "Exampleland",
-            "admin1": "Example Region", "latitude": 45.00012, "longitude": 10.00988}
-OTHER = {"id": 2, "name": "Other City", "country": "USA",
-         "admin1": "Other Region", "latitude": 40.0, "longitude": 30.0}
+LOCATION = {"id": 1001, "name": "Example City", "country": "Exampleland",
+            "admin1": "Example Region", "latitude": 10.0, "longitude": 20.0}
+OTHER = {"id": 2, "name": "Other City", "country": "Otherland",
+         "admin1": "Other Region", "latitude": 30.0, "longitude": -40.0}
 WEATHER = {"kind": "weather", "source": "Open-Meteo",
            "source_url": "https://open-meteo.com/en/docs",
-           "observed_at": "2026-10-30T12:12:00Z", "valid_at": "2026-10-30T12:00:00Z",
+           "observed_at": "2026-01-15T12:12:00Z", "valid_at": "2026-01-15T12:00:00Z",
            "basis": "model", "location": LOCATION,
-           "current": {"temperature_c": 7.2, "apparent_temperature_c": 5.5,
-                       "precipitation_mm": 0.1, "weather_code": 3, "wind_kmh": 11.8,
+           "current": {"temperature_c": 10.0, "apparent_temperature_c": 8.0,
+                       "precipitation_mm": 0.1, "weather_code": 3, "wind_kmh": 12.0,
                        "interval_seconds": 900}}
 
 
@@ -54,7 +54,7 @@ def inventory(scope="system", view="enabled"):
     state = {"installed": "disabled", "all": "inactive"}.get(view, view)
     return {"kind": "systemd", "source": "systemctl", "scope": scope, "view": view,
             "listing": "unit-files" if unit_file else "units",
-            "observed_at": "2026-10-30T12:12:00Z", "status": "ok", "truncated": False,
+            "observed_at": "2026-01-15T12:12:00Z", "status": "ok", "truncated": False,
             "total": 1, "items": [{"name": "synthetic.service", "state": state,
                                     "substate": None if unit_file else
                                     ("running" if state == "active" else "dead")}]}
@@ -411,8 +411,8 @@ class AskContextTests(unittest.TestCase):
         self.assertEqual(result, [context])
         output = self.output.getvalue()
         self.assertIn("Weather: Other City, Other Region, Otherland", output)
-        self.assertIn("2026-10-30T12:00:00Z", output)
-        self.assertIn("Temperature: 7.2 °C; feels like: 5.5 °C; precipitation: 0.1 mm; wind: 11.8 km/h", output)
+        self.assertIn("2026-01-15T12:00:00Z", output)
+        self.assertIn("Temperature: 10.0 °C; feels like: 8.0 °C; precipitation: 0.1 mm; wind: 12.0 km/h", output)
         self.assertIn("WMO weather code: 3", output)
         self.assertIn("900 s", output)
         self.assertIn(context["source_url"], output)
@@ -434,7 +434,7 @@ class AskContextTests(unittest.TestCase):
         self.assertIn("Weather: Example City, Example Region, Exampleland", output)
         self.assertIn("Open-Meteo", output)
         self.assertIn(WEATHER["source_url"], output)
-        for hidden in ("synthetic.service", "Temperature:", "7.2", "5.5", "0.1", "11.8", "900 s",
+        for hidden in ("synthetic.service", "Temperature:", "10.0", "8.0", "0.1", "12.0", "900 s",
                        "latitude", "temperature_c", "{", "}"):
             with self.subTest(hidden=hidden):
                 self.assertNotIn(hidden, output)

@@ -377,12 +377,12 @@ class ConversationControlsTests(unittest.TestCase):
             selected = changed(provider=provider, model="default", effort="default")
             output = io.StringIO()
             with self.subTest(provider=provider), execution.using(selected), contextlib.redirect_stdout(output):
-                self.assertTrue(run_controls.conversation_command("/ustawienia"))
+                self.assertTrue(run_controls.conversation_command("/settings"))
                 self.assertIn("|".join(execution.efforts_for(provider)), output.getvalue())
-                self.assertTrue(run_controls.conversation_command("/sila xhigh"))
+                self.assertTrue(run_controls.conversation_command("/effort xhigh"))
                 previous = "xhigh" if "xhigh" in execution.efforts_for(provider) else "default"
                 self.assertEqual(execution.current()["effort"], previous)
-                self.assertTrue(run_controls.conversation_command("/sila max"))
+                self.assertTrue(run_controls.conversation_command("/effort max"))
                 self.assertEqual(execution.current()["effort"], "max" if provider == "claude" else previous)
 
     def test_history_is_closed_copied_and_scoped(self):

@@ -24,7 +24,7 @@ def main(argv=None):
         stage = "question-and-rendering"
         started = True
         prior.run("/usr/bin/ai-desktop", "analyze", "--question",
-                  "Ktore obserwacje wymagaja dalszego sprawdzenia? Podaj kroki i nie wykonuj zmian.", timeout=420)
+                  "Which observations need further checking? Give the steps and make no changes.", timeout=420)
         prior.check_stopped(uid, units)
         with tempfile.TemporaryDirectory(prefix="ai-task-acceptance-", dir="/tmp") as root:
             path = Path(root)
@@ -34,7 +34,7 @@ def main(argv=None):
             (path / "test_calc.py").write_text(tests)
             stage = "native-task"
             prior.run("/usr/bin/ai-desktop", "task", "run",
-                      "Napraw funkcje add: powinna dodawac dwie liczby. Zmien tylko calc.py. Testy sa kontekstem tylko do odczytu.",
+                      "Fix the add function: it should add two numbers. Change only calc.py. The tests are read-only context.",
                       "--workspace", root, "--file", "calc.py", "--context", "test_calc.py",
                       "--test", "python-unittest", timeout=420)
             prior.check_stopped(uid, units)

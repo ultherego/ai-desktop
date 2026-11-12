@@ -272,7 +272,7 @@ class WebSearchResultTests(unittest.TestCase):
                 self.assert_refused(events)
 
     def test_links_and_addresses_in_the_text_are_removed_instead_of_refusing_the_answer(self):
-        # Only the program's list of proven sources shows addresses (CachyOS check: a whole answer was refused for a
+        # Only the program's list of proven sources shows addresses (regression: a whole answer was refused for a
         # Markdown link). A listed source becomes its number, anything else is dropped.
         for answer, shown, hidden in (
                 ("Wynik [1]. https://www.python.org/about/", "Wynik [1]. [1]", "https://www.python.org/about/ "),

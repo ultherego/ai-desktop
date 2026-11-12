@@ -108,7 +108,7 @@ class WebStreamTelemetryTests(unittest.TestCase):
         value = events()
         value.insert(len(value), progress())                    # after the final result: the result must be last
         self.refused(value)
-        # CachyOS check of candidate 153 (`max` reasoning): progress that carries no evidence is accepted even for a call
+        # Regression (`max` reasoning): progress that carries no evidence is accepted even for a call
         # id this transcript has not announced, before its call, without a parent field, or with a new simple field.
         accepted = ({"tool_use_id": "not-called"}, {"new_counter": 3}, {"phase": "searching"},
                     {"parent_tool_use_id": "call-1"})                 # nested progress of this transcript's WebSearch

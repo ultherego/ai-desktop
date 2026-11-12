@@ -62,14 +62,16 @@ def reject_question():
 
 def main(argv=None):
     args = sys.argv[1:] if argv is None else list(argv)
-    if args not in ([FLAG], [FLAG, WEATHER_FLAG]):
-        print("HOST ASK: REFUSED (explicit subscription flag; weather needs separate opt-in)")
+    # The weather check needs a place the tester names: --allow-weather-test=CITY (nothing built in).
+    city = args[1][len(WEATHER_FLAG) + 1:] if len(args) == 2 and args[1].startswith(WEATHER_FLAG + "=") else ""
+    if args != [FLAG] and not (args[:1] == [FLAG] and city.strip()):
+        print("HOST ASK: REFUSED (explicit subscription flag; weather needs --allow-weather-test=CITY)")
         return 2
     if os.geteuid() <= 0 or not (os.isatty(0) and os.isatty(1)):
         print("HOST ASK: REFUSED (desktop UID and uncaptured TTY required)")
         return 2
     stage, started, passed = "preflight", False, False
-    weather = WEATHER_FLAG in args
+    weather = bool(city.strip())
     try:
         uid, units = prior.preflight()
         stage = "refusal"
@@ -78,17 +80,17 @@ def main(argv=None):
         stage = "general"
         started = True
         prior.run("/usr/bin/ai-desktop", "ask", "--no-context", "--question",
-                  "Wyjaśnij krótko różnicę pomiędzy plikiem a katalogiem.", timeout=420)
+                  "Briefly explain the difference between a file and a directory.", timeout=420)
         prior.check_stopped(uid, units)
         stage = "systemd"
         prior.run("/usr/bin/ai-desktop", "ask", "--systemd", "both", "--systemd-state", "enabled",
-                  "--question", "Pokaż włączone jednostki z otrzymanej listy systemd. "
-                  "Odróżnij włączenie przy starcie od bieżącego działania i wskaż ograniczenia listy.", timeout=420)
+                  "--question", "Show the enabled units from the received systemd list. "
+                  "Distinguish enabled at boot from currently running and point out the limits of the list.", timeout=420)
         prior.check_stopped(uid, units)
         if weather:
             stage = "weather"
-            prior.run("/usr/bin/ai-desktop", "ask", "--weather", "Example City", "--question",
-                      "What is the current weather in Example City? Give the data time and the source.", timeout=420)
+            prior.run("/usr/bin/ai-desktop", "ask", "--weather", city.strip(), "--question",
+                      "What is the current weather there? Give the data time and the source.", timeout=420)
             prior.check_stopped(uid, units)
         passed = True
     except (OSError, ValueError, RuntimeError, KeyError, subprocess.SubprocessError, KeyboardInterrupt):

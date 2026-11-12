@@ -106,7 +106,7 @@ class TransferTests(Workspace):
         self.assertEqual(self.journal(plan)["status"], "conflict")
 
     def test_real_folder_names_with_spaces_other_languages_and_depth_work(self):
-        # CachyOS check: a real folder path with spaces was refused by the narrow edit-path rules.
+        # Regression: a real folder path with spaces was refused by the narrow edit-path rules.
         deep = self.root / "projects/My Files/level 2/level 3/Target Folder"
         deep.mkdir(parents=True)
         (self.root / "projects/Ünïcode nàme").mkdir()

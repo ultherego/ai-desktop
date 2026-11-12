@@ -19,7 +19,7 @@
 - `ai-desktop --help` explains the list of saved conversations shown at start and whether saving is on.
 - No fish requirement: installation uses only `sh` commands, the Niri shortcut example opens your preferred terminal through `xdg-terminal-exec`, and the `concise-assistant` Skill asks for commands that work in common shells. `ai-desktop skills new` also refuses the former packaged Skill names.
 - The grey input field keeps its full width and height after scrolling the history.
-- Fixes found in the CachyOS check: a manual page excerpt no longer ends the question, a late web search, a repeated Skill request or one Skill round too many are corrected instead of ending the question, Enter on `/ar` completes `/arch `, and the preset reads `/` and `/boot` directly (`findmnt /`, `btrfs filesystem usage /`).
+- Fixes: a manual page excerpt no longer ends the question, a late web search, a repeated Skill request or one Skill round too many are corrected instead of ending the question, Enter on `/ar` completes `/arch `, and the preset reads `/` and `/boot` directly (`findmnt /`, `btrfs filesystem usage /`).
 
 ## 0.1.0-163: no limit on command templates, unit names without `.service`
 
@@ -263,7 +263,7 @@ A review of the whole program found places where one failure ended more than it 
 
 ## 0.1.0-117: longer answers
 
-- One answer may now be up to 96 KiB (about 45,000 characters with Polish letters; it was 32 KiB). With `max`, asking to "list everything" after dozens of commands produced a longer answer, and the whole answer was refused as `output-limit` after many minutes. The model is now told the limit and asked to put the most important first.
+- One answer may now be up to 96 KiB (about 45,000 characters of two-byte letters; it was 32 KiB). A long `max` answer after dozens of commands could exceed the old limit, and the whole answer was then refused as `output-limit` after many minutes. The model is now told the limit and asked to put the most important first.
 
 ## 0.1.0-116: a current status line and a named failure reason
 
@@ -440,7 +440,7 @@ A review of the whole program found places where one failure ended more than it 
 
 - Replace the Codex card's browser fallback with the next applicable account action: check sign-in, connect or reconnect limits, or refresh the existing connection. Show the provider's actual percentages and local reset times in the card; missing readings stay explicitly unknown.
 - Refresh limits directly from the card, including an already connected account with no reading yet. Prevent concurrent refreshes and show progress. Opening the widget and its timer continue to read saved local state only.
-- Preserve the existing separately approved native quota session and account binding. The candidate-82 client runtime passed CachyOS offline acceptance with Claude 2.1.319 and Codex 0.167.0; this widget follow-up does not change client execution, registration or OAuth protocols.
+- Preserve the existing separately approved native quota session and account binding. The candidate-82 client runtime passed CachyOS offline acceptance with Claude and Codex clients newer than the tested baselines (compatible-untested); this widget follow-up does not change client execution, registration or OAuth protocols.
 
 ## 0.1.0-82: native compatibility and standalone package limits
 
@@ -466,7 +466,7 @@ A review of the whole program found places where one failure ended more than it 
 - Separate larger file/context budgets from local test-copy budgets. Inspect large text by search and line ranges in ordinary conversation, and use checked anchored replacements for larger files. Preserve the complete diff, copy test, apply consent and rollback checks.
 - Keep a larger bounded conversation window and task memory, with a separate larger saved-record budget. The continuation shortcut and full transcript/compaction work remain follow-up items.
 - Load assigned Skills and their needed reference sections on demand in ask, material, project and task. Extend practical Arch/CachyOS procedures using official sources and explicit version applicability.
-- Merged in PR #18 after five passing CI jobs and maintainer acceptance on CachyOS; unfinished follow-up criteria remain tracked in ROADMAP.md.
+- Merged in PR #18 after five passing CI jobs and host acceptance on CachyOS; unfinished follow-up criteria remain tracked in ROADMAP.md.
 
 ## 0.1.0-78: quota card layout and service selection
 
@@ -534,7 +534,7 @@ A review of the whole program found places where one failure ended more than it 
 - **Security:** when consent expires or `permissions.toml` changes during a command from `[commands] change`, the result of the performed change is shown and recorded, and the program says plainly that the change was performed and gives the test and undo commands. Further steps are not run and nothing more is sent. Earlier the result was lost without a trace.
 - `ai-desktop task`/`ask`/`project`: saving a change to an existing file no longer overwrites a save made at the same time by an editor. The file is exchanged atomically (`renameat2` with `RENAME_EXCHANGE`), and the exchanged version is compared with what the plan saw. On a difference the exchange is reverted and the write rejected, and the editor's version stays.
 - **Security:** `material` and `project` check `permissions.toml` before each hand-over of data to Claude. A file change, turning off `network.claude` or revoking access to files being read stops further requests, also in whole-file analysis. Earlier it was enough that the consent and files were loaded at the start of the session.
-- Polish diacritics in messages and help: the save and undo prompts, `task`, `analyze`, `status` and command descriptions.
+- Non-ASCII letters in messages and help: the save and undo prompts, `task`, `analyze`, `status` and command descriptions.
 - `ai-desktop task`: when `--workspace` points to a file, the program says so plainly instead of a general refusal.
 - `ai-desktop task status` and `task rollback` list entries from the newest, with the date of the last change (journal file time). Number 1 is the newest task.
 

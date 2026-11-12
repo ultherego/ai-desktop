@@ -24,6 +24,7 @@ from .analysis_contract import AnalysisDenied, HOLD_SECONDS
 from .analysis_sandbox import INSTALL, cloud_transport_ready, trusted_file
 from .analysis_service import endpoint, socket_path, UID
 from .process_io import bounded_process
+from .host_accounts import is_regular_uid
 
 BOOTSTRAP = INSTALL / "analysis-session.py"
 STATE = Path("/run/ai-desktop-sessions")
@@ -41,7 +42,7 @@ def desktop_uid(value):
     uid = int(value)
     socket_path(uid)
     user = pwd.getpwuid(uid)
-    if (uid < 1000 or user.pw_name == "ai-desktop"
+    if (not is_regular_uid(uid) or user.pw_name == "ai-desktop"
             or user.pw_shell in ("/usr/bin/nologin", "/sbin/nologin", "/bin/false", "/usr/bin/false")):
         raise AnalysisDenied("identity")
     return uid

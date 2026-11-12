@@ -27,7 +27,7 @@ MIN_FILE_SIZE = 4 * 1024
 MAX_FILE_SIZE = 64 * 1024 * 1024          # hard ceiling in code (also the ceiling of the request schema)
 MAX_ACCESS_BYTES = 320 * 1024     # = assistant_contract.MAX_ACCESS_BYTES: every template of the policy fits
 MAX_RULES = 64
-# Internal bounds, not settings (maintainer, 2026-11-11: technical limits stay in the program). The real bound of what a
+# Internal bounds, not settings: technical limits stay in the program. The real bound of what a
 # question sends is the byte budget (discovery_bytes); these only stop a model that keeps looping.
 MAX_DISCOVERY_ROUNDS = 32              # list/find/page steps of one question (= discovery_contract ceiling)
 MAX_SEARCH_RESULTS = 512               # matches of one find step (= discovery_contract.CEILING_ENTRIES)
@@ -56,7 +56,11 @@ PROTECTED_HOME = (".ssh", ".gnupg", ".password-store", ".aws", ".azure", ".kube"
                   ".config/borgmatic", ".mozilla", ".librewolf", ".thunderbird", ".config/chromium",
                   ".config/google-chrome", ".config/BraveSoftware", ".config/vivaldi", ".config/opera",
                   ".config/microsoft-edge", ".config/ai-desktop", ".local/state/ai-desktop", ".local/share/ai-desktop",
-                  ".netrc", ".git-credentials", ".npmrc", ".pypirc", ".env")
+                  ".netrc", ".git-credentials", ".npmrc", ".pypirc", ".env",
+                  # The same browsers and mail clients installed as Flatpak apps keep their profiles here.
+                  ".var/app/org.mozilla.firefox", ".var/app/org.mozilla.Thunderbird", ".var/app/org.chromium.Chromium",
+                  ".var/app/com.google.Chrome", ".var/app/com.brave.Browser", ".var/app/com.vivaldi.Vivaldi",
+                  ".var/app/com.microsoft.Edge", ".var/app/com.opera.Opera", ".var/app/io.gitlab.librewolf-community")
 PROTECTED_SYSTEM = ("/etc/ssh", "/etc/shadow", "/etc/gshadow", "/etc/NetworkManager/system-connections",
                     "/etc/wireguard", "/etc/borgmatic", "/etc/borgmatic.d")
 _WRITE_BLOCKED_ROOTS = ("/etc", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/boot",
@@ -65,7 +69,10 @@ _WRITE_BLOCKED_COMPONENTS = frozenset({".ssh", ".git", ".local", ".ai-desktop-ta
                                      "oauth", "secrets", "backup", "backups"})
 
 
-_SANDBOX_HIDDEN = ("/home", "/root", "/tmp")    # empty tmpfs in a read command's sandbox (command_ops.sandbox_command)
+def _sandbox_hidden():
+    """What a read command's sandbox shows as empty tmpfs (command_ops.sandbox_command): every home root and /tmp."""
+    from .host_accounts import home_roots
+    return (*home_roots(), "/tmp")
 
 DEFAULT_PART_SIZE = 240 * 1024            # one portion of a whole-file analysis (one request)
 MIN_PART_SIZE = 30 * 1024
@@ -586,7 +593,9 @@ def _reserved(path):
 
 
 def _foreign_home(path, home):
-    return ((_under(path, "/home") or _under(path, "/root")) and not _under(path, home))
+    """Another user's home, wherever this system keeps homes (not only /home and /root)."""
+    from .host_accounts import home_roots
+    return any(_under(path, root) for root in home_roots()) and not _under(path, home)
 
 
 def _blocked(path, home):
@@ -776,7 +785,7 @@ class Policy:
         binds = []
         for word in extra_words(self._commands, argv) or ():
             candidate = word.split("=", 1)[1] if word.startswith("-") and "=" in word else word
-            if (not candidate.startswith("/") or not any(_under(candidate, root) for root in _SANDBOX_HIDDEN)
+            if (not candidate.startswith("/") or not any(_under(candidate, root) for root in _sandbox_hidden())
                     or not os.path.exists(candidate) or os.path.realpath(candidate) != candidate
                     or not self.allows(candidate)):
                 continue
@@ -788,7 +797,7 @@ class Policy:
         return tuple(binds)
 
     def _whole_directory(self, directory):
-        if (directory in (self.home, *_SANDBOX_HIDDEN) or os.path.realpath(directory) != directory
+        if (directory in (self.home, *_sandbox_hidden()) or os.path.realpath(directory) != directory
                 or not self.allows(directory)):
             return False
         if any(_under(location, directory) for location in self.protected_locations()):

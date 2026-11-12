@@ -94,8 +94,8 @@ Optional (local commands, nothing is sent):
   /agent NAME    change the role (a saved conversation keeps its own)
   /settings      show and change these settings
   /exit           quit (also /quit, /q or Ctrl+D)"""
-SETTING_COMMANDS = ("/model", "/effort", "/sila", "/agent", "/settings", "/ustawienia")
-EXIT_COMMANDS = ("/exit", "/quit", "/koniec", "/q")       # the same words as in `ask`
+SETTING_COMMANDS = ("/model", "/effort", "/agent", "/settings")
+EXIT_COMMANDS = ("/exit", "/quit", "/q")       # the same words as in `ask`
 
 
 Delivery = collections.namedtuple("Delivery", "answer reused opening waiting meta", defaults=(None,))
@@ -1239,7 +1239,7 @@ class Session:
     def _dispatch(self, line):
         if not line:
             return True
-        if line.casefold() in ("koniec", "exit"):         # the bare word ends the session too, it is not a question
+        if line.casefold() in ("exit", "quit"):           # the bare word ends the session too, it is not a question
             return False
         if not line.startswith("/"):
             self.question(line)
@@ -1252,13 +1252,13 @@ class Session:
             return True
         if command in EXIT_COMMANDS:
             return False
-        if command in ("/pomoc", "/help", "/?"):
+        if command in ("/help", "/?"):
             print(recipient(HELP))
-        elif command in ("/find", "/znajdz"):
+        elif command == "/find":
             self.find(rest)
-        elif command in ("/show", "/pokaz"):
+        elif command == "/show":
             self.show(rest)
-        elif command in ("/log", "/rejestr"):
+        elif command == "/log":
             self.ledger()
         elif command in ("/ask", "/pytaj"):
             if re.fullmatch(r"\d+(?:-\d+)?", rest):

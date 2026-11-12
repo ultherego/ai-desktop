@@ -345,8 +345,11 @@ def sandbox_command(path, argv, *, share_processes=False, host_sockets=(), binds
     bus = dbus_filter.current()
     if bus is not None:
         run += ["--ro-bind", bus, "/run/dbus/system_bus_socket"]
+    # Every user's home is hidden wherever this system keeps it (host_accounts), not only under /home.
+    from .host_accounts import home_roots
+    homes = [item for root in home_roots() for item in ("--tmpfs", root)]
     return [bwrap, "--ro-bind", "/", "/", *isolation, "--dev", "/dev", "--tmpfs", "/tmp",
-            "--tmpfs", "/home", "--tmpfs", "/root", *run,
+            *homes, *run,
             "--unshare-net", "--unshare-ipc", *([] if share_processes else ["--unshare-pid"]),
             "--unshare-uts", "--die-with-parent", "--new-session",
             "--cap-drop", "ALL", "--clearenv", "--setenv", "PATH", "/usr/bin:/bin", "--setenv", "LANG", "C.UTF-8",

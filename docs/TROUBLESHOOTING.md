@@ -14,7 +14,7 @@
 | `client-changed` | Finish the update or registration refresh, then start a new operation so its selected payload is checked from the beginning. |
 | `status`: `auth=unchecked` | This is normal: `status` and `doctor` do not check login or network. |
 | Request to log in | `ai-desktop login`, then a new question. |
-| Service limit, network error, timeout | Nothing is retried by itself. Wait and ask the question again. The waiting time is 110 s, for `high` 5 minutes, and for `xhigh` and `max` 15 minutes. |
+| Service limit, network error, timeout | The question is not asked again by itself: wait and ask it again. Only two narrow repeats exist ([trust boundaries](../SECURITY.md#trust-boundaries)): a web answer that arrived but failed its checks is asked once more, silently, while at least half of its time is left; and a request the service never started (a kept connection closed before the service took it, or a worker that was being replaced) is sent again, so nothing runs twice. The waiting time is 110 s, for `high` 5 minutes, and for `xhigh` and `max` 15 minutes. |
 | Session busy or unconfirmed stop | `ai-desktop status`, then `ai-desktop stop` (stops the sessions of all your terminals). |
 | `Invalid permissions.toml` | The message points to the key. Also check mode `0600`. |
 | `Claude is blocked` | Set `claude = true` in `[network]`. |

@@ -7,13 +7,14 @@ import stat
 
 from .account_store import CLOUD, named_account
 from .analysis_contract import AnalysisDenied
+from .host_accounts import is_regular_uid
 
 
 _current = ContextVar("service_account", default=None)
 
 
 def identity(uid, provider, name, *, allow_default=False):
-    if (type(uid) is not int or not 1000 <= uid < 2**32 - 1 or provider not in CLOUD
+    if (not is_regular_uid(uid) or provider not in CLOUD
             or not (named_account(name) or allow_default and name == "default")):
         raise AnalysisDenied("identity")
     return uid, provider, name

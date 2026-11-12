@@ -198,8 +198,8 @@ def _telemetry(event, pending, done=()):
     elif kind == "tool_progress":
         # Inert progress of a search: it never supplies a result, a URL or a turn, so only what would mean other
         # activity is refused: another tool, a subagent's work, or a malformed value. Extra simple fields (a newer client)
-        # are ignored, and so is a call id this transcript has not announced (long `max` reasoning, CachyOS check of
-        # candidate 153); the answer's sources still come only from paired WebSearch results.
+        # are ignored, and so is a call id this transcript has not announced (long `max` reasoning
+        # announces calls late); the answer's sources still come only from paired WebSearch results.
         allowed = {"type", "session_id", "uuid", "tool_use_id", "tool_name",
                    "parent_tool_use_id", "elapsed_time_seconds", "heartbeat"}
         numbers = ("elapsed_time_seconds",)
@@ -207,8 +207,8 @@ def _telemetry(event, pending, done=()):
             raise TelemetryRefused("tool-name")
         parent = event.get("parent_tool_use_id", None)
         # A non-null parent marks progress from inside another tool call. With WebSearch as the only tool, the one
-        # accepted parent is a WebSearch call of this transcript (its own search runs nested; CachyOS check of
-        # candidate 154 with `max` reasoning). Any other parent, an agent, a task or a replay is other activity.
+        # accepted parent is a WebSearch call of this transcript (its own search runs nested,
+        # as seen with `max` reasoning). Any other parent, an agent, a task or a replay is other activity.
         if parent is not None and (type(parent) is not str or (parent not in pending and parent not in done)):
             raise TelemetryRefused("tool-parent")
         if any(name in event for name in ("agent_id", "task_id", "subagent_type")):
@@ -362,7 +362,7 @@ _CODE = re.compile(r"(?ms)^ {0,3}(```|~~~).*?(?:^ {0,3}\1[^\n]*$|\Z)|`[^`\n]*`")
 
 def _prose(answer):
     """The answer without its code (fenced blocks and inline code): code is shown as written, never rewritten or
-    read as citations (CachyOS check of candidate 141: a prime-number script was refused for `sieve[0]`)."""
+    read as citations (e.g. `sieve[0]` in a script is not a citation)."""
     return _CODE.sub("", answer)
 
 
@@ -398,7 +398,7 @@ def _answer(raw, observed):
         if re.search(r"\]\(", _prose(answer)) or re.search(r"^ {0,3}\[[0-9]+\]:", _prose(answer), re.M):
             raise ValueError("references")
         check = "web-answer-references"
-        # Source numbers in the text are optional (the maintainer: the sources at the end are enough); one that names
+        # Source numbers in the text are optional (the sources at the end are enough); one that names
         # no listed source was already taken out above, so this only guards that removal.
         if not _references(answer) <= set(range(1, len(sources) + 1)):
             raise ValueError("references")

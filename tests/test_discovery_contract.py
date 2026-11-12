@@ -13,7 +13,7 @@ from ai_desktop import ask_discovery, skill_runtime
 ACCESS = {"files": [{"id": "f0", "pattern": "~/.config/**"}], "systemd": [], "weather": False}
 EXECUTION = {"provider": "codex", "model": "default", "effort": "default",
              "instructions": "", "profile": "diagnostic", "access": "read-only"}
-QUESTION = "Sprawdź ustawienia monitorów"
+QUESTION = "Check the synthetic gizmo settings"
 
 
 def document():

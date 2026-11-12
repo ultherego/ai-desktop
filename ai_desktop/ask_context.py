@@ -144,13 +144,13 @@ def preview_context(context, *, details=False):
         elif item["kind"] == "weather":
             print("\nWeather: " + terminal_text(", ".join(filter(None, (
                 item["location"]["name"], item["location"]["admin1"], item["location"]["country"])))))
-            print("Open-Meteo, model estimate; data time: " + item["valid_at"])
+            from .weather_context import local_time, shown
+            print("Open-Meteo, model estimate; data time: " + local_time(item["valid_at"]))
             current = item["current"]
             if details:
-                print("Temperature: " + str(current["temperature_c"]) + " °C; feels like: "
-                      + str(current["apparent_temperature_c"]) + " °C; precipitation: "
-                      + str(current["precipitation_mm"]) + " mm; wind: "
-                      + str(current["wind_kmh"]) + " km/h; WMO weather code: " + str(current["weather_code"]))
+                temperature, feels, rain, wind = shown(current)
+                print("Temperature: " + temperature + "; feels like: " + feels + "; precipitation: " + rain
+                      + "; wind: " + wind + "; WMO weather code: " + str(current["weather_code"]))
                 print("Data period: " + str(current["interval_seconds"]) + " s.")
             print("Sources: " + item["source_url"] + "; geocoding https://www.geonames.org/")
     if context:

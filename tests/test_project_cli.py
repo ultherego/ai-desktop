@@ -150,7 +150,7 @@ class RootAndLocalTests(Base):
 
 
 class QuestionTests(Base):
-    def ask(self, *decisions, question="Gdzie jest błąd połączenia?", answers=("yes",), extra=(), verbose=False):
+    def ask(self, *decisions, question="Where is the connection error?", answers=("yes",), extra=(), verbose=False):
         self.model = script(*decisions)
         argv = [str(self.proj), "--v"] if verbose else None
         return self.run_cli([question, *extra, "/exit"], list(answers), argv=argv)
@@ -243,7 +243,7 @@ class QuestionTests(Base):
 
     def test_declining_consent_sends_nothing_and_the_short_preview_has_no_long_explanation(self):
         self.model = script()
-        self.run_cli(["Gdzie jest błąd?", "/exit"], ["no"])
+        self.run_cli(["Where is the error?", "/exit"], ["no"])
         self.assertIn("Cancelled. No data was sent.", self.output)
         self.assertNotIn("File names, matches and parts", self.output)
         self.assertIn("To Claude: the question, file names and parts from proj", self.output)
@@ -329,7 +329,7 @@ class QuestionTests(Base):
             {"action": "answer", "text": "Częściowo: util.py.", "sources": [], "progress": "Zrobione: util.py. Dalej: docs.", "continue": True},
             {"action": "read", "path": "docs/readme.txt", "ranges": [{"first": 1, "last": 1}]},
             {"action": "answer", "text": "Komplet.", "sources": [], "continue": False})
-        self.run_cli(["Zrób głęboką analizę", "/exit"], ["yes"])
+        self.run_cli(["Do a deep analysis", "/exit"], ["yes"])
         first, second, third, fourth = self.payloads()
         self.assertEqual((first["project"]["project"]["stage"], first["project"]["project"]["visited"]), (1, []))
         self.assertEqual(second["project"]["project"]["stage"], 1)
@@ -637,7 +637,7 @@ class QuestionTests(Base):
     def test_the_models_working_notes_come_back_with_the_next_question(self):
         self.model = script({"action": "answer", "text": "Zrobione.", "sources": [], "progress": "Krok 1 gotowy; dalej: testy."},
                             {"action": "answer", "text": "Kontynuuję.", "sources": []})
-        self.run_cli(["Zacznij", "rób dalej", "/exit"], ["yes", "yes"])
+        self.run_cli(["Start", "keep going", "/exit"], ["yes", "yes"])
         first, second = self.payloads()
         self.assertEqual(first["project"]["project"]["progress"], "")
         self.assertEqual(second["project"]["project"]["progress"], "Krok 1 gotowy; dalej: testy.")
@@ -885,7 +885,7 @@ class EditTests(Base):
         with patch.object(pcli.ask_edit, "prepare", side_effect=lambda *a, **k: self.calls.append(("prepare", a[0])) or prepared), \
                 patch.object(pcli.ask_cli, "request", side_effect=lambda *a, **k: self.calls.append(("request", a[0])) or "{}"), \
                 patch.object(pcli.ask_edit, "finish", side_effect=lambda *a, **k: self.calls.append(("finish", None)) or pcli.ask_edit.CompletedTask(0)):
-            self.run_cli(["Dodaj komentarz w util.py", "/exit"], answers)
+            self.run_cli(["Add a comment in util.py", "/exit"], answers)
 
     def test_the_outcome_appears_in_history_within_the_same_session(self):
         self.model = script({"action": "read", "path": "src/util.py", "ranges": [{"first": 1, "last": 2}]},
@@ -894,7 +894,7 @@ class EditTests(Base):
         prepared = pcli.ask_edit.PreparedEdit({}, {"files": []}, "text", str(self.proj), object())
         with patch.object(pcli.ask_edit, "prepare", return_value=prepared), patch.object(pcli.ask_cli, "request", return_value="{}"), \
                 patch.object(pcli.ask_edit, "finish", return_value=pcli.ask_edit.CompletedTask(0)):
-            self.run_cli(["Dodaj komentarz", "tak, i rób dalej", "/exit"], ["yes", "yes", "yes"])
+            self.run_cli(["Add a comment", "yes, and keep going", "/exit"], ["yes", "yes", "yes"])
         followup = self.payloads()[-1]["project"]
         self.assertEqual(followup["history"][0]["answer"], "[change saved after the user's consent]")
 
@@ -905,7 +905,7 @@ class EditTests(Base):
 
         def transport(approval):
             seen.append(json.loads(approval.payload))
-            return json.dumps({"summary": "Dodano plik.", "files": [{"path": "hello.py", "content": "print('hello world')\n"}]})
+            return json.dumps({"summary": "File added.", "files": [{"path": "hello.py", "content": "print('hello world')\n"}]})
 
         class Indicator:
             def __init__(self, **kwargs): pass
@@ -918,11 +918,11 @@ class EditTests(Base):
                 patch.object(pcli.ask_cli, "send_once", transport), patch.object(pcli.ask_cli, "installation_ready"), \
                 patch.object(pcli.ask_cli, "WaitingIndicator", Indicator), \
                 patch.object(pcli.ask_edit, "finish", side_effect=lambda *a, **k: finished.append(a[1]) or pcli.ask_edit.CompletedTask(0)):
-            self.run_cli(["utwórz hello.py który wypisze hello world", "/exit"], ["yes", "yes"])
+            self.run_cli(["create hello.py that prints hello world", "/exit"], ["yes", "yes"])
         self.assertNotIn("onsent expired", self.output)
         self.assertEqual(len(seen), 1)
         self.assertEqual(seen[0]["mode"], "workspace")                       # straight to the workspace request
-        self.assertEqual(seen[0]["task"]["instruction"], "utwórz hello.py który wypisze hello world")
+        self.assertEqual(seen[0]["task"]["instruction"], "create hello.py that prints hello world")
         self.assertEqual([f["path"] for f in seen[0]["task"]["files"]], ["hello.py"])
         self.assertEqual(len(finished), 1)
         self.assertFalse((self.proj / "hello.py").exists())                  # nothing is written by `project` itself
@@ -961,7 +961,7 @@ class EditTests(Base):
 
     def run_delete(self, answers, paths=("docs/readme.txt",)):
         self.model = script({"action": "edit", "files": [], "create": [], "delete": list(paths), "check": "text"})
-        self.run_cli(["usuń readme", "/exit"], answers)
+        self.run_cli(["delete readme", "/exit"], answers)
 
     def test_deleting_moves_the_file_to_the_trash_after_the_owners_own_yes_and_it_can_be_restored(self):
         target = self.proj / "docs/readme.txt"
@@ -1027,9 +1027,9 @@ class EditTests(Base):
                 patch.object(pcli.ask_edit, "prepare", return_value=prepared) as prepare, \
                 patch.object(pcli.ask_cli, "request", return_value="{}") as request, \
                 patch.object(pcli.ask_edit, "finish", return_value=pcli.ask_edit.CompletedTask(0)):
-            self.run_cli(["stwórz a.txt i wpisz do niego: " + marker, "/exit"], ["yes"])
+            self.run_cli(["create a.txt and write into it: " + marker, "/exit"], ["yes"])
         instruction = request.call_args.args[0]
-        self.assertEqual(instruction, "stwórz a.txt i wpisz do niego: " + body)
+        self.assertEqual(instruction, "create a.txt and write into it: " + body)
         self.assertNotIn("paste", instruction)
         prepare.assert_called_once()
 
@@ -1137,7 +1137,7 @@ class EditTests(Base):
         self.run_edit(["yes", "yes"])
         self.assertEqual([c[0] for c in self.calls], ["prepare", "request", "finish"])
         self.assertEqual(self.calls[0][1]["write"], "w0")                  # the plan argument of prepare
-        self.assertEqual(self.calls[1][1], "Dodaj komentarz w util.py")     # the instruction is the user's question, verbatim
+        self.assertEqual(self.calls[1][1], "Add a comment in util.py")     # the instruction is the user's question, verbatim
         self.assertEqual(len(self.sent), 2)                                  # only the investigation steps used the project transport
 
     def test_an_edit_the_policy_cannot_express_never_reaches_the_pipeline(self):

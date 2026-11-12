@@ -275,14 +275,58 @@ def _worker():
 
 
 def language(environ=None):
-    """The two-letter language of the user's locale (LC_ALL, LC_MESSAGES, LANG), English when unset or C/POSIX."""
+    """The two-letter language of the user's locale, English when unset or C/POSIX. GNU's LANGUAGE priority list
+    (e.g. "pl:en") comes first, as gettext reads it, unless LC_ALL is C/POSIX."""
     environ = os.environ if environ is None else environ
+    preferred = environ.get("LANGUAGE", "").split(":")[0]
+    if preferred and environ.get("LC_ALL", "") not in ("C", "POSIX") and not environ.get("LC_ALL", "").startswith("C."):
+        match = re.match(r"([a-z]{2})(?:[_.@]|\Z)", preferred)
+        if match:
+            return match.group(1)
     for name in ("LC_ALL", "LC_MESSAGES", "LANG"):
         value = environ.get(name, "")
         if value:
             match = re.match(r"([a-z]{2})(?:[_.@]|\Z)", value)
             return match.group(1) if match else "en"
     return "en"
+
+
+IMPERIAL_TERRITORIES = ("US", "LR", "MM")       # where glibc locales measure in imperial units
+
+
+def measurement_system(environ=None):
+    """"imperial" or "metric", from the territory of the user's measurement locale (LC_ALL, LC_MEASUREMENT, LANG)."""
+    environ = os.environ if environ is None else environ
+    for name in ("LC_ALL", "LC_MEASUREMENT", "LANG"):
+        value = environ.get(name, "")
+        if value:
+            match = re.match(r"[a-z]{2,3}_([A-Z]{2})", value)
+            return "imperial" if match and match.group(1) in IMPERIAL_TERRITORIES else "metric"
+    return "metric"
+
+
+def shown(current, system=None):
+    """The current values as the user reads them: (temperature, feels like, precipitation, wind), with units."""
+    system = measurement_system() if system is None else system
+    if system == "imperial":
+        f = lambda c: "%.1f °F" % (c * 9 / 5 + 32)
+        return (f(current["temperature_c"]), f(current["apparent_temperature_c"]),
+                "%.2f in" % (current["precipitation_mm"] / 25.4), "%.1f mph" % (current["wind_kmh"] / 1.609344))
+    return ("%s °C" % current["temperature_c"], "%s °C" % current["apparent_temperature_c"],
+            "%s mm" % current["precipitation_mm"], "%s km/h" % current["wind_kmh"])
+
+
+def local_time(valid_at):
+    """An ISO UTC time shown in the user's own time zone (falls back to the text as given)."""
+    from datetime import datetime
+    try:
+        moment = datetime.fromisoformat(valid_at.replace("Z", "+00:00"))
+        if moment.tzinfo is None:
+            from datetime import timezone
+            moment = moment.replace(tzinfo=timezone.utc)
+        return moment.astimezone().strftime("%Y-%m-%d %H:%M %Z") + " (" + valid_at + ")"
+    except (ValueError, TypeError, AttributeError):
+        return str(valid_at)
 
 
 def geocode(city):

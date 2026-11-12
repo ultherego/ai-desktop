@@ -246,10 +246,10 @@ class PolicyTests(unittest.TestCase):
         for path in forbidden:
             if not path.endswith(("/*", "/**")):
                 self.assertFalse(policy.can_write(path))
-        niri = self.policy(read=["~/.config/niri/**"], write=["~/.config/niri/**"])
-        self.assertTrue(niri.can_write("~/.config/niri/config.kdl"))
-        self.assertEqual(p.validate_write_path(str(self.home / ".config/niri"), str(self.home)),
-                         str(self.home / ".config/niri"))
+        gizmo = self.policy(read=["~/.config/gizmo/**"], write=["~/.config/gizmo/**"])
+        self.assertTrue(gizmo.can_write("~/.config/gizmo/settings.conf"))
+        self.assertEqual(p.validate_write_path(str(self.home / ".config/gizmo"), str(self.home)),
+                         str(self.home / ".config/gizmo"))
 
     def test_selected_write_scope_cannot_borrow_other_rule_in_same_workspace(self):
         policy = self.policy(write=["~/project/first.txt", "~/project/second.txt", "~/project/sub/**"])

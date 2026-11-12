@@ -44,7 +44,7 @@ class ChainBase(Base):
             self.transported.append(payload)
             files = [{"path": f["path"], "content": content_for(f["path"], f["content"])}
                      for f in payload["task"]["files"] if f["writable"]]
-            return json.dumps({"summary": "Zmiana testowa.", "files": files})
+            return json.dumps({"summary": "Test change.", "files": files})
         return send
 
     def session(self, commands, answers, send):
@@ -78,7 +78,7 @@ class ChainTests:
             return answer
 
         self.model = model
-        self.session(["zmień util.py"], ["yes"], self.transport(lambda path, old: old + "new\n"))
+        self.session(["change util.py"], ["yes"], self.transport(lambda path, old: old + "new\n"))
         self.assertEqual(self.transported, [])
         self.assertEqual(target.read_text(), "new private version\n")
         self.assertIn("The file changed, so the task was stopped.", self.output)
@@ -96,7 +96,7 @@ class ChainTests:
             return answer
 
         with patch.object(pcli, "confirm", confirm):
-            self.session(["zmień readme"], ["yes", "yes"], self.transport(lambda path, old: old + "new\n"))
+            self.session(["change readme"], ["yes", "yes"], self.transport(lambda path, old: old + "new\n"))
         self.assertEqual(self.transported, [])
         self.assertIn("The file changed, so the task was stopped.", self.output)
         self.assertEqual(target.read_text(), "changed while the question was displayed\n")
@@ -113,7 +113,7 @@ class ChainTests:
             return answer
 
         with patch.object(pcli, "confirm", confirm):
-            self.session(["usuń readme"], ["yes", "yes"], self.transport(lambda path, old: old))
+            self.session(["delete readme"], ["yes", "yes"], self.transport(lambda path, old: old))
         self.assertTrue(a.exists())
         self.assertIn("Nothing was deleted", self.output)
         self.assertEqual(workspace_trash.recovery_records(self.workspace), [])
@@ -130,7 +130,7 @@ class ChainTests:
             return result
 
         with patch.object(tw, "_save", save):
-            self.session(["usuń oba"], ["yes", "yes"], self.transport(lambda path, old: old))
+            self.session(["delete both"], ["yes", "yes"], self.transport(lambda path, old: old))
         self.assertNotIn("Nothing was deleted", self.output)
         self.assertIn("Deletion interrupted", self.output)
         record, = workspace_trash.recovery_records(self.workspace)
@@ -145,8 +145,8 @@ class ChainTests:
         target = self.proj / "docs/new.txt"
         # 1. create (project consent, then the write consent)
         self.model = script({"action": "edit", "files": [], "create": ["docs/new.txt"], "check": "text"})
-        self.session(["stwórz docs/new.txt"], ["yes", "yes"], self.transport(lambda path, old: "pierwsza wersja\n"))
-        self.assertEqual(target.read_text(), "pierwsza wersja\n")
+        self.session(["create docs/new.txt"], ["yes", "yes"], self.transport(lambda path, old: "first version\n"))
+        self.assertEqual(target.read_text(), "first version\n")
         self.assertIn("Changes saved.", self.output)
         self.assertIn("--workspace %s" % self.workspace, self.output)
         self.assertEqual(self.transported[0]["task"]["files"][0]["path"], self.prefix + "docs/new.txt")
@@ -158,32 +158,32 @@ class ChainTests:
         self.assertFalse(target.exists())
         # 3. create again, then modify it (the file was read whole in the same task, so no second question)
         self.model = script({"action": "edit", "files": [], "create": ["docs/new.txt"], "check": "text"})
-        self.session(["stwórz ponownie"], ["yes", "yes"], self.transport(lambda path, old: "wersja 1\n"))
+        self.session(["create again"], ["yes", "yes"], self.transport(lambda path, old: "version 1\n"))
         self.model = script({"action": "read", "path": "docs/new.txt", "ranges": [{"first": 1, "last": 5}]},
                             {"action": "edit", "files": ["docs/new.txt"], "create": [], "check": "text"})
         target.chmod(0o640)
-        self.session(["dopisz linię"], ["yes", "yes"], self.transport(lambda path, old: old + "wersja 2\n"))
-        self.assertEqual(target.read_text(), "wersja 1\nwersja 2\n")
+        self.session(["append a line"], ["yes", "yes"], self.transport(lambda path, old: old + "version 2\n"))
+        self.assertEqual(target.read_text(), "version 1\nversion 2\n")
         self.assertNotIn(PROMPTS["project-edit"], self.prompts)
         # 4. delete it: it moves to the trash, other task edits in the same workspace keep working afterwards
         self.model = script({"action": "edit", "files": [], "create": [], "delete": ["docs/new.txt"], "check": "text"})
-        self.session(["usuń docs/new.txt"], ["yes", "yes"], self.transport(lambda path, old: old))
+        self.session(["delete docs/new.txt"], ["yes", "yes"], self.transport(lambda path, old: old))
         self.assertFalse(target.exists())
         trash_plan = [l for l in self.output.splitlines() if l.startswith("Restore:")][0].rsplit(" ", 1)[1]
         other = self.proj / "docs/other.txt"
         self.model = script({"action": "edit", "files": [], "create": ["docs/other.txt"], "check": "text"})
-        self.session(["stwórz other"], ["yes", "yes"], self.transport(lambda path, old: "inny\n"))
-        self.assertEqual(other.read_text(), "inny\n")                       # the trash entry did not block the edit
+        self.session(["create other"], ["yes", "yes"], self.transport(lambda path, old: "other\n"))
+        self.assertEqual(other.read_text(), "other\n")                       # the trash entry did not block the edit
         # 5. restore the deleted file with the real command: same bytes and mode as before the deletion
         code, text = self.cli("restore", "--workspace", self.workspace, "--plan", trash_plan)
         self.assertEqual(code, 0, text)
-        self.assertEqual(target.read_text(), "wersja 1\nwersja 2\n")
+        self.assertEqual(target.read_text(), "version 1\nversion 2\n")
         self.assertEqual(target.stat().st_mode & 0o777, 0o640)
 
     def test_restore_never_overwrites_a_file_created_in_the_meantime_and_status_lists_every_journal(self):
         target = self.proj / "docs/readme.txt"
         self.model = script({"action": "edit", "files": [], "create": [], "delete": ["docs/readme.txt"], "check": "text"})
-        self.session(["usuń readme"], ["yes", "yes"], self.transport(lambda path, old: old))
+        self.session(["delete readme"], ["yes", "yes"], self.transport(lambda path, old: old))
         plan = [l for l in self.output.splitlines() if l.startswith("Restore:")][0].rsplit(" ", 1)[1]
         target.write_text("nowy plik o tej samej nazwie\n")
         code, text = self.cli("restore", "--workspace", self.workspace, "--plan", plan)
@@ -195,11 +195,11 @@ class ChainTests:
 
     def test_a_change_the_user_declines_at_the_diff_writes_nothing_and_leaves_no_blocking_journal(self):
         self.model = script({"action": "edit", "files": [], "create": ["docs/never.txt"], "check": "text"})
-        self.session(["stwórz never"], ["yes", "no"], self.transport(lambda path, old: "x\n"))
+        self.session(["create never"], ["yes", "no"], self.transport(lambda path, old: "x\n"))
         self.assertFalse((self.proj / "docs/never.txt").exists())
         self.assertIn("Save cancelled. The project is unchanged.", self.output)
         self.model = script({"action": "edit", "files": [], "create": ["docs/later.txt"], "check": "text"})
-        self.session(["stwórz later"], ["yes", "yes"], self.transport(lambda path, old: "y\n"))
+        self.session(["create later"], ["yes", "yes"], self.transport(lambda path, old: "y\n"))
         self.assertEqual((self.proj / "docs/later.txt").read_text(), "y\n")
 
 
@@ -246,7 +246,7 @@ class UnsafeWorkspaceTests(ChainBase):
     def test_a_write_root_with_group_write_permission_is_named_instead_of_failing_silently(self):
         self.proj.chmod(0o770)
         self.model = script({"action": "edit", "files": [], "create": ["docs/x.txt"], "check": "text"})
-        self.session(["stwórz x"], ["yes"], self.transport(lambda path, old: "x\n"))
+        self.session(["create x"], ["yes"], self.transport(lambda path, old: "x\n"))
         self.assertRegex(self.output, r"Refused\s+The write scope in permissions.toml does not point to a safe working directory")
         self.assertFalse((self.proj / "docs/x.txt").exists())
 
@@ -274,7 +274,7 @@ class ExcerptEditChainTests(ChainBase):
         number = len(self.lines) - 1
         self.model = script({"action": "read", "path": "src/big.conf", "ranges": [{"first": number, "last": number}]},
                             {"action": "edit", "files": ["src/big.conf"], "create": [], "check": "text"})
-        self.session(["Zmień limit na 200"], ["yes", "yes"], self.send)
+        self.session(["Change the limit to 200"], ["yes", "yes"], self.send)
         edited, = self.transported
         item, = edited["task"]["files"]
         self.assertEqual(set(item), {"path", "excerpts", "size", "writable"})
@@ -289,7 +289,7 @@ class ExcerptEditChainTests(ChainBase):
 
     def test_without_read_lines_the_edit_is_refused_with_the_setting_named(self):
         self.model = script({"action": "edit", "files": ["src/big.conf"], "create": [], "check": "text"})
-        self.session(["Zmień limit na 200"], ["yes"], self.send)
+        self.session(["Change the limit to 200"], ["yes"], self.send)
         self.assertEqual(self.transported, [])
         self.assertIn("is larger than files.read_file_size (1.0 KiB)", self.output)
         self.assertEqual(self.big.read_text(), "".join(self.lines))

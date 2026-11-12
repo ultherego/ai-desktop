@@ -204,7 +204,7 @@ class SkillsOnDemandTests(Base):
         directory_context.recheck_discovery(directory_context.DiscoverySnapshot(policy, document, ()))
 
     def test_a_repeated_or_one_too_many_skill_request_is_a_correction_not_the_end_of_the_question(self):
-        # CachyOS check (candidate 164): a fourth Skill round, or asking again for a loaded one, ended with plan-action.
+        # Regression: a fourth Skill round, or asking again for a loaded one, ended with plan-action.
         from ai_desktop import assistant_contract as plans
         ask = lambda *names: json.dumps({"action": "skill", "names": list(names)})
         bodies = {name: "procedure " + name for name in ("a/one", "a/two", "a/three", "a/four")}
@@ -273,7 +273,7 @@ class SkillsOnDemandTests(Base):
     def test_packaged_procedures_reach_the_final_answer_without_loading_other_bodies(self):
         """Exercise real procedure sizes through consent, discovery and the final file hand-off."""
         from ai_desktop import agent_profiles, skills
-        for name in ("arch/btrfs", "arch/systemd", "arch/amdgpu"):
+        for name in ("arch/btrfs", "arch/systemd", "arch/network"):
             with self.subTest(skill=name), patch.object(skills, "user_root", return_value=self.home / "no-skills"):
                 catalog = agent_profiles.catalog_for(agent_profiles.Profile(skills=("arch",)))
                 self.assertIn("- " + name + ":", catalog)
@@ -421,7 +421,7 @@ class GroundingTests(Base):
 
     def test_a_path_the_user_typed_needs_no_discovery(self):
         result = self.run_flow([read(sel("gizmo/settings.conf")), ANSWER],
-                               question="Pokaż gizmo/settings.conf proszę")
+                               question="Show gizmo/settings.conf please")
         self.assertEqual(result, ANSWER)
         self.assertEqual(len(self.wire), 2)
 
@@ -767,11 +767,11 @@ class ReviewFindingsTests(Base):
         self.assertEqual(result, ANSWER)
 
     def test_user_typed_path_must_match_on_boundaries_not_as_a_substring(self):
-        ledger = ask_discovery.DiscoveryLedger(permissions.load_policy(), "Opisz dokumenty i descriptor")
+        ledger = ask_discovery.DiscoveryLedger(permissions.load_policy(), "Describe the documents and descriptor")
         for guess in ("doc", "src", "scri", "descr"):
             with self.subTest(guess=guess), self.assertRaises(ask_discovery.Recoverable):
                 ledger.ground([sel(guess)])
-        typed = ask_discovery.DiscoveryLedger(permissions.load_policy(), "Pokaż gizmo/settings.conf, proszę. Albo ~/.config/bulk")
+        typed = ask_discovery.DiscoveryLedger(permissions.load_policy(), "Show gizmo/settings.conf, please. Or ~/.config/bulk")
         typed.ground([sel("gizmo/settings.conf"), sel("bulk")])
 
     def test_entry_and_byte_totals_cannot_break_the_wire_contract_at_the_ceilings(self):
@@ -949,7 +949,7 @@ class InstructionPathHintTests(Base):
     """Paths the owner writes into the agent's instructions or Skills count as named by the user, never as permission."""
 
     def test_a_path_named_in_the_instructions_needs_no_discovery(self):
-        hint = "Znane lokalizacje: konfiguracja gizmo to ~/.config/gizmo/settings.conf (odczytuj tylko ją)."
+        hint = "Known locations: the gizmo configuration is ~/.config/gizmo/settings.conf (read only that file)."
         result = self.run_flow([read(sel("gizmo/settings.conf")), ANSWER], instructions=hint)
         self.assertEqual(result, ANSWER)
         self.assertEqual(len(self.wire), 2)                                       # no list, no correction round

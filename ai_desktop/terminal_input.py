@@ -417,7 +417,7 @@ class TypeAhead:
                     plain = _without_locks(key)
                     if plain in _KEYS:
                         # An arrow or Home/End in the keyboard protocol's long form (ESC[1;1B, lock bits) is the
-                        # plain key, as at the idle prompt (CachyOS check of candidate 156, a terminal inside a multiplexer).
+                        # plain key, as at the idle prompt (e.g. a terminal inside a multiplexer).
                         key = plain
                 if key == _PASTE_START:
                     self._sequence, self._paste_open = ("paste", bytearray()), True

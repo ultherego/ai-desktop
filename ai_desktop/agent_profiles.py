@@ -38,7 +38,7 @@ PRESET_SKILLS = MappingProxyType({
     "reviewer": ("code-review",),
     "analyst": ("project-analysis",),
 })
-# Candidate 164 merged the per-topic system Skills into two area Skills with topic guides (as Omarchy does). A saved
+# The per-topic system Skills were merged into two area Skills with topic guides. A saved
 # profile that still names an old one gets the area Skill instead, so it keeps working after the update.
 _AREA_TOPICS = {
     "arch": ("amdgpu", "apparmor", "audio", "bluetooth", "btrfs", "dns-time", "docker", "firewall", "flatpak",
@@ -564,7 +564,10 @@ def with_presets(name, selected):
         installed = set(skills.names())
     except (OSError, ValueError):
         return selected
-    always = tuple(skill for skill in preset if skill in installed)
+    # The distribution's own Skill only where os-release names it: CachyOS advice does not belong on plain Arch.
+    from .distro import is_cachyos
+    applicable = {skill for skill in preset if skill != "cachyos" or is_cachyos()}
+    always = tuple(skill for skill in preset if skill in installed and skill in applicable)
     merged = always + tuple(skill for skill in selected.skills if skill not in always)
     return selected if merged == selected.skills else replace(selected, skills=merged)
 

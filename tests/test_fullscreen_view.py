@@ -25,7 +25,7 @@ def text(model, row):
 
 class ScreenModelTests(unittest.TestCase):
     def test_an_erased_row_keeps_the_background_so_the_input_band_is_redrawn_full_width(self):
-        # CachyOS check (candidate 164): after scrolling the history, the grey input band came back as one row only as
+        # Regression: after scrolling the history, the grey input band came back as one row only as
         # wide as its text, because erased cells lost the background colour that the terminal keeps (BCE).
         model = ScreenModel(4, 20)
         shade = "\x1b[48;2;40;42;54m"
@@ -278,7 +278,7 @@ if __name__ == "__main__":
 
 
 class ResizeTests(unittest.TestCase):
-    """CachyOS check of candidate 146: a resize left blank rows between the question and the next text."""
+    """Regression: a resize left blank rows between the question and the next text."""
 
     def test_growing_brings_rows_back_and_the_end_stays_right_above_the_input(self):
         model = ScreenModel(10, 20)
@@ -466,7 +466,7 @@ class WebLimitTests(unittest.TestCase):
 
 
 class EdgeScrollTests(unittest.TestCase):
-    """CachyOS check of candidate 147: dragging a selection past the edge must scroll, as in any terminal."""
+    """Regression: dragging a selection past the edge must scroll, as in any terminal."""
 
     def setUp(self):
         self.frame, self.terminal = FrameTests.frame(self)
@@ -516,7 +516,7 @@ class EdgeScrollTests(unittest.TestCase):
 
 
 class TurnOutputTests(unittest.TestCase):
-    """CachyOS check of candidate 153: a message printed during an answer was glued to the waiting indicator's line."""
+    """Regression: a message printed during an answer was glued to the waiting indicator's line."""
 
     def test_a_message_after_the_indicator_line_starts_on_a_clean_line(self):
         stream = io.StringIO()
@@ -556,7 +556,7 @@ class MenuSettleTests(unittest.TestCase):
 
 
 class ListDuringTurnTests(unittest.TestCase):
-    """CachyOS check of candidate 154: opening the `/` list during an answer left copies of the waiting line and blank
+    """Regression: opening the `/` list during an answer left copies of the waiting line and blank
     gaps, because the conversation was scrolled up by the list's height even with room below it."""
 
     def run_turn(self, lines):
@@ -598,7 +598,7 @@ class ListDuringTurnTests(unittest.TestCase):
 
 
 class TurnArrowTests(unittest.TestCase):
-    """CachyOS check of candidate 156 (a terminal inside a multiplexer): during an answer, Up/Down did not move the highlight in
+    """Regression (a terminal inside a multiplexer): during an answer, Up/Down did not move the highlight in
     the `/` list, because the keyboard protocol sent them in the long form (ESC[1;1B), which only the idle editor
     turned into the plain key."""
 

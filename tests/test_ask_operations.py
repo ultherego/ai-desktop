@@ -93,7 +93,7 @@ class FlowTests(OperationsBase):
         self.assertIn("sleep infinity", contract.SYSTEM_PROMPT)
 
     def test_a_malformed_file_selector_is_refused_and_the_model_may_correct_it(self):
-        """CachyOS check of 134: a follow-up edit named the file from the conversation the wrong way
+        """Regression: a follow-up edit named the file from the conversation the wrong way
         (plan-files-selector) and the whole turn ended; the model now gets the code and one more round."""
         wrong = json.dumps({"action": "read", "files": [{"id": "f0", "path": "~/a.py"}], "systemd": [], "weather": None})
         self.assertEqual(self.run_flow([wrong, ANSWER_PLAN]), ANSWER)

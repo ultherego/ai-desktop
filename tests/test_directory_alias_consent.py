@@ -19,7 +19,7 @@ from ai_desktop.assistant_flow import AccessSnapshot
 from ai_desktop.question_consent import QuestionConsent
 
 
-QUESTION = "Sprawdź syntetyczne ustawienia monitora"
+QUESTION = "Check the synthetic gizmo settings"
 
 
 class DirectoryAliasConsentTests(unittest.TestCase):
@@ -35,12 +35,12 @@ class DirectoryAliasConsentTests(unittest.TestCase):
                                + json.dumps(["~/.config/**"])
                                + "\ndeny = " + json.dumps(["~/.config/ai-desktop/"]) + "\n")
         self.config.chmod(0o600)
-        self.target = self.home / ".config/dms"
+        self.target = self.home / ".config/gizmo"
         self.target.mkdir(mode=0o700)
-        self.file = self.target / "settings.json"
-        self.file.write_text('{"monitor":"Virtual-1"}\n')
-        self.alias = self.home / ".config/DankMaterialShell"
-        self.alias.symlink_to("dms")
+        self.file = self.target / "settings.conf"
+        self.file.write_text('mode = "basic"\n')
+        self.alias = self.home / ".config/GizmoSuite"
+        self.alias.symlink_to("gizmo")
         self.policy = permissions.load_policy()
 
     def permit(self, *, approved=True):
@@ -51,12 +51,12 @@ class DirectoryAliasConsentTests(unittest.TestCase):
         return permit
 
     def selection(self, policy=None):
-        return (self.policy if policy is None else policy).expand_selected(((0, "DankMaterialShell/**"),))
+        return (self.policy if policy is None else policy).expand_selected(((0, "GizmoSuite/**"),))
 
     def collect(self, permit):
         args = SimpleNamespace(details=False, preview=False, no_context=False)
         with redirect_stdout(io.StringIO()):
-            item = file_context.collect(self.policy, [{"id": "f0", "path": "DankMaterialShell/**"}],
+            item = file_context.collect(self.policy, [{"id": "f0", "path": "GizmoSuite/**"}],
                                         args, question_consent=permit)
         return [item]
 
@@ -75,7 +75,7 @@ class DirectoryAliasConsentTests(unittest.TestCase):
     def test_collector_binds_the_alias_and_an_unchanged_snapshot_authorizes_physical_context(self):
         permit, gate, context = self.claimed()
         self.assertEqual(len(permit._file_reads), 1)
-        self.assertEqual(context[0]["files"], [{"path": str(self.file), "content": '{"monitor":"Virtual-1"}\n'}])
+        self.assertEqual(context[0]["files"], [{"path": str(self.file), "content": 'mode = "basic"\n'}])
         approval = permit.authorize(gate, QUESTION, context=context)
         self.assertIs(type(approval), Approval)
         self.assertEqual((approval.payload, approval.sha256), (gate.payload, gate.sha256))
@@ -84,7 +84,7 @@ class DirectoryAliasConsentTests(unittest.TestCase):
         permit, gate, context = self.claimed()
         other = self.home / ".config/other"
         other.mkdir(mode=0o700)
-        (other / "settings.json").write_text("SYNTHETIC REPLACEMENT")
+        (other / "settings.conf").write_text("SYNTHETIC REPLACEMENT")
         self.alias.unlink()
         self.alias.symlink_to("other")
         with patch.object(gate, "authorize", wraps=gate.authorize) as authorize:
@@ -98,7 +98,7 @@ class DirectoryAliasConsentTests(unittest.TestCase):
     def test_recreated_alias_with_the_same_target_is_also_a_version_change(self):
         permit, gate, context = self.claimed()
         self.alias.unlink()
-        self.alias.symlink_to("dms")
+        self.alias.symlink_to("gizmo")
         with self.assertRaises(AnalysisDenied) as denied:
             permit.authorize(gate, QUESTION, context=context)
         self.assertEqual(denied.exception.reason, "consent")
@@ -107,9 +107,9 @@ class DirectoryAliasConsentTests(unittest.TestCase):
 
     def test_replacing_the_target_directory_after_claim_prevents_transfer_of_the_old_context(self):
         permit, gate, context = self.claimed()
-        self.target.rename(self.target.with_name("previous-dms"))
+        self.target.rename(self.target.with_name("gizmo-old"))
         self.target.mkdir(mode=0o700)
-        (self.target / "settings.json").write_text("SYNTHETIC REPLACEMENT")
+        (self.target / "settings.conf").write_text("SYNTHETIC REPLACEMENT")
         with self.assertRaises(AnalysisDenied) as denied:
             permit.authorize(gate, QUESTION, context=context)
         self.assertEqual(denied.exception.reason, "consent")
@@ -119,7 +119,7 @@ class DirectoryAliasConsentTests(unittest.TestCase):
     def test_a_stale_selection_is_rejected_at_binding_before_a_file_read(self):
         permit, selected = self.permit(), self.selection()
         self.alias.unlink()
-        self.alias.symlink_to("dms")
+        self.alias.symlink_to("gizmo")
         with patch.object(permissions, "_read", wraps=permissions._read) as read:
             with self.assertRaises(AnalysisDenied):
                 permit.bind_file_selection(self.policy, selected)

@@ -18,7 +18,8 @@ Keep the Claude/Codex installation you use: supported Arch/AUR packages, officia
 # 1. Application build tools and the selected system client (Codex example)
 sudo pacman -S --needed base-devel git python bubblewrap xdg-dbus-proxy libseccomp sudo python-rich python-cryptography openai-codex
 
-# 2. Code and application installation; this does not download a provider client
+# 2. Code and application installation; this does not download a provider client.
+#    The checkout directory is your choice; this example uses ~/ai-desktop.
 git clone https://github.com/ultherego/ai-desktopv2.git ~/ai-desktop
 cd ~/ai-desktop
 python3 -B scripts/install_agents.py codex --install
@@ -31,7 +32,7 @@ ai-desktop login --codex
 
 # 4. Your access policy (fresh installation)
 mkdir -p ~/.config/ai-desktop
-cp ~/ai-desktop/config/permissions.example.toml ~/.config/ai-desktop/permissions.toml
+cp config/permissions.example.toml ~/.config/ai-desktop/permissions.toml   # run in your checkout directory
 chmod 600 ~/.config/ai-desktop/permissions.toml
 $EDITOR ~/.config/ai-desktop/permissions.toml     # enable network.codex; fill in files.read; deny wins
 
@@ -57,7 +58,7 @@ Upgrading from packages 0.1.0-79/80, which bundled their own clients, is describ
 ```sh
 ai-desktop stop
 ai-desktop status
-cd ~/ai-desktop
+cd ~/ai-desktop        # your checkout directory
 git pull
 cd packaging/arch
 makepkg --cleanbuild

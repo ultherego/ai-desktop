@@ -12,9 +12,8 @@ from .question_input import FOLLOWUP_PROMPT, QuestionInputError, read_question
 from .task_contract import path as validate_path
 
 MAX_FOLLOWUPS = 2
-# Free text follows the user's language, so Polish cancel words stay next to the English ones.
-CANCEL = frozenset({"anuluj", "anuluj.", "nie", "stop", "cancel", "wyjdź", "wyjdz", "rezygnuję", "rezygnuje",
-                    "no", "quit", "exit"})
+# Words that end a clarification instead of answering it. Language-neutral control is an empty answer or Ctrl+D.
+CANCEL = frozenset({"stop", "cancel", "no", "n", "quit", "exit"})
 
 
 def clarify(question, path, *, workspace, reader=input):

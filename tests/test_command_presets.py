@@ -46,7 +46,7 @@ class PresetTests(unittest.TestCase):
         self.assertFalse(policy.allows_command(["journalctl", "-b"]))           # commands.deny removes from the preset
 
     def test_root_and_boot_filesystem_reads_work_with_a_narrow_read_scope(self):
-        # CachyOS check (candidate 164): "/" and "/boot" are rarely in files.read, so "findmnt ..." refused them.
+        # Regression: "/" and "/boot" are rarely in files.read, so "findmnt ..." refused them.
         policy = load('version = 2\n[files]\nread = ["~/Projects/**"]\ndeny = []\n[commands]\npreset = "diagnostics"\n')
         for argv in (["findmnt", "/"], ["findmnt", "/boot"], ["findmnt", "/boot/efi"], ["btrfs", "filesystem", "usage", "/"],
                      ["btrfs", "device", "stats", "/"], ["btrfs", "scrub", "status", "/"]):
@@ -56,31 +56,31 @@ class PresetTests(unittest.TestCase):
         self.assertFalse(policy.allows_command(["findmnt", "-no", "SOURCE", "/etc"]))  # other paths: files.read decides
 
     def test_a_compositor_check_sees_only_the_allowed_configuration_it_names(self):
-        # CachyOS check (candidate 164): `niri validate` could not run, and in the sandbox /home is empty anyway.
+        # Regression: a compositor validator such as `sway -C` could not run, and in the sandbox /home is empty anyway.
         import tempfile
         with tempfile.TemporaryDirectory(dir="/tmp") as temp:
             home = os.path.realpath(temp)
-            config = os.path.join(home, ".config/niri")
-            os.makedirs(os.path.join(config, "dms"))
-            for name in ("config.kdl", "dms/binds.kdl"):
+            config = os.path.join(home, ".config/sway")
+            os.makedirs(os.path.join(config, "parts"))
+            for name in ("config", "parts/binds.conf"):
                 open(os.path.join(config, name), "w").close()
             os.makedirs(os.path.join(home, ".ssh"))
             open(os.path.join(home, ".ssh/config"), "w").close()
             with patch.object(p, "_identity", return_value=(os.getuid(), home)):
                 policy = load('version = 2\n[files]\nread = ["~/**"]\ndeny = []\n[commands]\npreset = "diagnostics"\n')
-                argv = policy.expand_home(["niri", "validate", "-c", "~/.config/niri/config.kdl"])
-                self.assertEqual(argv[3], config + "/config.kdl")
+                argv = policy.expand_home(["sway", "-C", "-c", "~/.config/sway/config"])
+                self.assertEqual(argv[3], config + "/config")
                 self.assertTrue(policy.allows_command(argv))
                 self.assertEqual(policy.sandbox_binds(argv), (config,))               # with the files it includes
-                ssh = policy.expand_home(["niri", "validate", "-c", "~/.ssh/config"])
+                ssh = policy.expand_home(["sway", "-C", "-c", "~/.ssh/config"])
                 self.assertFalse(policy.allows_command(ssh))                          # protected: neither run nor shown
                 self.assertEqual(policy.sandbox_binds(ssh), ())
                 self.assertEqual(policy.sandbox_binds(["uname", "-a"]), ())
-                policy = load('version = 2\n[files]\nread = ["~/**"]\ndeny = ["~/.config/niri/dms/"]\n'
+                policy = load('version = 2\n[files]\nread = ["~/**"]\ndeny = ["~/.config/sway/parts/"]\n'
                               '[commands]\npreset = "diagnostics"\n')
-                self.assertEqual(policy.sandbox_binds(argv), (config + "/config.kdl",))  # a denied file inside: file only
-                os.symlink(config + "/config.kdl", home + "/link.kdl")
-                self.assertEqual(policy.sandbox_binds(["niri", "validate", "-c", home + "/link.kdl"]), ())
+                self.assertEqual(policy.sandbox_binds(argv), (config + "/config",))  # a denied file inside: file only
+                os.symlink(config + "/config", home + "/link.conf")
+                self.assertEqual(policy.sandbox_binds(["sway", "-C", "-c", home + "/link.conf"]), ())
 
     def test_an_unknown_preset_is_refused(self):
         with self.assertRaises(ValueError):
@@ -91,8 +91,8 @@ class ProtectTests(unittest.TestCase):
     def test_secrets_are_protected_under_a_broad_read_rule(self):
         policy = load(BASE % ("", "", ""))
         home = policy.home
-        for path in (home + "/.ssh/my_github_key", home + "/.config/borgmatic/config.yaml", home + "/.gnupg/x",
-                     home + "/.config/vivaldi/Default/Cookies", home + "/.netrc",
+        for path in (home + "/.ssh/my_github_key", home + "/.password-store/x.gpg", home + "/.gnupg/x",
+                     home + "/.config/chromium/Default/Cookies", home + "/.netrc",
                      "/etc/NetworkManager/system-connections/wifi.nmconnection", "/etc/wireguard/wg0.conf"):
             with self.subTest(path=path):
                 self.assertTrue(policy._excluded(path))

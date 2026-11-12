@@ -146,7 +146,7 @@ class ApprovalUITests(unittest.TestCase):
     def test_report_mutation_while_waiting_refuses(self):
         report = report_fixture()
         source, target = self.streams(
-            "SEND", before_read=lambda: report.__setitem__("shell", "bash"))
+            "SEND", before_read=lambda: report.__setitem__("shell", "zsh"))
         with self.assertRaises(ApprovalDenied):
             confirm_transfer(report, input_stream=source, output_stream=target)
 

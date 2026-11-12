@@ -676,7 +676,7 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                     wanted = [name for name in plan["names"] if name not in loaded or
                               "/" in name and skills(name) != previous.get(name)]
                     if not wanted or skill_rounds >= MAX_SKILL_ROUNDS:
-                        # Nothing new, or the Skill rounds are used up: a correction (CachyOS check, candidate 164),
+                        # Nothing new, or the Skill rounds are used up: a correction,
                         # so the model goes on with what it has instead of the question ending.
                         code = "skill-repeat" if not wanted else "skill-limit"
                         if not ledger.correction(ask_discovery.Recoverable(code, [], None)):

@@ -59,7 +59,7 @@ Ordinary `doctor` and panel status remain metadata-only. `doctor --clients` expl
 | Proxy | service, outside the client sandbox | Passes only TLS on port 443 to `api.anthropic.com`, `claude.ai`, `platform.claude.com`, to public addresses. |
 | Local model server | your configured loopback service | Receives the approved prompt, history and authorized material. The user who operates the service controls its logging. |
 | Model | at the provider | Returns text and proposals. This is untrusted data. |
-| Commands from `allow` | your user, in a separate sandbox | Read-only file system, hidden `/home` and `/root`, an empty `/run` apart from plain state files and a read-only filtered D-Bus, no network. Other daemon sockets (e.g. Docker) only when listed in `host_sockets`. A path inside your home directory that a command names (e.g. `niri validate -c ~/.config/niri/config.kdl`) and that `files.read` allows is shown read-only for that one command: the file, or its directory when nothing protected or denied lies in it. |
+| Commands from `allow` | your user, in a separate sandbox | Read-only file system, hidden `/home` and `/root`, an empty `/run` apart from plain state files and a read-only filtered D-Bus, no network. Other daemon sockets (e.g. Docker) only when listed in `host_sockets`. A path inside your home directory that a command names (e.g. your compositor's offline check, such as `niri validate -c ~/.config/niri/config.kdl` or `sway -C -c ~/.config/sway/config`) and that `files.read` allows is shown read-only for that one command: the file, or its directory when nothing protected or denied lies in it. |
 | Commands from `change` | your user, **without a sandbox** | Run on the live system after you type `yes`. |
 | Tests on a copy | your user, in a sandbox | A copy in memory, without network, home directory or access to the project. |
 
@@ -73,7 +73,8 @@ An exhausted budget, a wrong model response, a file change or a missing sandbox 
 the host or an API key. It repeats a request in two cases only. A web answer that arrived but failed the transcript or answer checks (reason `result`) is
 asked once more, silently, with the same approved request, while at least half of its time is left; never after a limit, a login failure, a timeout, a
 cancellation, `web-no-results` or an ordinary answer. A request on a kept conversation connection that was closed before the service took it is sent once
-on a new connection; the service never saw it, so nothing runs twice.
+on a new connection; likewise, a request that a service worker ending its lifetime declined before starting it goes to the next worker (at most three
+times). The service never started such a request, so nothing runs twice.
 
 ## What model output can and cannot do
 

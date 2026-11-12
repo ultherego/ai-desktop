@@ -39,10 +39,10 @@ FILE_CONTENTS = {"notes.txt": _sized_text(FILE_SIZES[0], "\nanswer_marker = " + 
                     for index, size in enumerate(FILE_SIZES[1:], 2)}}
 CONTENTS = FILE_CONTENTS["notes.txt"]
 DENIED_CONTENTS = "SYNTHETIC FILE DENIED CONTENT\n"
-QUESTION = ("W syntetycznym projekcie aidfixture odczytaj wszystkie pięć plików dopuszczonych przez regułę. "
-            "Odpowiedz wyłącznie wartością answer_marker z końca notes.txt. Nie wykonuj zmian.")
+QUESTION = ("In the synthetic project aidfixture read all five files allowed by the rule. "
+            "Answer only with the answer_marker value from the end of notes.txt. Make no changes.")
 POLICY_MARKER = "SYNTHETIC POLICY: PASS allow=PASS deny=PASS"
-LOCAL_QUESTION = "Sprawdź rozmiary wybranego kontekstu plikowego bez wysyłania danych."
+LOCAL_QUESTION = "Check the sizes of the selected file context without sending any data."
 CONFIGURED_RUNNER = """
 import sys
 def deny_live_operations(event, args):

@@ -11,9 +11,9 @@ from ai_desktop.permissions import Scope
 from ai_desktop.question_consent import QuestionConsent
 
 
-SCOPES = (Scope(0, "~/.config/niri/**"), Scope(1, "~/.ssh/config"),
+SCOPES = (Scope(0, "~/.config/gizmo/**"), Scope(1, "~/.ssh/config"),
           Scope(2, "/home/alice/projects/calculator/**"))
-CONTEXT = {"kind": "files", "files": [{"path": "/home/alice/.config/niri/config.kdl",
+CONTEXT = {"kind": "files", "files": [{"path": "/home/alice/.config/gizmo/settings.conf",
                                       "content": "PRIVATE FILE CONTENT\n"}]}
 
 
@@ -162,17 +162,17 @@ class FileContextTests(unittest.TestCase):
         self.reader.assert_not_called()
 
     def test_distinct_subsets_of_one_scope_read_only_the_expanded_selected_paths(self):
-        selectors = [{"id": "f0", "path": "config.kdl"}, {"id": "f0", "path": "parts/**"}]
-        self.policy.scopes.return_value = (Scope(0, "~/.config/niri/**"),)
-        self.policy.access.return_value["files"] = [{"id": "f0", "pattern": "~/.config/niri/**"}]
-        paths = ("/home/alice/.config/niri/config.kdl", "/home/alice/.config/niri/parts/keys.kdl")
+        selectors = [{"id": "f0", "path": "settings.conf"}, {"id": "f0", "path": "parts/**"}]
+        self.policy.scopes.return_value = (Scope(0, "~/.config/gizmo/**"),)
+        self.policy.access.return_value["files"] = [{"id": "f0", "pattern": "~/.config/gizmo/**"}]
+        paths = ("/home/alice/.config/gizmo/settings.conf", "/home/alice/.config/gizmo/parts/keys.conf")
         self.policy.expand_selected.return_value = paths
         bundle = {"kind": "files", "files": [{"path": path, "content": "synthetic"} for path in paths]}
         self.read.return_value = bundle
         permit, _ = self.permit()
         result = file_context.collect(self.policy, selectors, options(), self.reader, question_consent=permit)
         self.assertEqual(result, bundle)
-        self.policy.expand_selected.assert_called_once_with(((0, "config.kdl"), (0, "parts/**")))
+        self.policy.expand_selected.assert_called_once_with(((0, "settings.conf"), (0, "parts/**")))
         self.policy.expand.assert_not_called()
         self.read.assert_called_once_with(self.policy, paths)
         self.consent.assert_not_called()
@@ -180,7 +180,7 @@ class FileContextTests(unittest.TestCase):
         self.assertEqual(self.output.getvalue(), "")
 
     def test_mixed_scope_and_relative_selector_wait_for_consent_and_use_captured_indices(self):
-        selectors = ["f2", {"id": "f0", "path": "config.kdl"}]
+        selectors = ["f2", {"id": "f0", "path": "settings.conf"}]
         actions = Mock()
         actions.attach_mock(self.consent, "consent")
         actions.attach_mock(self.policy.recheck, "recheck")
@@ -188,28 +188,28 @@ class FileContextTests(unittest.TestCase):
         actions.attach_mock(self.read, "read")
         file_context.collect(self.policy, selectors, options(details=True), self.reader)
         self.assertEqual(actions.mock_calls, [call.consent("files-read", reader=self.reader), call.recheck(),
-                         call.expand_selected(((2, None), (0, "config.kdl"))),
+                         call.expand_selected(((2, None), (0, "settings.conf"))),
                          call.read(self.policy, self.policy.expand_selected.return_value), call.recheck()])
         self.policy.expand.assert_not_called()
-        self.assertIn('Narrowed "f0": "config.kdl"', self.output.getvalue())
+        self.assertIn('Narrowed "f0": "settings.conf"', self.output.getvalue())
         self.assertNotIn("PRIVATE FILE CONTENT", self.output.getvalue())
 
     def test_malformed_selector_and_scope_mismatch_refuse_before_consent_or_expansion(self):
         cases = [[{"id": "f0", "path": "../other"}], [{"id": "f0", "path": "/outside"}],
-                 [{"id": "f9", "path": "config.kdl"}], [{"id": "f0", "path": "x", "command": "PRIVATE"}],
+                 [{"id": "f9", "path": "settings.conf"}], [{"id": "f0", "path": "x", "command": "PRIVATE"}],
                  [{"id": "f0", "path": "x"}, {"id": "f0", "path": "x"}]]
         for selected in cases:
             with self.subTest(selected=selected), self.assertRaises(file_context.FileReadDenied):
                 file_context.collect(self.policy, selected, options(), self.reader)
         self.policy.access.return_value["files"][0]["pattern"] = "~/DIFFERENT/**"
         with self.assertRaises(file_context.FileReadDenied):
-            file_context.collect(self.policy, [{"id": "f0", "path": "config.kdl"}], options(), self.reader)
+            file_context.collect(self.policy, [{"id": "f0", "path": "settings.conf"}], options(), self.reader)
         self.consent.assert_not_called()
         self.assert_no_read()
         self.assertNotIn("PRIVATE", self.output.getvalue())
 
     def test_subset_refusal_and_expired_question_never_fall_back_to_whole_scope(self):
-        selectors = [{"id": "f0", "path": "config.kdl"}]
+        selectors = [{"id": "f0", "path": "settings.conf"}]
         for cause in ("denied", "expired"):
             self.policy.expand_selected.reset_mock()
             now = [0]
@@ -222,7 +222,7 @@ class FileContextTests(unittest.TestCase):
             self.policy.expand_selected.side_effect = expand
             with self.subTest(cause=cause), self.assertRaises(AnalysisDenied):
                 file_context.collect(self.policy, selectors, options(), self.reader, question_consent=permit)
-            self.policy.expand_selected.assert_called_once_with(((0, "config.kdl"),))
+            self.policy.expand_selected.assert_called_once_with(((0, "settings.conf"),))
             self.policy.expand.assert_not_called()
             self.read.assert_not_called()
             self.consent.assert_not_called()
@@ -230,7 +230,7 @@ class FileContextTests(unittest.TestCase):
     def test_unknown_duplicate_wrong_typed_and_pathlike_suggestions_fail_before_consent(self):
         for values in ([], ["f3"], ["f0", "f0"], ["f0", "f99"], "f0", {"f0": True},
                        [True], [0], [None], ["f00"], ["f-1"], ["f０"], ["f0\n"],
-                       ["/home/alice/.config/niri/config.kdl"], ["$(PRIVATE)"], ["f0"] * 65):
+                       ["/home/alice/.config/gizmo/settings.conf"], ["$(PRIVATE)"], ["f0"] * 65):
             with self.subTest(values=values):
                 with self.assertRaises(AnalysisDenied) as error:
                     file_context.collect(self.policy, values, options(), self.reader)
@@ -254,8 +254,8 @@ class FileContextTests(unittest.TestCase):
         self.assert_no_read()
 
     def test_scope_metadata_requires_unique_exact_integer_indices(self):
-        for scopes in ((Scope(True, "~/niri/*"),), (Scope(-1, "~/niri/*"),),
-                       (Scope(65, "~/niri/*"),), (Scope(0, None),), (SCOPES[0], SCOPES[0])):
+        for scopes in ((Scope(True, "~/gizmo/*"),), (Scope(-1, "~/gizmo/*"),),
+                       (Scope(65, "~/gizmo/*"),), (Scope(0, None),), (SCOPES[0], SCOPES[0])):
             with self.subTest(scopes=scopes):
                 self.policy.scopes.return_value = scopes
                 with self.assertRaises(AnalysisDenied):
@@ -371,7 +371,7 @@ class FileContextTests(unittest.TestCase):
                 self.assertNotIn("For the question:", output)
 
     def test_scope_names_are_terminal_escaped_data(self):
-        pattern = "~/niri/\x1b]52;c;PRIVATE\x07\npretend approval\u202e/**"
+        pattern = "~/gizmo/\x1b]52;c;PRIVATE\x07\npretend approval\u202e/**"
         self.policy.scopes.return_value = (Scope(0, pattern),)
         self.policy.access.return_value = {"files": [{"id": "f0", "pattern": pattern}]}
         self.consent.return_value = False
