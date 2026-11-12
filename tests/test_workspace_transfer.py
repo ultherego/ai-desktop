@@ -178,6 +178,38 @@ class ReviewFindingTests(Workspace):
         self.assertFalse(any(n.startswith(".ai-desktop-copy-") for n in os.listdir(self.root / "target")))
         self.assertFalse((self.root / "target/package").exists())
 
+    def test_a_tree_changed_after_the_plan_is_refused_before_anything_moves(self):
+        for operation in ("copy", "move"):
+            for change in ("added", "replaced"):
+                with self.subTest(operation=operation, change=change):
+                    prepared = t.prepare(self.ws, operation, "source/package", "target/package")
+                    if change == "added":
+                        (self.root / "source/package/media/new.txt").write_text("added after the plan")
+                    else:
+                        os.remove(self.root / "source/package/media/image.bin")
+                        (self.root / "source/package/media/image.bin").mkdir()          # a file became a folder
+                    with self.assertRaises(t.TransferDenied) as caught:
+                        t.execute(prepared, prepared.authorize())
+                    self.assertEqual(caught.exception.reason, "changed")
+                    self.assertFalse((self.root / "target/package").exists())
+                    self.assertTrue((self.root / "source/package/notes.txt").exists())
+                    if change == "added":
+                        (self.root / "source/package/media/new.txt").unlink()
+                    else:
+                        (self.root / "source/package/media/image.bin").rmdir()
+                        (self.root / "source/package/media/image.bin").write_bytes(b"x")
+
+    def test_a_copy_never_takes_an_entry_outside_the_approved_manifest(self):
+        parent = os.open(self.root / "source", os.O_RDONLY | os.O_DIRECTORY)
+        target = os.open(self.root / "target", os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            with self.assertRaises(t.TransferDenied) as caught:
+                t._copy_tree(parent, "package", target, ".ai-desktop-copy-test", manifest=["notes.txt"])
+        finally:
+            os.close(parent)
+            os.close(target)
+        self.assertEqual(caught.exception.reason, "changed")
+
     def test_the_history_limit_is_checked_before_anything_moves(self):
         with patch.object(t.tw, "MAX_JOURNALS", 1):
             first = t.prepare(self.ws, "copy", "source/package", "target/one")

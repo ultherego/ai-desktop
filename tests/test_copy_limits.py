@@ -33,13 +33,31 @@ class LocalCopyLimitTests(unittest.TestCase):
             self.assertEqual(len(list(Path(directory).iterdir())), len(files))
             self.assertEqual((Path(directory) / "large.txt").read_bytes(), large.encode("utf-8"))
 
+    def test_binary_files_and_real_names_reach_the_copy_byte_for_byte(self):
+        files = {"assets with space/image.png": b"\x89PNG\r\n\x1a\n\x00\xff", "po/en@quot.header": "text\n"}
+        self.assertEqual(copy_contract.validate_files(files), 10 + 5)
+        with patch.object(task_sandbox.os, "geteuid", return_value=1000), \
+                patch.object(task_sandbox.os, "getuid", return_value=1000), \
+                patch.object(task_sandbox, "command", return_value=["synthetic"]), \
+                patch.object(task_sandbox, "bounded_process", return_value=(0, b"checked", b"")) as child:
+            task_sandbox.run_copy(files, "text")
+        decoded = json.loads(child.call_args.kwargs["input_bytes"])
+        with tempfile.TemporaryDirectory() as directory:
+            task_child.materialize(decoded, directory)
+            self.assertEqual((Path(directory) / "assets with space/image.png").read_bytes(), files["assets with space/image.png"])
+            self.assertEqual((Path(directory) / "po/en@quot.header").read_text(), "text\n")
+        with tempfile.TemporaryDirectory() as directory, self.assertRaises(ValueError):
+            task_child.materialize({"files": [{"path": "../outside", "data": "eA=="}]}, directory)
+        with self.assertRaises(ValueError):
+            copy_contract.validate_files({"big.bin": b"x" * (copy_contract.MAX_FILE + 1)})
+
     def test_copy_path_can_be_deep_without_widening_edit_target_authority(self):
         name = "/".join(["package"] * 15 + ["test.py"])
         self.assertEqual(copy_contract.path(name), name)
         with self.assertRaises(ValueError):
             task_contract.path(name)
         for invalid in ("/etc/config", "../escape", "dir/../escape", "dir//file", "file/",
-                        "/".join(["a"] * 17), "a" * 256, ".ai-desktop-tasks/secret", "x/.ai-task-private"):
+                        "/".join(["a"] * 33), "a" * 256, ".ai-desktop-tasks/secret", "x/.ai-task-private"):
             with self.subTest(path=invalid), self.assertRaises(ValueError):
                 copy_contract.path(invalid)
 

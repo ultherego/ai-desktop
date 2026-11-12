@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-168: project tests with any files, stricter plans
+
+- **Project tests work on normal projects:** images, test fixtures and other non-text files, and folder names with spaces, other languages, `@` or `+`, are copied into the test sandbox as they are. Only a file holding a private key stops the copy, and it is named.
+- **A move or copy does exactly what you approved:** if files inside the folder change after you saw the plan, nothing is moved or copied.
+- **Large zip archives** that announce too many entries are refused before they are read.
+- **Keyboard-shortcut examples** for niri, Hyprland and Sway/i3, and where to add one in KDE Plasma and GNOME.
+
 ## 0.1.0-167: safer moves, copies, installs and downloads
 
 - **Every file counts:** moving, copying or installing a folder now checks every file inside it against your `deny` rules and the protected locations, not only the folder itself.

@@ -158,10 +158,11 @@ class ProjectEditTestTests(Fixture):
         self.config.write_text(self.config.read_text() + "# changed\n")
         with self.assertRaises(ValueError):
             self.run_test(prepared)
-        (self.root / "binary.dat").write_bytes(b"\xff")
-        with self.assertRaises(project_scope.ProjectError):
-            self.run_test()
         self.runner.assert_not_called()
+        (self.root / "binary.dat").write_bytes(b"\xff")                     # a binary asset goes into the copy as is
+        self.run_test()
+        self.assertEqual(self.runner.call_args.args[0]["binary.dat"], b"\xff")
+        self.runner.reset_mock()
         (self.root / "binary.dat").unlink()
         prepared = self.prepared()
         (self.root / "new-link").symlink_to(self.target)

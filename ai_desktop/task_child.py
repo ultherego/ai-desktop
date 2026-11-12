@@ -3,6 +3,7 @@
 Standalone stdlib file: never imports project modules before confinement.
 The tested source is untrusted even when its tests report success.
 """
+import base64
 import ctypes
 import errno
 import json
@@ -19,17 +20,25 @@ MEMORY_BYTES = 2 * 1024 * 1024 * 1024
 
 
 def materialize(data, root):
-    """Verify the exact UTF-8 bytes written to the isolated copy."""
+    """Verify the exact bytes written to the isolated copy: UTF-8 text (`content`) or any other file (`data`, base64)."""
     for item in data["files"]:
+        parts = item["path"].split("/")
+        if item["path"].startswith("/") or any(part in ("", ".", "..") for part in parts):
+            raise ValueError("copy path")
         dest = Path(root) / item["path"]
         dest.parent.mkdir(parents=True, exist_ok=True)
-        expected = item["content"].encode("utf-8")
+        if "data" in item:
+            expected = base64.b64decode(item["data"], validate=True)
+            if len(expected) > MAX_FILE:
+                raise ValueError("file size")
+        else:
+            expected = item["content"].encode("utf-8")
         with dest.open("xb") as output:
             output.write(expected)
         if item.get("executable"):
             dest.chmod(0o700)
         actual = dest.read_bytes()
-        if actual != expected or actual.decode("utf-8").encode("utf-8") != expected:
+        if actual != expected or ("data" not in item and actual.decode("utf-8").encode("utf-8") != expected):
             raise ValueError("text integrity")
 
 
@@ -183,7 +192,7 @@ def main():
             return 2
         return 0 if result.wasSuccessful() else 1
     suffix = {"python-syntax": ".py", "json": ".json", "toml": ".toml", "bash-syntax": ".sh", "fish-syntax": ".fish"}[check]
-    selected = [f for f in data["files"] if f["path"].endswith(suffix)]
+    selected = [f for f in data["files"] if f["path"].endswith(suffix) and "content" in f]
     if not selected:
         raise ValueError("no matching files")
     if check in ("bash-syntax", "fish-syntax"):

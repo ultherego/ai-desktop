@@ -80,7 +80,8 @@ class PreparedProjectTest:
         limits = self._policy.limits()
         total = copy_contract.validate_files(files)
         if (len(files) > limits.test_copy_files or total > limits.test_copy_total_size
-                or any(len(content.encode("utf-8")) > limits.test_copy_file_size for content in files.values())):
+                or any(len(content if type(content) is bytes else content.encode("utf-8")) > limits.test_copy_file_size
+                       for content in files.values())):
             raise project_scope.TestScopeRefused("The proposed changes exceed the configured local test-copy budget.")
 
     def run(self, source, proposed_files, check, reader, write_guard, approved=None):

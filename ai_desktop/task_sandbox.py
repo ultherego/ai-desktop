@@ -50,7 +50,9 @@ def run_copy(files, check, *, executable=()):
     if os.geteuid() == 0 or os.getuid() != os.geteuid() or check not in CHECKS:
         raise ValueError("test identity or check")
     copy_contract.validate_files(files)
-    items = [{"path": name, "content": content} for name, content in files.items()]
+    import base64
+    items = [{"path": name, "data": base64.b64encode(content).decode("ascii")} if type(content) is bytes
+             else {"path": name, "content": content} for name, content in files.items()]
     if any(name not in files for name in executable):
         raise ValueError("executable outside test selection")
     for item in items:

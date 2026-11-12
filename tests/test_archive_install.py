@@ -247,6 +247,40 @@ class ReviewFindingTests(Base):
             a.prepare(str(self.workspace), self.label(path), str(path), ".")
         self.assertEqual(caught.exception.reason, "top")
 
+    def test_a_zip_announcing_too_many_entries_is_refused_before_its_directory_is_read(self):
+        path = self.zip("crowded.zip", {"package/%d.txt" % i: b"x" for i in range(5)})
+        with patch.object(a, "MAX_ENTRIES", 3), patch.object(zipfile, "ZipFile",
+                                                             side_effect=AssertionError("directory parsed")):
+            with self.assertRaises(a.ArchiveDenied) as caught:
+                a.inspect(str(path))
+        self.assertEqual(caught.exception.reason, "count")
+        with patch.object(a, "MAX_ZIP_DIRECTORY", 10), patch.object(zipfile, "ZipFile",
+                                                                     side_effect=AssertionError("directory parsed")):
+            with self.assertRaises(a.ArchiveDenied) as caught:
+                a.inspect(str(path))
+        self.assertEqual(caught.exception.reason, "size")
+        with open(path, "rb") as handle:
+            self.assertEqual(a._zip_directory(handle)[0], 5)
+
+    def test_a_zip64_end_record_is_read_too(self):
+        path = self.quarantine / "large.zip"
+        with zipfile.ZipFile(path, "w", allowZip64=True) as archive:
+            for i in range(3):
+                archive.writestr("package/%d.txt" % i, "x")
+            archive._didModify = True
+        raw = bytearray(path.read_bytes())
+        at = raw.rfind(b"PK\x05\x06")
+        import struct
+        entries, size, offset = struct.unpack("<HII", raw[at + 10:at + 20])
+        zip64 = (b"PK\x06\x06" + struct.pack("<QHHIIQQQQ", 44, 45, 45, 0, 0, entries, entries, size, offset))
+        locator = b"PK\x06\x07" + struct.pack("<IQI", 0, at, 1)
+        raw[at:at] = zip64 + locator
+        at += len(zip64) + len(locator)
+        raw[at + 8:at + 16] = struct.pack("<HHI", 0xFFFF, 0xFFFF, size)
+        path.write_bytes(bytes(raw))
+        with open(path, "rb") as handle:
+            self.assertEqual(a._zip_directory(handle), (3, size))
+
     def test_a_tar_bomb_is_refused_while_listing(self):
         path = self.tar("bomb.tar.xz", {"package/zero.bin": b"\0" * 400000}, "w:xz")
         with patch.object(a, "BOMB_FLOOR", 1000), self.assertRaises(a.ArchiveDenied) as caught:
