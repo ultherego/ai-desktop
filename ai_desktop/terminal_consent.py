@@ -23,6 +23,7 @@ PROMPTS = {
     "weather": "Get the weather from Open-Meteo? [y/n]: ",
     "web-open": "Open this address? [y/n]: ",
     "download": "Download these files into the quarantine folder? [y/n]: ",
+    "install": "Install as shown (it can be undone)? [y/n]: ",
     "ask-transfer": "Send to Claude? [y/n]: ",
     "transfer": "Send the data shown to Claude? [y/n]: ",
     "task-scope": "Send these files to Claude and run the declared test on a copy? [y/n]: ",

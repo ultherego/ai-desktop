@@ -417,9 +417,42 @@ def _fetch_all(ledger, clean, folder, step):
             continue
         print(paint("  %s %s · %s · sha256 %s" % (symbol("ok"), terminal_text(found["name"]), size_label(found["size"]),
                                                  found["sha256"][:16]), "muted"))
-        conversation_state.note_action("Downloaded %s (%d bytes, sha256 %s) into %s"
-                                       % (found["final_url"], found["size"], found["sha256"], folder), read=True)
+        label = "~/" + os.path.relpath(os.path.join(folder, found["name"]), web_download._home())
+        conversation_state.note_action("Downloaded %s (%d bytes, sha256 %s) as %s"
+                                       % (found["final_url"], found["size"], found["sha256"], label), read=True)
         step(url, "ok", "", dict(found, folder="~/" + os.path.relpath(folder, web_download._home())))
+
+
+def _inspect(ledger, label, snapshot):
+    """S10 stage C: what a downloaded archive holds, read locally without unpacking; a discovery step for the model."""
+    from . import archive_install
+    empty = {"format": "", "files": 0, "folders": 0, "bytes": 0, "top": [], "top_count": 0, "executables": 0,
+             "examples": []}
+    try:
+        home = snapshot.policy.home if snapshot.policy is not None else archive_install_home()
+        facts = archive_install.inspect(archive_install.resolve(label, home))
+    except archive_install.ArchiveDenied as refused:
+        print(paint("  %s Archive %s · refused (%s)" % (symbol("skip"), terminal_text(label.rsplit("/", 1)[-1]),
+                                                       refused.reason), "muted"))
+        step = {"op": "archive", "archive": label, "status": "refused", "reason": refused.reason, **empty}
+    else:
+        print(paint("  %s Archive %s · %s, %d files, %s" % (symbol("ok"), terminal_text(label.rsplit("/", 1)[-1]),
+                                                           facts["format"], facts["files"], size_label(facts["bytes"])),
+                    "muted"))
+        step = {"op": "archive", "archive": label, "status": "ok", "reason": "",
+                **{key: facts[key] for key in empty}}
+        step["top"] = [name[:200] for name in step["top"][:32]]
+        step["examples"] = [name[:200] for name in step["examples"][:32]]
+    try:
+        ledger.add_archive(step)
+    except ask_discovery.BudgetExhausted as exhausted:
+        if not ledger.soft_stop(exhausted.name):
+            _budget_stop(snapshot.policy, exhausted.name)
+
+
+def archive_install_home():
+    from .web_download import _home
+    return _home()
 
 
 def _add_download(ledger, step, snapshot):
@@ -710,6 +743,11 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                     print(paint("  %s The proposed file selection was not valid (%s); the model may correct it."
                                 % (symbol("skip"), error.check), "muted"))
                     return
+                if error.check == "archive" and snapshot.policy is not None and ledger.correction(
+                        ask_discovery.Recoverable("archive-label", [], None)):
+                    print(paint("  %s The archive was not named as a downloaded file; the model may correct it."
+                                % symbol("skip"), "muted"))
+                    return
                 if error.check != "command" or snapshot.policy is None or not ledger.correction(
                         ask_discovery.Recoverable("command-invalid", [], None)):
                     raise error
@@ -744,7 +782,7 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                                     "the model continues without it." % symbol("skip"), "muted"))
                         continue
                     break
-                if following["action"] not in ("list", "find", "run", "skill", "read", "read-range", "search-content", "manual", "web-open", "download", "answer", "edit", "delete", "move", "copy", "project-test"):
+                if following["action"] not in ("list", "find", "run", "skill", "read", "read-range", "search-content", "manual", "web-open", "download", "inspect", "install", "answer", "edit", "delete", "move", "copy", "project-test"):
                     raise PlanError("action")
                 return following
 
@@ -839,6 +877,11 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                 if plan["action"] == "web-open":
                     progress("collect")
                     _open_page(ledger, plan["url"], reader, selected, snapshot)
+                    plan = next_plan()
+                    continue
+                if plan["action"] == "inspect":
+                    progress("collect")
+                    _inspect(ledger, plan["archive"], snapshot)
                     plan = next_plan()
                     continue
                 if plan["action"] == "download":
@@ -945,8 +988,14 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                                  question_consent=permit)
                 permit.check()
                 return answer
-            if plan["action"] in ("delete", "edit", "move", "copy") and _record_full():
+            if plan["action"] in ("delete", "edit", "move", "copy", "install") and _record_full():
                 return None
+            if plan["action"] == "install":
+                # Local only: nothing goes to the model, the owner's yes comes after the plan (S10 stage C).
+                progress("edit-review")
+                permit.check()
+                with permit.waiting():
+                    return ask_edit.install_archive(plan, snapshot, reader)
             if plan["action"] in ("move", "copy"):
                 # Local only, like a deletion: nothing goes to the model, the owner's yes comes after the plan.
                 progress("edit-review")
