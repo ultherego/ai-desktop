@@ -19,7 +19,7 @@ Keep the Claude/Codex installation you use: supported Arch/AUR packages, officia
 sudo pacman -S --needed base-devel git python bubblewrap xdg-dbus-proxy libseccomp sudo python-rich python-cryptography openai-codex
 
 # 2. Code and application installation; this does not download a provider client
-git clone https://github.com/ultherego/ai-desktopv2.git ~/ai-desktop
+git clone https://github.com/ultherego/ai-desktop.git ~/ai-desktop
 cd ~/ai-desktop
 python3 -B scripts/install_agents.py codex --install
 sudo systemctl daemon-reload

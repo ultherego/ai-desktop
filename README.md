@@ -48,12 +48,12 @@ AI Desktop comes from its own signed pacman repository. Run these once:
 
 ```sh
 # 1. Trust the AI Desktop signing key
-curl -fsSLo /tmp/ai-desktop.asc https://raw.githubusercontent.com/ultherego/ai-desktopv2/main/packaging/signing-key.asc
+curl -fsSLo /tmp/ai-desktop.asc https://raw.githubusercontent.com/ultherego/ai-desktop/main/packaging/signing-key.asc
 sudo pacman-key --add /tmp/ai-desktop.asc
 sudo pacman-key --lsign-key CFF85C09853A969B65A9D80DAD1162EE3172A20C
 
 # 2. Add the repository to pacman
-grep -q '^\[ai-desktop\]' /etc/pacman.conf || printf '\n[ai-desktop]\nSigLevel = Required DatabaseRequired TrustedOnly\nServer = https://github.com/ultherego/ai-desktopv2/releases/download/repo\n' | sudo tee -a /etc/pacman.conf
+grep -q '^\[ai-desktop\]' /etc/pacman.conf || printf '\n[ai-desktop]\nSigLevel = Required DatabaseRequired TrustedOnly\nServer = https://github.com/ultherego/ai-desktop/releases/download/repo\n' | sudo tee -a /etc/pacman.conf
 
 # 3. Install
 sudo pacman -Syu ai-desktop
