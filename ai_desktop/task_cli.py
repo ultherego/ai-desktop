@@ -306,9 +306,16 @@ def show_record(record, number=None, *, details=False):
     if record.get("kind") == "trash" and record["status"] == "prepared":
         states["prepared"] = "deletion not finished — check the task trash"
     states["detached"] = "unlinked history — undo is blocked"
+    if record.get("kind") == "transfer":
+        verb = "moved" if record["operation"] == "move" else "copied"
+        states.update({"prepared": record["operation"] + " not finished — check task status", "done": verb,
+                       "failed": "failed — nothing was " + verb, "undone": "undone",
+                       "conflict": "undo refused — the destination or the old name changed"})
     print(prefix + _when(record) + "State: " + (record["status"] if details else states.get(record["status"], record["status"])))
     if record["status"] == "detached":
         print("  " + workspace.DETACHED_HISTORY_HINT)
+    if record.get("kind") == "transfer":
+        print("  " + ("Move" if record["operation"] == "move" else "Copy") + ": " + record["from"] + "  ->  " + record["to"])
     for item in record["files"]:
         action = "Restore original" if item["action"] == "restore" else "Delete created file"
         print("  " + action + ": " + item["path"])
@@ -438,7 +445,8 @@ def prune_history(args, records, reader):
     kept = len(records) - len(candidates)
     if not candidates:
         print("Nothing to remove: no finished entries in this directory." +
-              (" Files still in the trash and unfinished tasks stay; see task status." if kept else ""))
+              (" Files still in the trash, moves and copies that can still be undone, and unfinished tasks stay;"
+               " see task status." if kept else ""))
         return 0
     expires = time.monotonic() + 180
     print("Finished entries that can be removed:")
@@ -446,7 +454,8 @@ def prune_history(args, records, reader):
         show_record(record, index, details=args.details)
     if kept:
         print(str(kept) + " other entr" + ("y stays" if kept == 1 else "ies stay") +
-              ": files still in the trash, or a task that is not finished. See task status.")
+              ": files still in the trash, a move or copy that can still be undone, or a task that is not finished."
+              " See task status.")
     select_reader = fresh_input if reader is input else reader
     while True:
         answer = select_reader("Choose numbers (for example 1 3), all, or n/no to cancel: ").strip()
@@ -471,10 +480,13 @@ def prune_history(args, records, reader):
         return 2
     if time.monotonic() > expires:
         raise ValueError("expired consent")
-    tasks = {record["plan"]: record["journal_sha256"] for record in chosen if record.get("kind") != "trash"}
+    from . import workspace_transfer
+    tasks = {record["plan"]: record["journal_sha256"] for record in chosen if record.get("kind") not in ("trash", "transfer")}
     deleted = {record["plan"]: record["journal_sha256"] for record in chosen if record.get("kind") == "trash"}
+    moved = {record["plan"]: record["journal_sha256"] for record in chosen if record.get("kind") == "transfer"}
     removed = (workspace.prune(args.workspace, tasks) if tasks else 0) + \
-        (workspace_trash.prune(args.workspace, deleted) if deleted else 0)
+        (workspace_trash.prune(args.workspace, deleted) if deleted else 0) + \
+        (workspace_transfer.prune(args.workspace, moved) if moved else 0)
     print(("TASK PRUNE: PASS removed=" + str(removed)) if args.details
           else "Removed " + str(removed) + " entr" + ("y." if removed == 1 else "ies."))
     return 0
@@ -501,18 +513,19 @@ def main(argv=None, *, reader=input):
         if args.action == "restore":
             return restore_deleted(args, reader)
         records = workspace.recovery_records(args.workspace)
+        if args.action in ("prune", "status"):
+            from . import workspace_trash, workspace_transfer
+            records = newest_first(records + workspace_trash.recovery_records(args.workspace)
+                                   + workspace_transfer.recovery_records(args.workspace))
         if args.action == "prune":
-            from . import workspace_trash
-            return prune_history(args, newest_first(records + workspace_trash.recovery_records(args.workspace)), reader)
+            return prune_history(args, records, reader)
         if args.action == "status":
-            from . import workspace_trash
-            records.extend(workspace_trash.recovery_records(args.workspace))
-            records = newest_first(records)
             for index, record in enumerate(records, 1):
                 show_record(record, index, details=args.details)
-                if record.get("kind") == "trash" and record["status"] != "restored":
-                    print("  Restore: " + shlex.join(["ai-desktop", "task", "restore", "--workspace", args.workspace,
-                                                         "--plan", record["plan"]]))
+                if (record.get("kind") == "trash" and record["status"] != "restored") or \
+                        (record.get("kind") == "transfer" and record["status"] == "done"):
+                    print("  " + ("Undo" if record["kind"] == "transfer" else "Restore") + ": " +
+                          shlex.join(["ai-desktop", "task", "restore", "--workspace", args.workspace, "--plan", record["plan"]]))
             if args.details:
                 print("TASK STATUS: PASS records=" + str(len(records)))
             elif not records:

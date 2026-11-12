@@ -135,10 +135,10 @@ All final writes, deletions and undo operations keep their separate decisions. A
 After a write the program prints the ready command.
 
 ```sh
-ai-desktop task status   --workspace DIRECTORY              # states, including the trash
+ai-desktop task status   --workspace DIRECTORY              # states, including the trash, moves and copies
 ai-desktop task rollback --workspace DIRECTORY              # undo a write, separate consent
 ai-desktop task restore  --workspace DIRECTORY --plan ID    # bring deleted files back, or undo a move or copy
-ai-desktop task prune    --workspace DIRECTORY              # remove finished entries, separate consent
+ai-desktop task prune    --workspace DIRECTORY              # remove finished entries (a copy kept after undo stays), separate consent
 ```
 
 - Undo compares **bytes and file mode**, so an editor saving the same content does not block it. When the file was changed later, undo refuses and leaves your version.

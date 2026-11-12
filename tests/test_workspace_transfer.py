@@ -128,6 +128,58 @@ class TransferTests(Workspace):
         self.assertEqual(caught.exception.reason, "space")
 
 
+class HistoryTests(Workspace):
+    """A move or copy has its own journal; it must not break saves, the trash, task status or task prune."""
+
+    def record(self, plan):
+        return next(item for item in t.recovery_records(self.ws) if item["plan"] == plan)
+
+    def test_a_transfer_journal_does_not_block_saves_the_trash_or_task_status(self):
+        from ai_desktop import task_workspace as tw, workspace_trash
+        _, copied = self.run_transfer("copy", "source/package", "target/package")
+        self.assertTrue(t.undo(self.ws, copied))                                 # leaves transfer-<plan> in the state
+        self.run_transfer("move", "source/package/notes.txt", "target/notes.txt")
+        self.assertEqual(tw.recovery_records(self.ws), [])
+        self.assertEqual(tw.status(self.ws), [])
+        self.assertEqual(tw._can_apply(self.ws), 0)
+        workspace_trash._require_room(self.ws)                                   # no false "trash full"
+
+    def test_only_a_transfer_that_holds_nothing_can_be_pruned(self):
+        _, copied = self.run_transfer("copy", "source/package", "target/package")
+        _, moved = self.run_transfer("move", "source/package", "target/moved")
+        self.assertEqual({(r["plan"], r["kind"], r["operation"], r["status"], r["prunable"]) for r in t.recovery_records(self.ws)},
+                         {(copied, "transfer", "copy", "done", False), (moved, "transfer", "move", "done", False)})
+        self.assertTrue(t.undo(self.ws, copied))
+        self.assertTrue(t.undo(self.ws, moved))
+        self.assertFalse(self.record(copied)["prunable"])                       # the copy is kept in the task state
+        self.assertTrue(self.record(moved)["prunable"])
+        with self.assertRaises(ValueError):
+            t.prune(self.ws, {copied: self.record(copied)["journal_sha256"]})
+        with self.assertRaises(ValueError):
+            t.prune(self.ws, {moved: "0" * 64})                                   # changed since the listing
+        self.assertEqual(t.prune(self.ws, {moved: self.record(moved)["journal_sha256"]}), 1)
+        self.assertEqual([r["plan"] for r in t.recovery_records(self.ws)], [copied])
+        self.assertTrue((self.root / "source/package/notes.txt").is_file())     # pruning never touches files
+        self.assertTrue((self.root / ".ai-desktop-tasks" / ("transfer-" + copied) / "notes.txt").is_file())
+
+    def test_a_failed_transfer_is_finished_history(self):
+        _, plan = self.run_transfer("move", "source/package", "target/package")
+        path = self.root / ".ai-desktop-tasks" / (plan + ".transfer.json")
+        value = self.journal(plan)
+        value["status"] = "failed"
+        path.write_text(json.dumps(value))
+        self.assertTrue(self.record(plan)["prunable"])
+
+    def test_task_status_lists_a_move_with_its_undo_command(self):
+        from ai_desktop import task_cli
+        _, plan = self.run_transfer("move", "source/package", "target/package")
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(task_cli.main(["status", "--workspace", self.ws]), 0)
+        self.assertIn("State: moved", out.getvalue())
+        self.assertIn("Move: source/package  ->  target/package", out.getvalue())
+        self.assertIn("Undo: ai-desktop task restore --workspace " + self.ws + " --plan " + plan, out.getvalue())
+
+
 class ConversationTests(Workspace):
     def snapshot(self, readable=True, writable=True):
         policy = Mock()

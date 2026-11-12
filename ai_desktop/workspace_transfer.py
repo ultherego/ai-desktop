@@ -20,6 +20,7 @@ import stat
 import time
 
 from . import task_workspace as tw
+from .analysis_contract import canonical
 from .e2_ipc import _unique_pairs
 from .fs_publish import rename_noreplace
 from .workspace_executor import ExecutionDenied, _parent
@@ -357,6 +358,83 @@ def _load(state, name):
     path(value["from"]), path(value["to"])
     tw._valid_identity(value["entry"])
     return value
+
+
+def _emptied(state, value):
+    """A record that holds nothing may be pruned: a failed transfer changed nothing, an undone move is back under its old
+    name. An undone copy stays while its folder is kept in the task state, and a done transfer stays so it can be undone;
+    pruning never deletes user files."""
+    if value["status"] == "failed" or (value["status"] == "undone" and value["operation"] == "move"):
+        return True
+    if value["status"] != "undone":
+        return False
+    try:
+        os.lstat("transfer-" + value["plan"], dir_fd=state)
+    except FileNotFoundError:
+        return True
+    return False
+
+
+def recovery_records(workspace):
+    """Moves and copies for task status and task prune, newest state from each journal."""
+    root = tw._root(workspace)
+    try:
+        try:
+            state = tw._state_dir(root)
+        except FileNotFoundError:
+            return []
+        try:
+            names = sorted(n for n in os.listdir(state) if re.fullmatch(r"[a-f0-9]{32}\.transfer\.json", n))
+            if len(names) > tw.MAX_JOURNALS:
+                raise ValueError("transfer journal count")
+            result = []
+            for name in names:
+                value = _load(state, name)
+                if value["workspace"] != workspace:
+                    raise ValueError("transfer workspace")
+                result.append({"plan": value["plan"], "status": value["status"], "kind": "transfer",
+                               "operation": value["operation"], "from": value["from"], "to": value["to"], "files": [],
+                               "journal_sha256": tw.sha(canonical(value).encode("utf-8")),
+                               "modified": os.stat(name, dir_fd=state).st_mtime,
+                               "prunable": _emptied(state, value)})
+            return result
+        finally:
+            os.close(state)
+    finally:
+        os.close(root)
+
+
+def prune(workspace, approved):
+    """Remove the chosen finished transfer records, re-checked under the lock against the hash the owner saw.
+    One mismatch refuses all before anything is removed. Returns the number removed."""
+    chosen = tw.approved_records(approved)
+    if any(not _PLAN.match(plan) for plan, _ in chosen):
+        raise ValueError("prune approval")
+    root = tw._root(workspace)
+    try:
+        fcntl.flock(root, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        state = tw._state_dir(root)
+        try:
+            checked = []
+            for plan, expected in chosen:
+                name = _journal_name(plan)
+                held = os.stat(name, dir_fd=state, follow_symlinks=False)
+                value = _load(state, name)
+                if value["workspace"] != workspace:
+                    raise ValueError("transfer workspace")
+                if tw.sha(canonical(value).encode("utf-8")) != expected:
+                    raise ValueError("journal changed")
+                if not _emptied(state, value):
+                    raise ValueError("journal unfinished")
+                checked.append((name, held))
+            for name, held in checked:
+                tw.retire(state, name, held)
+            os.fsync(state)
+            return len(checked)
+        finally:
+            os.close(state)
+    finally:
+        os.close(root)
 
 
 def known(workspace, plan):

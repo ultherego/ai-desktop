@@ -59,6 +59,7 @@ class ManagementIntegrationTests(unittest.TestCase):
                 patch.object(task_cli.os, "getuid", return_value=1000), \
                 patch.object(task_cli.workspace, "recovery_records", return_value=[]) as records, \
                 patch("ai_desktop.workspace_trash.recovery_records", return_value=[]) as trash, \
+                patch("ai_desktop.workspace_transfer.recovery_records", return_value=[]), \
                 redirect_stdout(io.StringIO()):
             code = task_cli.main(["status", "--workspace", "/selected/project"])
         self.assertEqual(code, 0)

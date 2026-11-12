@@ -607,6 +607,7 @@ class TaskPresentationTests(unittest.TestCase):
                     patch.object(cli.os, "geteuid", return_value=1000), \
                     patch.object(workspace, "recovery_records", return_value=[self.record()]) as records, \
                     patch("ai_desktop.workspace_trash.recovery_records", return_value=[]) as trash_records, \
+                    patch("ai_desktop.workspace_transfer.recovery_records", return_value=[]), \
                     patch.object(workspace, "apply") as apply, patch.object(workspace, "rollback") as rollback:
                 self.assertEqual(cli.main(["status", "--workspace", "/tmp/project"]
                                           + (["--details"] if details else [])), 0)
@@ -634,6 +635,7 @@ class TaskPresentationTests(unittest.TestCase):
                 patch.object(cli.os, "geteuid", return_value=1000), \
                 patch.object(workspace, "recovery_records", return_value=[old]), \
                 patch("ai_desktop.workspace_trash.recovery_records", return_value=[new]), \
+                patch("ai_desktop.workspace_transfer.recovery_records", return_value=[]), \
                 patch.object(cli, "show_record") as shown:
             self.assertEqual(cli.main(["status", "--workspace", "/tmp/project"]), 0)
         self.assertEqual([call.args[0]["plan"] for call in shown.call_args_list], ["d" * 64, "c" * 64])

@@ -393,7 +393,8 @@ def _detached_completed(root, value):
 
 # Entries of the recoverable-deletion feature (workspace_trash) share this private directory but are not task journals.
 _PENDING = re.compile(r"\.pending-[a-f0-9]+")
-_TRASH_ENTRY = re.compile(r"[a-f0-9]{32}\.trash\.json|trash-[a-f0-9]{32}")
+# Deletions (trash) and moves/copies (transfer) keep their own journals and folders here; they are listed by their modules.
+_SIDE_ENTRY = re.compile(r"[a-f0-9]{32}\.(?:trash|transfer)\.json|(?:trash|transfer)-[a-f0-9]{32}")
 
 
 def _conflict_settled(root, value, *, rebound=False):
@@ -426,7 +427,7 @@ def recovery_records(workspace):
             return []
         try:
             # A .pending file is an unfinished temporary write (full disk, Ctrl-C): never authoritative, so it blocks nothing.
-            names = [name for name in os.listdir(fd) if name != ".gitignore" and not _TRASH_ENTRY.fullmatch(name)
+            names = [name for name in os.listdir(fd) if name != ".gitignore" and not _SIDE_ENTRY.fullmatch(name)
                      and not _PENDING.fullmatch(name)]
             if len(names) > MAX_JOURNALS:
                 raise ValueError("journal count")
