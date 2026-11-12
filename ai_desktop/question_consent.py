@@ -105,6 +105,7 @@ class QuestionConsent:
         self._discovery_snapshot = None
         self._discovery_bytes = None
         self._discovery_sent = 0
+        self._extra_rounds = 0
         self._skill_sent = 0
         self._skill_batch = self._web_batch = False
         self._planner_sent = False
@@ -172,6 +173,14 @@ class QuestionConsent:
             self._expires = self._born + consent_seconds(self._effort)
         self._validate()
         self._approved = True
+
+    def allow_rounds(self, count):
+        """More discovery sends for this question, only after the owner's own yes to continue (or one more to let the
+        model answer from what it has); never more than the extended step budgets add up to."""
+        from .ask_discovery import MAX_EXTENSIONS
+        from .discovery_contract import MAX_STEPS
+        if type(count) is int and 0 < count <= MAX_STEPS and self._extra_rounds + count <= MAX_STEPS * MAX_EXTENSIONS:
+            self._extra_rounds += count
 
     def renew(self):
         """Slide a LIVE window when the next payload of this very question is claimed: one step's worth of time from
@@ -266,9 +275,11 @@ class QuestionConsent:
                 raise ValueError()
             if policy is not None:
                 limits = policy.limits()
-                rounds = limits.discovery_rounds + limits.plan_corrections + limits.command_rounds
+                from .ask_discovery import MAX_FILE_STEPS, MAX_PAGES
+                rounds = (limits.discovery_rounds + limits.plan_corrections + limits.command_rounds + MAX_PAGES
+                          + MAX_FILE_STEPS + self._extra_rounds)
             else:
-                rounds = 0
+                rounds = self._extra_rounds
             before = [] if self._discovery_snapshot is None else self._discovery_snapshot.document["steps"]
             if document["steps"][:len(before)] != before or len(document["steps"]) <= len(before):
                 raise ValueError()

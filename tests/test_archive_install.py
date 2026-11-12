@@ -302,6 +302,45 @@ class ReviewFindingTests(Base):
                 self.assertFalse([n for n in os.listdir(self.workspace / "target") if n.startswith(".ai-desktop-copy-")])
 
 
+class PlainFileTests(Base):
+    """A downloaded file that is not an archive is installed as itself (S10 stage C)."""
+
+    def plain(self, name, data):
+        path = self.quarantine / name
+        path.write_bytes(data)
+        path.chmod(0o600)
+        return path
+
+    def test_a_plain_file_is_installed_as_itself_never_executable_and_undone(self):
+        path = self.plain("tool-1.0.jar", b"PK-not-really-a-zip but a synthetic jar")
+        prepared = a.prepare(str(self.workspace), self.label(path), str(path), "target")
+        facts = prepared.data()
+        self.assertEqual((facts["to"], facts["inspection"]["format"], facts["inspection"]["executables"]),
+                         ("target/tool-1.0.jar", "file", 1))
+        plan = a.execute(prepared, prepared.authorize())
+        installed = self.workspace / "target/tool-1.0.jar"
+        self.assertEqual(installed.read_bytes(), path.read_bytes())
+        self.assertEqual(stat.S_IMODE(installed.stat().st_mode), 0o644)
+        self.assertTrue(transfer.undo(str(self.workspace), plan))
+        self.assertFalse(installed.exists())
+        self.assertTrue((self.workspace / ".ai-desktop-tasks" / ("transfer-" + plan)).is_file())
+
+    def test_a_plain_file_is_never_overwritten_and_a_changed_one_is_refused(self):
+        path = self.plain("notes.pdf", b"%PDF-1.7 synthetic")
+        (self.workspace / "target/notes.pdf").write_bytes(b"older")
+        with self.assertRaises(a.ArchiveDenied) as caught:
+            a.prepare(str(self.workspace), self.label(path), str(path), "target")
+        self.assertEqual(caught.exception.reason, "exists")
+        (self.workspace / "target/notes.pdf").unlink()
+        prepared = a.prepare(str(self.workspace), self.label(path), str(path), ".")
+        self.assertEqual(prepared.data()["to"], "notes.pdf")
+        path.write_bytes(b"%PDF-1.7 replaced")
+        with self.assertRaises(a.ArchiveDenied) as caught:
+            a.execute(prepared, prepared.authorize())
+        self.assertEqual(caught.exception.reason, "changed")
+        self.assertFalse((self.workspace / "notes.pdf").exists())
+
+
 class ContractTests(unittest.TestCase):
     ACCESS = {"files": [], "systemd": [], "weather": False, "downloads": True,
               "write": [{"id": "w0", "pattern": "~/project/**"}]}

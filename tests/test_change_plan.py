@@ -47,13 +47,14 @@ class ChangeBase(ops.OperationsBase):
 
     def setUp(self):
         super().setUp()
-        self.change_answer, self.undo_answer = True, True
+        self.change_answer, self.undo_answer, self.more_answer = True, True, False
         self.results = {}
         self.during = {}
 
         def confirm(action, **kwargs):
             self.asked.append(action)
-            return {"run-change": self.change_answer, "run-undo": self.undo_answer}.get(action, True)
+            return {"run-change": self.change_answer, "run-undo": self.undo_answer,
+                    "more-steps": self.more_answer}.get(action, True)
         self.confirm.side_effect = confirm
         self.calls = []
 
@@ -234,6 +235,7 @@ class ChangeFlowTests(ChangeBase):
         out = self.refused([change(RESTART, STATUS, REVERT), ANSWER_PLAN])
         self.assertIn("command_rounds=2", out)
         self.assertEqual(self.calls, [])
+        self.assertIn("more-steps", self.asked)                                 # the owner was asked and said no
 
     def test_if_the_change_cannot_even_start_there_is_no_test_and_no_undo_offered(self):
         with patch.object(command_ops, "resolve", return_value=None):

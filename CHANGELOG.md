@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-169: install single files, continue long questions
+
+- **Install a downloaded file** that is not an archive (a `.jar`, an image, a document) into a folder you allow: plan, one yes, never overwritten or made executable, undo with `task restore`.
+- **Long questions can go on:** when a question uses up its steps, commands, pages or downloads, AI Desktop asks whether to continue instead of stopping; answer `n` and the model answers from what it has.
+
 ## 0.1.0-168: project tests with any files, stricter plans
 
 - **Project tests work on normal projects:** images, test fixtures and other non-text files, and folder names with spaces, other languages, `@` or `+`, are copied into the test sandbox as they are. Only a file holding a private key stops the copy, and it is named.

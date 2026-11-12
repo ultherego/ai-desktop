@@ -324,13 +324,8 @@ def _open_page(ledger, url, reader, selected, snapshot, permit=None):
         print(paint("  %s Page refused (not a public https address): %s" % (symbol("skip"), terminal_text(url[:200])),
                     "muted"))
         clean = None
-    if ledger.pages_left <= 0:
-        # Checked before any prompt or connection: the page limit closes discovery, the model answers from what it has.
-        print(paint("  %s The page limit of this question is reached (%d)." % (symbol("skip"), ask_discovery.MAX_PAGES),
-                    "muted"))
-        if not ledger.soft_stop("pages"):
-            _budget_stop(snapshot.policy, "discovery_rounds")
-        return
+    if ledger.pages_left <= 0 and not _exhausted(ledger, snapshot, "pages"):
+        return                         # checked before any prompt or connection; without more pages the model answers
     if clean is None:
         _add_page(ledger, {"op": "page", "url": "", "status": "refused", **empty}, snapshot)
         return
@@ -383,11 +378,8 @@ def _download(ledger, urls, reader, selected, snapshot, permit=None):
     clean = list(dict.fromkeys(clean))
     if not clean:
         return
-    if ledger.files_left < len(clean):
-        print(paint("  %s The download limit of this question is reached (%d files and archive checks)."
-                    % (symbol("skip"), ask_discovery.MAX_FILE_STEPS), "muted"))
-        if not ledger.soft_stop("downloads"):
-            _budget_stop(snapshot.policy, "discovery_rounds")
+    if ledger.files_left < len(clean) and not (_exhausted(ledger, snapshot, "downloads")
+                                               and ledger.files_left >= len(clean)):
         return
     print("Download into a quarantine folder (files are not run, unpacked or installed):")
     for url in clean:
@@ -478,8 +470,8 @@ def _add_download(ledger, step, snapshot):
     try:
         ledger.add_download(step)
     except ask_discovery.BudgetExhausted as exhausted:
-        if not ledger.soft_stop(exhausted.name):
-            _budget_stop(snapshot.policy, exhausted.name)
+        if _exhausted(ledger, snapshot, exhausted.name):
+            _add_download(ledger, step, snapshot)
     except ValueError:
         if not ledger.soft_stop("discovery_bytes"):
             _budget_stop(snapshot.policy, "discovery_bytes")
@@ -489,8 +481,8 @@ def _add_page(ledger, step, snapshot):
     try:
         ledger.add_page(step)
     except ask_discovery.BudgetExhausted as exhausted:
-        if not ledger.soft_stop(exhausted.name):
-            _budget_stop(snapshot.policy, exhausted.name if exhausted.name != "pages" else "discovery_rounds")
+        if _exhausted(ledger, snapshot, exhausted.name):
+            _add_page(ledger, step, snapshot)
     except ValueError:
         if not ledger.soft_stop("discovery_bytes"):
             _budget_stop(snapshot.policy, "discovery_bytes")
@@ -518,12 +510,21 @@ def _run_command(snapshot, ledger, plan, permit, args, reader):
 
     def spend():
         try:
-            ledger.take_command()
+            try:
+                ledger.take_command()
+            except ask_discovery.BudgetExhausted as exhausted:
+                if exhausted.name != "command_rounds" or not _more(ledger, "command_rounds"):
+                    raise
+                ledger.take_command()
             return ledger.output_room()
         except ask_discovery.BudgetExhausted as exhausted:
-            if exhausted.name == "discovery_bytes" and ledger.soft_stop(exhausted.name):
-                print(paint("  %s output budget used up (discovery_bytes): further commands are not run, the answer "
-                            "uses what was collected" % symbol("skip"), "muted"))
+            if exhausted.name in ("discovery_bytes", "command_rounds") and ledger.soft_stop(exhausted.name):
+                grant = getattr(ledger, "grant_rounds", None)
+                if grant is not None:
+                    grant(1)                    # one more send: the model answers from what it has
+                print(paint("  %s %s used up (%s): further commands are not run, the answer uses what was collected"
+                            % (symbol("skip"), "output budget" if exhausted.name == "discovery_bytes" else "commands",
+                               exhausted.name), "muted"))
                 return None
             if exhausted.name in ("discovery_bytes", "command_rounds") and ledger.budget_closed():
                 # a late command after the model was told to stop: recorded as refused, so the model answers next
@@ -606,6 +607,8 @@ def _run_command(snapshot, ledger, plan, permit, args, reader):
     if not problem and not conversation_state.change_room(CHANGE_RECORD):
         problem = ("this turn's record of changes is full, so a further change would not be remembered; "
                    "ask for it in a new message")
+    if not problem and ledger.commands_left < 3 and _more(ledger, "command_rounds"):
+        pass                                    # the owner allowed more commands: change + test + undo may fit now
     if problem or not ledger.can_afford(3):
         # without room for change + test + undo (or without a valid test/undo) nothing is changed
         if not problem:
@@ -656,6 +659,42 @@ def _run_command(snapshot, ledger, plan, permit, args, reader):
             print("Check the system. Test: " + shown(test))
             print("You can run the undo yourself: " + shown(undo))
         raise
+
+
+_WHAT = {"discovery_rounds": "steps of looking around", "command_rounds": "commands", "pages": "pages",
+         "downloads": "downloads and archive checks"}
+
+
+def _more(ledger, name):
+    """A step budget ran out: the owner decides whether this question continues (at most MAX_EXTENSIONS times).
+    True when it was extended; the caller then retries what it was doing."""
+    ask = getattr(ledger, "ask_more", None)
+    if ask is None or not ledger.can_extend(name):
+        return False
+    print("This question used its %s." % _WHAT[name])
+    if not ask():
+        return False
+    before = (ledger.rounds_left, ledger.commands_left, ledger.pages_left, ledger.files_left)
+    if not ledger.extend(name):
+        return False
+    grant = getattr(ledger, "grant_rounds", None)
+    if grant is not None:                       # the question's consent counts discovery sends on its own
+        grant(sum(after - was for after, was in zip((ledger.rounds_left, ledger.commands_left, ledger.pages_left,
+                                                     ledger.files_left), before)))
+    return True
+
+
+def _exhausted(ledger, snapshot, name):
+    """A budget ran out: continue on the owner's yes (step budgets), otherwise the model answers from what it has, and
+    only when even that was already offered does the question stop."""
+    if _more(ledger, name):
+        return True
+    if not ledger.soft_stop(name):
+        _budget_stop(snapshot.policy if snapshot is not None else None, name)
+    grant = getattr(ledger, "grant_rounds", None)
+    if grant is not None:
+        grant(1)                                # one more send: the model answers from what it has
+    return False
 
 
 def _budget_stop(policy, name):
@@ -734,6 +773,11 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
             answer = request(question, args, reader, context=context, check=permit.check, question_consent=permit)
         else:
             ledger = ask_discovery.DiscoveryLedger(snapshot.policy, question, (selected or {}).get("instructions", ""))
+
+            def ask_more():
+                with permit.waiting():                  # the owner's thinking time is not the question's time
+                    return confirm("more-steps", reader=reader, config=selected)
+            ledger.ask_more, ledger.grant_rounds = ask_more, permit.allow_rounds
             carried = {}
             loaded = set()
             if skills is not None and conversation_consent is not None:
@@ -749,6 +793,7 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                         application_input(None, question=question, access=snapshot.access, discovery=pending.document)
                     except (ContextBudgetExceeded, InputBudgetExceeded):
                         ledger = ask_discovery.DiscoveryLedger(snapshot.policy, question, (selected or {}).get("instructions", ""))
+                        ledger.ask_more, ledger.grant_rounds = ask_more, permit.allow_rounds
                         loaded.clear()
                     else:
                         carried["document"] = permit.bind_discovery(snapshot.policy, pending, reuse_loader=skills)
@@ -925,8 +970,8 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                             "%d excerpt(s)" % len(found["fragments"]) if found["status"] == "ok" else "not installed"),
                             "muted"))
                     except ask_discovery.BudgetExhausted as exhausted:
-                        if not ledger.soft_stop(exhausted.name):
-                            _budget_stop(snapshot.policy, exhausted.name)
+                        if _exhausted(ledger, snapshot, exhausted.name):
+                            continue                # the owner allowed more steps: the same step runs again now
                     plan = next_plan()
                     continue
                 if plan["action"] in ("read-range", "search-content"):
@@ -938,8 +983,8 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                         if not ledger.correction(problem):
                             _deny(snapshot.policy, problem.code, "Content read refused", "The excerpt was not sent to Claude.")
                     except ask_discovery.BudgetExhausted as exhausted:
-                        if not ledger.soft_stop(exhausted.name):
-                            _budget_stop(snapshot.policy, exhausted.name)
+                        if _exhausted(ledger, snapshot, exhausted.name):
+                            continue                # the owner allowed more steps: the same step runs again now
                     except (OSError, ValueError, TypeError, KeyError, AttributeError, UnicodeError) as error:
                         code = error.args[0] if isinstance(error, ValueError) and len(error.args) == 1 else None
                         if (type(code) is not str or code not in ask_discovery.RECOVERABLE
@@ -957,8 +1002,8 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                         ledger.run(plan, permit)
                         permit.check()
                     except ask_discovery.BudgetExhausted as exhausted:
-                        if not ledger.soft_stop(exhausted.name):
-                            _budget_stop(snapshot.policy, exhausted.name)
+                        if _exhausted(ledger, snapshot, exhausted.name):
+                            continue                # the owner allowed more steps: the same step runs again now
                     except (OSError, ValueError, TypeError, KeyError, AttributeError, UnicodeError) as error:
                         code = error.args[0] if isinstance(error, ValueError) and len(error.args) == 1 else None
                         if (type(code) is not str or code not in ask_discovery.RECOVERABLE
@@ -1003,6 +1048,9 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                     conversation_state.note_action(result.summary)
                 return result
             if plan["action"] == "answer":
+                if ledger is not None and ledger.budget_closed():
+                    print(paint("  %s A limit of this question was reached: the answer below uses what was collected. "
+                                "Ask to continue in your next message to go on." % symbol("skip"), "muted"))
                 return plan["text"]
             if plan["action"] == "web":
                 # Web is a separate final request: the exact original question and the conversation (added by the

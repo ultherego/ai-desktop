@@ -97,6 +97,46 @@ def _open(path):
     return os.fdopen(fd, "rb")
 
 
+def _plain_file(path):
+    """The facts of a downloaded file that is not an archive (a .jar, an image, a document): one file, its own name."""
+    with _open(path) as handle:
+        size = os.fstat(handle.fileno()).st_size
+        head = handle.read(4)
+    name = os.path.basename(path)
+    if size > MAX_BYTES:
+        raise ArchiveDenied("size")
+    risky = name.casefold().endswith(EXECUTABLE) or head.startswith(PROGRAM_MAGIC)
+    return {"format": "file", "files": 1, "folders": 0, "bytes": size, "top": [name], "top_count": 1,
+            "single": True, "plain": True, "executables": int(risky), "examples": [name] if risky else [],
+            "names": [name]}
+
+
+def _copy_plain(path, parent_fd, staging, expected):
+    """The downloaded file copied into the new private file `staging` in parent_fd; its identity from creation."""
+    out = os.open(staging, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=parent_fd)
+    try:
+        made = tw.identity(os.fstat(out))
+        count = 0
+        with _open(path) as handle:
+            while True:
+                block = handle.read(1024 * 1024)
+                if not block:
+                    break
+                count += len(block)
+                if count > expected["bytes"]:
+                    raise ArchiveDenied("changed")
+                view = memoryview(block)
+                while view:
+                    view = view[os.write(out, view):]
+        if count != expected["bytes"]:
+            raise ArchiveDenied("changed")
+        os.fchmod(out, 0o644)                              # a plain file, never executable
+        os.fsync(out)
+    finally:
+        os.close(out)
+    return made
+
+
 def _digest(path):
     import hashlib
     digest = hashlib.sha256()
@@ -390,8 +430,13 @@ def prepare(workspace, label, archive_path, to, *, clock=time.monotonic, policy=
     """Check the archive and the destination BEFORE the owner's question; nothing is written. With one top-level
     folder the archive creates `to/<that folder>`; otherwise it creates the new folder `to` itself. With `policy`,
     every path the archive would create is checked against the write rule `index`, deny rules and the default
-    protection."""
-    facts = inspect(archive_path)
+    protection. A downloaded file that is not an archive is installed as itself: it creates `to/<its name>`."""
+    try:
+        facts = inspect(archive_path)
+    except ArchiveDenied as refused:
+        if refused.reason != "format":
+            raise
+        facts = _plain_file(archive_path)                  # not an archive: one file, copied as it is
     if to != ".":
         to = transfer.path(to)
     single = facts["single"]
@@ -479,10 +524,15 @@ def execute(prepared, authorization):
                 made, published = None, False
                 try:
                     try:
-                        made = _unpack(before["archive"], parent, staging, before["inspection"])
-                        if before["single"]:
+                        if before["inspection"].get("plain"):
+                            made = _copy_plain(before["archive"], parent, staging, before["inspection"])
+                            published = transfer.publish(parent, staging, leaf, made)
+                            if not published:
+                                raise ArchiveDenied("changed")
+                        elif before["single"]:
                             # The archive's one top folder becomes the destination. The private staging folder (0700,
                             # checked by identity) is then empty and removed.
+                            made = _unpack(before["archive"], parent, staging, before["inspection"])
                             inner = os.open(staging, tw.DIR, dir_fd=parent)
                             try:
                                 if tw.identity(os.fstat(inner)) != made:
@@ -497,6 +547,7 @@ def execute(prepared, authorization):
                                 raise ArchiveDenied("changed")
                             transfer._discard_staging(parent, staging, made)
                         else:
+                            made = _unpack(before["archive"], parent, staging, before["inspection"])
                             published = transfer.publish(parent, staging, leaf, made)
                             if not published:
                                 raise ArchiveDenied("changed")

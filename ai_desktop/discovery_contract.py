@@ -13,7 +13,8 @@ MAX_SKILL_ROUNDS = 3
 MAX_REUSED_SKILLS = 4
 MAX_COMMAND_ROUNDS = 128      # ceiling of [files] command_rounds; output stays bounded by discovery_bytes
 MAX_DISCOVERY_STEPS = 32 + 8 + 16  # discovery rounds, pages (ask_discovery.MAX_PAGES), downloads and archive steps
-MAX_STEPS = MAX_DISCOVERY_STEPS + 4 + MAX_COMMAND_ROUNDS + MAX_SKILL_ROUNDS * 4 + MAX_REUSED_SKILLS + 1   # + one web answer
+# Step budgets may be extended twice on the owner's yes (ask_discovery.MAX_EXTENSIONS); bytes stay bounded.
+MAX_STEPS = 3 * (MAX_DISCOVERY_STEPS + MAX_COMMAND_ROUNDS) + 4 + MAX_SKILL_ROUNDS * 4 + MAX_REUSED_SKILLS + 1
 MAX_WEB_TEXT = 32 * 1024      # the checked web answer with its source list
 # A page step: opened ("ok"); the user declined a model-composed address ("declined"); the broker refused the address
 # (not https, credentials, a private or local host: "refused") or could not read it ("failed").

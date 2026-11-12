@@ -413,9 +413,16 @@ def install_archive(plan, snapshot, reader):
     print()
     print("Install in %s:" % terminal_text(workspace))
     print("  %s  ->  %s" % (terminal_text(plan["archive"].rsplit("/", 1)[-1]), terminal_text(facts["to"])))
-    print("  %s archive: %d files, %d folders, %s unpacked; the destination does not exist yet, nothing is overwritten"
-          % (seen["format"], seen["files"], seen["folders"], size_label(seen["bytes"])))
-    if seen["executables"]:
+    if seen.get("plain"):
+        print("  file, %s, copied as it is (not executable); the destination does not exist yet, nothing is overwritten"
+              % size_label(seen["bytes"]))
+    else:
+        print("  %s archive: %d files, %d folders, %s unpacked; the destination does not exist yet, nothing is overwritten"
+              % (seen["format"], seen["files"], seen["folders"], size_label(seen["bytes"])))
+    if seen["executables"] and seen.get("plain"):
+        print("  It is a program or script (by its name or first bytes). It is installed as a plain file (not "
+              "executable); nothing here says it is safe.")
+    elif seen["executables"]:
         print("  Contains programs or scripts (%d), for example: %s. They are installed as plain files (not "
               "executable); nothing here says they are safe." % (seen["executables"], ", ".join(
                   terminal_text(name) for name in seen["examples"][:4])))

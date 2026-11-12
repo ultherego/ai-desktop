@@ -86,7 +86,7 @@ SYSTEM_PROMPT = (
     "addresses) after one user yes into a quarantine folder (discovery op=download); "
     "{\"action\":\"inspect\",\"archive\":\"<folder>/<name>\"} lists a zip or tar (op=archive); "
     "{\"action\":\"install\",\"archive\":\"<folder>/<name>\",\"write\":\"w0\",\"to\":\"dir\"} unpacks it after "
-    "the user's yes: one top folder goes into to (existing, \".\" = scope), else to is created. Nothing runs or is overwritten. "
+    "the user's yes: one top folder goes into to (existing, \".\" = scope), else to is created; any other file goes into to. Nothing runs or is overwritten. "
     "To move or copy a file or a whole folder inside one access.write scope return {\"action\":\"move\" or \"copy\","
     "\"write\":\"w0\",\"from\":\"relative/path\",\"to\":\"relative/new-path\"}; to must not exist (nothing is "
     "overwritten); the program shows the plan, asks the user and can undo it. "

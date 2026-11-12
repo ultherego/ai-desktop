@@ -20,6 +20,8 @@ WEB_MINIMUM = 512          # bytes of a shortened web answer below which it is n
 OVERHEAD = 1024            # envelope of a document with its counters; leaves room for the remaining steps' framing
 MAX_PAGES = 8              # public pages opened in one question (S10 stage A); a program bound, not a setting
 MAX_FILE_STEPS = 16        # downloaded files and archive inspections in one question (S10 stages B and C)
+MAX_EXTENSIONS = 2         # times one question may continue past a step budget, each on the owner's yes
+EXTENDABLE = ("discovery_rounds", "command_rounds", "pages", "downloads")
 
 
 class BudgetExhausted(Exception):
@@ -74,6 +76,7 @@ class DiscoveryLedger:
         self.known_urls = set(urls_in(question))
         self.pages_left = MAX_PAGES
         self.files_left = MAX_FILE_STEPS
+        self.extensions = 0
 
     # -- state ---------------------------------------------------------------------------------------------------
     def document(self):
@@ -117,6 +120,25 @@ class DiscoveryLedger:
         (self.files if entry["type"] == "file" else self.directories).add((ident, entry["path"]))
 
     # -- steps -----------------------------------------------------------------------------------------------------
+    def can_extend(self, name):
+        return name in EXTENDABLE and self.extensions < MAX_EXTENSIONS and (
+            name != "command_rounds" or self.limits.command_rounds > 0)
+
+    def extend(self, name):
+        """One more portion of the exhausted step budget, after the owner's yes; byte budgets never grow."""
+        if not self.can_extend(name):
+            return False
+        self.extensions += 1
+        if name == "discovery_rounds":
+            self.rounds_left += self.limits.discovery_rounds
+        elif name == "command_rounds":
+            self.commands_left += self.limits.command_rounds
+        elif name == "pages":
+            self.pages_left += MAX_PAGES
+        else:
+            self.files_left += MAX_FILE_STEPS
+        return True
+
     def take_round(self):
         if self.rounds_left <= 0:
             raise BudgetExhausted("discovery_rounds")
@@ -358,10 +380,11 @@ class DiscoveryLedger:
     def soft_stop(self, name):
         """Scan/byte budgets close further discovery but do not abort the question: the model is told, once,
         that discovery is over (rounds -> 0) and may still read observed paths or answer from what it has."""
-        if name not in ("search_scan", "discovery_bytes", "pages", "downloads") or any(
+        if name not in ("search_scan", "discovery_bytes") + EXTENDABLE or any(
                 step["op"] == "refusal" and step["code"] == "discovery-budget" for step in self.steps):
             return False
-        limit = {"pages": MAX_PAGES, "downloads": MAX_FILE_STEPS}.get(name)
+        limit = {"pages": MAX_PAGES, "downloads": MAX_FILE_STEPS, "discovery_rounds": self.limits.discovery_rounds,
+                 "command_rounds": self.limits.command_rounds}.get(name)
         self.steps.append({"op": "refusal", "code": "discovery-budget", "selectors": [],
                            "limit": getattr(self.limits, name) if limit is None else limit})
         self.rounds_left = 0
