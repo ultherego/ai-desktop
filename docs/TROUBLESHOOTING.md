@@ -18,7 +18,7 @@
 | Session busy or unconfirmed stop | `ai-desktop status`, then `ai-desktop stop` (stops the sessions of all your terminals). |
 | `Invalid permissions.toml` | The message points to the key. Also check mode `0600`. |
 | `Claude is blocked` | Set `claude = true` in `[network]`. |
-| "Other accounts can write to …" when saving, moving or deleting | A folder on the way to the `write` scope (often a shared disk under `/mnt`) is writable by other accounts (`drwxrwxrwx`). The message names each folder and the `chmod go-w` (or `sudo chmod go-w`) command; run it only if no other account or program needs to write there. |
+| "… belongs to another account" when saving, moving or deleting | A folder on the way to the `write` scope belongs to another account (not you, not root). The message names each folder and its owner; use a folder of yours. |
 | Read refused | Check `read` and `deny`. A link, special file, foreign owner or hard link means refusal. The message gives the limit. |
 | `Nothing was saved` | Check `read` and `write` and whether the directory exists; then `task status`. |
 | A write refuses after an interrupted task | Temporary files were left. `task status`, then `task rollback`. Do not erase the journal. |

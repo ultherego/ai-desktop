@@ -243,12 +243,13 @@ class HomeWideScopeChainTests(ChainTests, ChainBase):
 class UnsafeWorkspaceTests(ChainBase):
     write = '["~/proj/**"]'
 
-    def test_a_write_root_with_group_write_permission_is_named_instead_of_failing_silently(self):
+    def test_a_write_root_of_yours_with_group_write_permission_is_a_normal_workspace(self):
         self.proj.chmod(0o770)
+        self.addCleanup(self.proj.chmod, 0o700)
         self.model = script({"action": "edit", "files": [], "create": ["docs/x.txt"], "check": "text"})
-        self.session(["create x"], ["yes"], self.transport(lambda path, old: "x\n"))
-        self.assertRegex(self.output, r"Refused\s+The write scope in permissions.toml does not point to a safe working directory")
-        self.assertFalse((self.proj / "docs/x.txt").exists())
+        self.session(["create x"], ["yes", "yes"], self.transport(lambda path, old: "x\n"))
+        self.assertNotIn("does not point to a safe working directory", self.output)
+        self.assertEqual((self.proj / "docs/x.txt").read_text(), "x\n")
 
 
 class ExcerptEditChainTests(ChainBase):

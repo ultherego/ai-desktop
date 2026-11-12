@@ -240,16 +240,18 @@ def _fingerprint(info):
 
 
 def _directory(info, uid, secure):
+    """`secure=True`: owned by root or `uid` and writable by nobody else (the policy file's folders).
+    `secure="owner"`: owned by root or `uid`, whatever its mode (a write scope on a shared disk; every write goes
+    through opened, no-follow folder handles, so a folder swapped meanwhile is refused, never followed)."""
     if not stat.S_ISDIR(info.st_mode):
         raise ValueError("files-directory")
-    if secure and (info.st_uid not in (0, uid) or info.st_mode & 0o022):
+    if secure and (info.st_uid not in (0, uid) or (secure is True and info.st_mode & 0o022)):
         raise ValueError("policy-directory")
 
 
-def writable_by_others(path, uid):
-    """The folders on the way to `path` (from /) that a write needs but that fail the rule of `_directory`: owned by
-    someone other than root or `uid`, or writable by group or others. [(folder, owner uid, mode)], nearest to / first;
-    used only to explain a refusal, never to allow anything."""
+def owned_by_others(path, uid):
+    """The folders on the way to `path` (from /) that belong to another account (not root, not `uid`): a write scope
+    under them is refused. [(folder, owner uid, mode)], nearest to / first; used only to explain a refusal."""
     found, current = [], "/"
     for name in [""] + _absolute(path).split("/")[1:]:
         current = "/" if not name else (current.rstrip("/") + "/" + name)
@@ -259,7 +261,7 @@ def writable_by_others(path, uid):
             break
         if not stat.S_ISDIR(info.st_mode):
             break
-        if info.st_uid not in (0, uid) or info.st_mode & 0o022:
+        if info.st_uid not in (0, uid) or (current == _absolute(path) and info.st_uid != uid):
             found.append((current, info.st_uid, stat.S_IMODE(info.st_mode)))
     return found
 
@@ -886,9 +888,9 @@ class Policy:
         validate_write_path(root, self.home, managed=self._version == 2)
         if any(deny.denies(root) for deny in self._deny):
             raise ValueError("files-write-denied")
-        with _open_directory(root, self.uid, secure=True) as (directory, recheck):
+        with _open_directory(root, self.uid, secure="owner") as (directory, recheck):
             info = os.fstat(directory)
-            if info.st_uid != self.uid or info.st_mode & 0o7022:
+            if info.st_uid != self.uid:
                 raise ValueError("files-directory")
             recheck()
             self.recheck()

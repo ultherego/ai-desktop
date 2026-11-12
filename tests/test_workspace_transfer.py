@@ -238,18 +238,16 @@ class ConversationTests(Workspace):
         self.assertTrue((self.root / "source/package/notes.txt").exists())
         self.assertIn("Undone.", out.getvalue())
 
-    def test_a_folder_others_may_write_to_is_refused_with_the_reason(self):
+    def test_a_shared_folder_of_yours_is_a_normal_destination(self):
         (self.root / "target").chmod(0o777)
         try:
             result, out, confirm, facts = self.ask({"action": "move", "write": "w0", "from": "source/package",
                                                     "to": "target/package"})
         finally:
             (self.root / "target").chmod(0o755)
-        self.assertEqual(result.code, 2)
-        self.assertIn("other users cannot write to", out)
-        self.assertIn("chmod go-w", out)
-        confirm.assert_not_called()
-        self.assertTrue((self.root / "source/package").exists())
+        self.assertEqual(result.code, 0)
+        confirm.assert_called_once()
+        self.assertTrue((self.root / "target/package/notes.txt").exists())
 
     def test_the_plan_contract(self):
         access = {"files": [], "systemd": [], "weather": False, "write": [{"id": "w0", "pattern": "~/x/**"}]}

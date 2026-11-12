@@ -174,7 +174,7 @@ def prepare(workspace, operation, source, target, *, clock=time.monotonic):
             except FileNotFoundError:
                 pass
             target_dir = os.fstat(dst_parent)
-            if target_dir.st_uid != os.geteuid() or target_dir.st_mode & 0o022:
+            if target_dir.st_uid != os.geteuid():
                 raise TransferDenied("workspace")
             if operation == "move":
                 if info.st_uid != os.geteuid():

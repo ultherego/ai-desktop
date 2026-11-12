@@ -76,7 +76,7 @@ def _parent(root_fd, relative):
             os.close(fd)
             fd = nxt
             st = os.fstat(fd)
-            if st.st_uid != os.geteuid() or st.st_mode & 0o022:
+            if st.st_uid != os.geteuid():               # your own folder; its mode may be shared (opened no-follow)
                 raise ExecutionDenied("EXECUTOR: REFUSED")
         return fd, parts[-1]
     except BaseException:

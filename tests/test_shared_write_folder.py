@@ -1,4 +1,5 @@
-"""A write scope under a folder other accounts may write to is refused with the folder and the command named."""
+"""A write scope on a shared disk (folders of yours with mode 0777) works like any other; a folder that belongs to
+another account is refused and named. Real folders, no mocks of the file operations."""
 import os
 from pathlib import Path
 import pwd
@@ -6,18 +7,22 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from ai_desktop import ask_edit, permissions
+from ai_desktop import ask_edit, permissions, task_workspace as tw, workspace_transfer as transfer
+from ai_desktop.task_plan import TaskPlan
 
 
 class SharedFolderTests(unittest.TestCase):
     def setUp(self):
         home = pwd.getpwuid(os.getuid()).pw_dir
         self.base = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="ai-shared-", dir=home)))
-        self.shared = self.base / "shared"
-        self.inner = self.shared / "games"
-        self.inner.mkdir(parents=True)
-        self.shared.chmod(0o777)
-        self.addCleanup(self.shared.chmod, 0o755)
+        self.shared = self.base / "shared"                       # like a shared disk: everyone may write
+        self.project = self.shared / "project"
+        (self.project / "source/package").mkdir(parents=True)
+        (self.project / "source/package/notes.txt").write_text("synthetic\n")
+        (self.project / "target").mkdir()
+        for folder in (self.shared, self.project, self.project / "target"):
+            folder.chmod(0o777)
+        self.addCleanup(lambda: [f.chmod(0o755) for f in (self.shared, self.project, self.project / "target")])
         self.enterContext(patch.object(permissions.Policy, "recheck"))      # no policy file here; the folders are real
 
     def policy(self, root):
@@ -26,32 +31,46 @@ class SharedFolderTests(unittest.TestCase):
         return permissions.Policy(uid=os.getuid(), home=home, _raw=b"", _identity=(), _read=(rule,), _deny=(),
                                   _write=(rule,), _version=2)
 
-    def test_the_shared_folder_on_the_way_is_found(self):
-        found = permissions.writable_by_others(str(self.inner), os.getuid())
-        self.assertIn((str(self.shared), os.getuid(), 0o777), found)
-        self.assertNotIn(str(self.inner), [folder for folder, _, _ in found])
-        self.shared.chmod(0o755)
-        self.assertNotIn(str(self.shared), [folder for folder, _, _ in permissions.writable_by_others(str(self.inner),
-                                                                                                         os.getuid())])
+    def test_a_scope_in_a_shared_folder_of_yours_is_accepted(self):
+        self.assertEqual(ask_edit.write_root(self.policy(self.project), 0), str(self.project))
+        self.assertEqual(permissions.owned_by_others(str(self.project), os.getuid()), [])
 
-    def test_a_write_scope_under_it_is_refused_with_the_folder_and_command(self):
-        with self.assertRaises(ask_edit.EditDenied) as caught:
-            ask_edit.write_root(self.policy(self.inner), 0)
-        hint = caught.exception.hint
-        self.assertIn(str(self.shared) + " (drwxrwxrwx)", hint)
-        self.assertIn("chmod go-w " + str(self.shared), hint)
-        self.assertNotIn("sudo chmod go-w " + str(self.shared), hint)
-        self.shared.chmod(0o755)
-        self.assertEqual(ask_edit.write_root(self.policy(self.inner), 0), str(self.inner))
+    def test_move_copy_and_save_work_there_and_can_be_undone(self):
+        workspace = str(self.project)
+        prepared = transfer.prepare(workspace, "move", "source/package", "target/package")
+        plan = transfer.execute(prepared, prepared.authorize())
+        self.assertTrue((self.project / "target/package/notes.txt").is_file())
+        self.assertTrue(transfer.undo(workspace, plan))
+        self.assertTrue((self.project / "source/package/notes.txt").is_file())
+        prepared = transfer.prepare(workspace, "copy", "source/package", "target/copy")
+        transfer.execute(prepared, prepared.authorize())
+        self.assertEqual((self.project / "target/copy/notes.txt").read_text(), "synthetic\n")
+        (self.project / "target/example.txt").write_text("original\n")
+        before = tw.snapshot(workspace, ["target/example.txt"])
+        source = {"instruction": "synthetic", "files": [{"path": "target/example.txt", "writable": True,
+                  "content": before["files"]["target/example.txt"]["file"]["content"]}]}
+        task = TaskPlan(before, source, {"summary": "synthetic", "files": [
+            {"path": "target/example.txt", "content": "written\n"}]}, "text")
+        tw.apply(task, task.authorize("SAVE " + task.sha256))
+        self.assertEqual((self.project / "target/example.txt").read_text(), "written\n")
 
-    def test_the_hint_names_root_folders_with_sudo_and_quotes_spaces(self):
-        hint = ask_edit.shared_folders_hint([("/srv/shared data", 0, 0o777), ("/srv/shared data/x", 1000, 0o775)], 1000)
-        self.assertIn("sudo chmod go-w '/srv/shared data'", hint)
-        self.assertIn("; chmod go-w '/srv/shared data/x'", hint)
-        self.assertIn("(drwxrwxr-x)", hint)
-        self.assertIn("the owner can run chmod go-w /srv/other",
-                      ask_edit.shared_folders_hint([("/srv/other", 1234, 0o777)], 1000))
-        self.assertIn("belong to you", ask_edit.shared_folders_hint([], 1000))
+    def test_a_folder_of_another_account_is_named(self):
+        real = os.lstat
+
+        def lstat(path, *args, **kwargs):
+            info = real(path, *args, **kwargs)
+            if path == str(self.shared):
+                values = list(info)
+                values[4] = 4242                                      # st_uid of another account
+                return os.stat_result(values)
+            return info
+        with patch.object(permissions.os, "lstat", side_effect=lstat):
+            self.assertEqual([(f, o) for f, o, _ in permissions.owned_by_others(str(self.project), os.getuid())],
+                             [(str(self.shared), 4242)])
+        hint = ask_edit.foreign_folders_hint([("/srv/shared data", 4242, 0o777)], os.getuid())
+        self.assertIn("/srv/shared data (owner uid 4242) belongs to another account", hint)
+        self.assertIn("sudo chown " + pwd.getpwuid(os.getuid()).pw_name + " '/srv/shared data'", hint)
+        self.assertIn("belong to you", ask_edit.foreign_folders_hint([], os.getuid()))
 
 
 if __name__ == "__main__":

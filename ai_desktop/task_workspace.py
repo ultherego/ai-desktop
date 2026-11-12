@@ -68,7 +68,9 @@ def _root(workspace):
                 os.close(fd)
                 fd = nxt
             info = os.fstat(fd)
-            if not stat.S_ISDIR(info.st_mode) or info.st_uid != uid or info.st_mode & 0o7022:
+            # Your own folder, whatever its mode (a shared disk may be 0777): every write below goes through opened,
+            # no-follow handles and re-checked identities, so another account cannot redirect it.
+            if not stat.S_ISDIR(info.st_mode) or info.st_uid != uid:
                 raise ValueError("root policy")
             return fd
         except BaseException:

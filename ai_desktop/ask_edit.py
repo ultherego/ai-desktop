@@ -6,7 +6,6 @@ Existing data must also be readable; creation grants never read old contents.
 from dataclasses import dataclass
 import json
 import shlex
-import stat
 from types import SimpleNamespace
 
 from . import conversation_state, file_context, permissions, task_contract, task_workspace, workspace_trash
@@ -335,24 +334,28 @@ def delete_files(plan, snapshot, reader):
     return CompletedTask(0)
 
 
-OWNED_FOLDERS = ("AI Desktop changes files only in folders that belong to you and that other users cannot write to; "
-                 "check the folders on the way with ls -ld (chmod go-w removes write access for others)")
+OWNED_FOLDERS = ("AI Desktop changes files only in folders that belong to you; check the folders on the way with ls -ld")
 
 
-def shared_folders_hint(folders, uid):
-    """Names the folders other accounts may write to, and the command that changes that (the owner decides)."""
+def foreign_folders_hint(folders, uid):
+    """Names the folders that belong to another account; AI Desktop changes files only in your own folders."""
     if not folders:
         return OWNED_FOLDERS + "."
-    shown = ", ".join("%s (%s)" % (terminal_text(folder), stat.filemode(stat.S_IFDIR | mode)) for folder, _, mode in folders)
-    commands = "; ".join(("sudo chmod go-w " if owner == 0 else "chmod go-w " if owner == uid else "the owner can run chmod go-w ")
-                         + shlex.quote(folder) for folder, owner, _ in folders)
-    return ("Other accounts can write to %s, so one could swap a folder while the change runs. AI Desktop changes files "
-            "only where that is not possible. To allow it: %s. Do this only if no other account or program needs to "
-            "write there." % (shown, commands))
+    import pwd
+    def owner(number):
+        try:
+            return pwd.getpwuid(number).pw_name
+        except KeyError:
+            return "uid %d" % number
+    shown = ", ".join("%s (owner %s)" % (terminal_text(folder), terminal_text(owner(number))) for folder, number, _ in folders)
+    return ("%s belong%s to another account. AI Desktop changes files only in your own folders (folders owned by root "
+            "may lie on the way). Use a folder of yours, or have it given to you: sudo chown %s %s."
+            % (shown, "s" if len(folders) == 1 else "", terminal_text(owner(uid)),
+               " ".join(shlex.quote(folder) for folder, _, _ in folders)))
 
 
 def write_root(policy, index):
-    """`policy.write_workspace`, with a refusal over a shared folder explained (which folder, which command)."""
+    """`policy.write_workspace`, with a refusal over another account's folder explained (which folder, whose)."""
     try:
         return policy.write_workspace(index)
     except ValueError as exc:
@@ -360,8 +363,8 @@ def write_root(policy, index):
             raise
         scope = policy.write_scopes()[index]
         root = scope.base.rsplit("/", 1)[0] if scope.mode == "exact" else scope.base
-        raise EditDenied("input", hint=shared_folders_hint(permissions.writable_by_others(root, policy.uid),
-                                                           policy.uid)) from None
+        raise EditDenied("input", hint=foreign_folders_hint(permissions.owned_by_others(root, policy.uid),
+                                                            policy.uid)) from None
 
 
 def transfer_files(plan, snapshot, reader):

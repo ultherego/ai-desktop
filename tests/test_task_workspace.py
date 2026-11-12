@@ -551,12 +551,13 @@ class TaskHomeWorkspaceTests(unittest.TestCase):
         self.assertEqual((self.root / "test" / "original.txt").read_text(), "SYNTHETIC UNCHANGED\n")
         self.assertFalse((self.root / workspace.STATE).exists())
 
-    def test_home_does_not_allow_writable_parents_or_missing_creation_directories(self):
+    def test_a_shared_folder_of_yours_works_and_missing_creation_directories_are_refused(self):
         (self.root / "test").mkdir(mode=0o700)
         (self.root / "test").chmod(0o777)
+        self.addCleanup((self.root / "test").chmod, 0o700)
         with patch.object(workspace, "read_file") as read:
-            with self.assertRaises(ExecutionDenied):
-                workspace.snapshot(str(self.root), ["test/hello.py"], must_be_absent=["test/hello.py"])
+            snapshot = workspace.snapshot(str(self.root), ["test/hello.py"], must_be_absent=["test/hello.py"])
+            self.assertIsNone(snapshot["files"]["test/hello.py"]["file"])
             with self.assertRaises(OSError):
                 workspace.snapshot(str(self.root), ["missing/hello.py"], must_be_absent=["missing/hello.py"])
             read.assert_not_called()
