@@ -1025,7 +1025,10 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                         continue
                 if plan["action"] != "read" or not plan["files"]:
                     break
-                if plan.get("continue"):
+                if plan.get("continue") or (1 <= len(plan["files"]) <= 4 and not plan["systemd"]
+                                            and plan["weather"] is None
+                                            and all(type(item) is dict and "*" not in item["path"]
+                                                    for item in plan["files"])):
                     # Read and go on: each small file comes back as a discovery step and the model plans the rest
                     # (it may ask for a file that did not fit with an ordinary read). When not even the first file
                     # fits, or no steps are left, this is the ordinary, final read of them all.

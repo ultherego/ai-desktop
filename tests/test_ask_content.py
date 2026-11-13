@@ -124,14 +124,14 @@ class AskContentTests(Base):
 
     def test_selected_excerpts_survive_into_the_final_answer_request(self):
         self.file("large.log", "one\ntwo\nthree\n")
-        self.file("other.txt", "additional facts\n")
+        self.file("other.txt", "additional facts\n" + "x" * 40000 + "\n")     # too large for a step: the final read
         final_read = json.dumps({"action": "read", "files": [sel("other.txt")], "systemd": [], "weather": None})
         answer = self.run_flow([self.ranges(first=2, last=2), final_read, ANSWER], question="Read large.log and other.txt")
         self.assertEqual(answer, ANSWER)
         request = self.wire[-1]
         self.assertEqual(request["mode"], "question")
         self.assertEqual(request["discovery"]["steps"][0]["fragments"][0]["text"], "two\n")
-        self.assertEqual(request["context"][0]["files"][0]["content"], "additional facts\n")
+        self.assertTrue(request["context"][0]["files"][0]["content"].startswith("additional facts\n"))
 
     def test_exact_file_scope_is_usable_without_guessing_a_relative_path(self):
         self.file("large.log", "complete file\n")
