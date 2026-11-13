@@ -1008,7 +1008,7 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                         code = error.args[0] if isinstance(error, ValueError) and len(error.args) == 1 else None
                         if (type(code) is not str or code not in ask_discovery.RECOVERABLE
                                 or not ledger.correction(ask_discovery.Recoverable(
-                                    code, ledger.selectors(plan["files"]), ledger.limit_for(code)))):
+                                    code, ledger.selectors(plan["files"]), ledger.limit_for(code)), round_spent=True)):
                             _deny(snapshot.policy, code if type(code) is str else None, "Directory listing refused",
                                   "The directory listing was not sent to Claude.")
                     plan = next_plan()

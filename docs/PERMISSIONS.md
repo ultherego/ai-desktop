@@ -50,7 +50,7 @@ Limits (default → highest allowed):
 - `discovery_bytes`: listing and search results sent per question, `"128KiB"` → `"256KiB"`.
 - `search_scan`: directory entries examined per question, `20000` → `100000`.
 - The number of matches in one search and the number of looking-around steps per question are set by the program, not here: the byte budget above decides how much fits. An older file may still hold `search_results` or `discovery_rounds`; they are accepted and have no effect.
-- `plan_corrections`: corrected read plans per question, `2` → `4`.
+- `plan_corrections`: corrected read plans per question, `2` → `4`. A path that does not exist costs a step of looking around instead, so the model can still search for it.
 - `command_rounds`: commands run per question, `24` → `128` (`0` = none). Their output still shares `discovery_bytes`.
 - `command_output`: output of one command sent to the model, `"8KiB"` → `"128KiB"`. All commands of a question share `discovery_bytes`; when it fills up, no more commands run and the model answers from what it has. With many commands keep this small, e.g. `"16KiB"`.
 - `command_timeout`: seconds per command, `20` → `60`.

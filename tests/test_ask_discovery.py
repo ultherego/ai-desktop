@@ -419,6 +419,17 @@ class GroundingTests(Base):
                                           "selectors": [sel("gizmo/settings.conf")], "limit": None}])
         self.assertEqual(self.wire[1]["discovery"]["remaining"], {"rounds": p.MAX_DISCOVERY_ROUNDS, "corrections": 1, "commands": 24})
 
+    def test_a_missing_path_costs_a_discovery_round_not_a_correction(self):
+        self.write_policy("plan_corrections = 0\n")
+        result = self.run_flow([plan("list", sel("missing/package")), plan("list", sel("missing")),
+                                plan("find", "f0", queries=["gizmo"], kind="directory"),
+                                plan("list", sel("gizmo")), read(sel("gizmo/settings.conf")), ANSWER],
+                               question="Read missing/package/settings.conf")
+        self.assertEqual(result, ANSWER)
+        self.assertEqual([step["code"] for step in self.steps(2)], ["files-missing", "files-missing"])
+        remaining = self.wire[2]["discovery"]["remaining"]
+        self.assertEqual((remaining["rounds"], remaining["corrections"]), (p.MAX_DISCOVERY_ROUNDS - 2, 0))
+
     def test_a_path_the_user_typed_needs_no_discovery(self):
         result = self.run_flow([read(sel("gizmo/settings.conf")), ANSWER],
                                question="Show gizmo/settings.conf please")
@@ -539,8 +550,12 @@ class DenyAndAliasTests(Base):
             with self.subTest(name=name):
                 self.output.truncate(0)
                 self.write_policy("plan_corrections = 0\n")
-                out = self.refused([read(sel(name)), ANSWER], question="Pokaż " + name)
-                self.assertIn("File read refused", out)
+                if name == "ghost/x":     # a broken link is a missing path: a discovery round, the model goes on
+                    self.assertEqual(self.run_flow([read(sel(name)), ANSWER_PLAN], question="Pokaż " + name), ANSWER)
+                    self.assertEqual(self.steps(1)[-1]["code"], "files-missing")
+                else:
+                    out = self.refused([read(sel(name)), ANSWER], question="Pokaż " + name)
+                    self.assertIn("File read refused", out)
                 self.assertEqual(self.reads, [])
 
     def test_the_alias_is_rechecked_and_a_swap_stops_the_question(self):

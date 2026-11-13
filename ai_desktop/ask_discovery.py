@@ -397,9 +397,14 @@ class DiscoveryLedger:
         return any(step["op"] == "refusal" and step["code"] == "discovery-budget" for step in self.steps)
 
     # -- corrections ---------------------------------------------------------------------------------------------------
-    def correction(self, problem):
-        """Record a recoverable refusal; returns False when the owner's correction budget is used up."""
-        if self.corrections_left <= 0:
+    def correction(self, problem, *, round_spent=False):
+        """Record a recoverable refusal; returns False when the owner's correction budget is used up.
+
+        A path that does not exist is a discovery outcome, not a malformed plan: while discovery rounds are left it
+        costs one of them (a list or find step has already spent its round), so the model can still find the right
+        place instead of running out of corrections."""
+        missing = problem.code == "files-missing" and (round_spent or self.rounds_left > 0)
+        if self.corrections_left <= 0 and not missing:
             return False
         step = {"op": "refusal", "code": problem.code, "selectors": problem.selectors, "limit": problem.limit}
         self.steps.append(step)
@@ -408,7 +413,10 @@ class DiscoveryLedger:
             if self._diagnostic_bytes(self.document()) > self.limits.discovery_bytes:
                 self.steps.pop()
                 return False
-        self.corrections_left -= 1
+        if missing:
+            self.rounds_left -= 0 if round_spent else 1
+        else:
+            self.corrections_left -= 1
         return True
 
     def limit_for(self, code):
