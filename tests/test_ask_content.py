@@ -163,6 +163,16 @@ class AskContentTests(Base):
         self.assertEqual(self.wire[-1]["mode"], "question")
         self.assertIn("the answer below uses what was collected", self.output.getvalue())
 
+    def test_a_form_feed_page_break_is_text_but_other_control_characters_are_not(self):
+        self.file("paged.c", "int a;\n\f\nint b;\n")
+        self.file("next.txt", "next facts\n")
+        answer = self.run_flow([self.go_on("paged.c", "next.txt"), ANSWER_PLAN], question="Read paged.c and next.txt")
+        self.assertEqual(answer, ANSWER)
+        self.assertEqual(contents_of(self.wire[-1]), {"paged.c": "int a;\n\f\nint b;\n", "next.txt": "next facts\n"})
+        for text in ("a\x1b[0m\n", "a\x00\n", "a\u202e\n"):
+            with self.subTest(text=text), self.assertRaises(Exception):
+                ask_content._validate_content(text)
+
     def test_a_final_answer_wrapped_in_an_answer_plan_is_shown_as_text(self):
         self.assertEqual(flow._plain_answer(json.dumps({"action": "answer", "text": "Plain text."})), "Plain text.")
         for kept in ("Plain text.", '{"action": "read"}', '{"note": 1}', "{not json", None):
