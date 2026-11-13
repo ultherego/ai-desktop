@@ -189,7 +189,27 @@ _SKILL_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*(?:/[a-z0-9]+(?:-[a-z0-9]+)*)
 
 
 def parse_plan(raw, access):
-    """Accept one bounded answer or one proposed read within advertised access."""
+    """Accept one bounded answer or one proposed read within advertised access. Any plan may carry "notes": the
+    model's working memory for the question (plain text, NOTES_BYTES), returned under the same key; it grants nothing."""
+    notes = None
+    if type(raw) is str and '"notes"' in raw:
+        try:
+            value = json.loads(raw, object_pairs_hook=_unique, parse_constant=_constant)
+        except ValueError:
+            value = None
+        if type(value) is dict and "notes" in value:
+            from .discovery_contract import NOTES_BYTES
+            notes = value.pop("notes")
+            if (type(notes) is not str or len(notes.encode("utf-8")) > NOTES_BYTES
+                    or any(char not in "\n\t" and unicodedata.category(char) in ("Cc", "Cf", "Cs", "Zl", "Zp")
+                           for char in notes)):
+                raise PlanError("text")
+            raw = json.dumps(value, ensure_ascii=False)
+    plan = _parse_plan(raw, access)
+    return plan if notes is None else dict(plan, notes=notes)
+
+
+def _parse_plan(raw, access):
     check = "access"
     try:
         access = validate_access(access)

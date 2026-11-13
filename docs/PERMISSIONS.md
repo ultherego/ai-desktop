@@ -40,14 +40,14 @@ Limits (default → highest allowed):
 
 - `file_size`: largest local text file to inspect, `"32MiB"` → `"64MiB"`.
 - `part_size`: one portion of a whole-file analysis, `"240KiB"` → `"512KiB"`.
-- `read_files`: files in one context, `128` → `512`.
+- `read_files`: files in one context (one request; in a long question older excerpts leave it), `128` → `512`.
 - `read_file_size`: bytes per file sent, `"2MiB"` → `"8MiB"`.
-- `read_total_size`: bytes of all files sent, `"4MiB"` → `"16MiB"`.
+- `read_total_size`: bytes of all files sent in one request, `"4MiB"` → `"16MiB"`.
 - `test_copy_files`: files in the local test copy, `2000` → `20000`.
 - `test_copy_file_size`: bytes per file in the test copy, `"8MiB"` → `"32MiB"`.
 - `test_copy_total_size`: bytes of the whole test copy, `"64MiB"` → `"128MiB"`.
 - `listing_entries`: entries in one directory listing, `128` → `512`.
-- `discovery_bytes`: listing and search results sent per question, `"128KiB"` → `"256KiB"`.
+- `discovery_bytes`: the window of steps (listings, searches, excerpts, command output) one request carries, `"128KiB"` → `"256KiB"`. A long question goes on past it: the oldest steps leave the window and the model is told what they were, so it can read them again.
 - `search_scan`: directory entries examined per question, `20000` → `100000`.
 - The number of matches in one search and the number of looking-around steps per question are set by the program, not here: the byte budget above decides how much fits. An older file may still hold `search_results` or `discovery_rounds`; they are accepted and have no effect.
 - `plan_corrections`: corrected read plans per question, `2` → `4`. A path that does not exist costs a step of looking around instead, so the model can still search for it.

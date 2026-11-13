@@ -76,6 +76,32 @@ class ConversationConsent:
         self._skill_hashes.clear()
 
 
+def _window(steps):
+    """(cleared count, the steps of the window without its trace and notes)."""
+    count = next((step["count"] for step in steps if step["op"] == "cleared"), 0)
+    return count, [step for step in steps if step["op"] not in ("cleared", "notes")]
+
+
+def _added_steps(before, after):
+    """The steps one more planner round adds. The document is a window: the oldest steps may leave it, each one counted
+    by the cleared trace, and the steps that stay keep their order and content; at least one new step follows them.
+    Anything else (a changed, reordered or uncounted step) is refused."""
+    old_count, old = _window(before)
+    new_count, new = _window(after)
+    removed = new_count - old_count
+    kept = len(old) - removed
+    if removed < 0 or kept < 0 or len(new) <= kept:
+        raise ValueError()
+    position = 0
+    for step in new[:kept]:                 # the kept steps are the old ones minus the removed, in the same order
+        while position < len(old) and old[position] != step:
+            position += 1
+        if position == len(old):
+            raise ValueError()
+        position += 1
+    return new[kept:]
+
+
 class QuestionConsent:
     def __init__(self, question, snapshot, *, clock=None, plan_ready=False):
         validate_question(question, MAX_MESSAGE_BYTES)
@@ -281,9 +307,7 @@ class QuestionConsent:
             else:
                 rounds = self._extra_rounds
             before = [] if self._discovery_snapshot is None else self._discovery_snapshot.document["steps"]
-            if document["steps"][:len(before)] != before or len(document["steps"]) <= len(before):
-                raise ValueError()
-            added = document["steps"][len(before):]
+            added = _added_steps(before, document["steps"])
             self._skill_batch = all(step["op"] == "skill" for step in added)
             # The one web answer of a question is not a discovery round of the owner's budgets (the ledger does not
             # count it either): the local rounds after it keep their full number.

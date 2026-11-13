@@ -839,7 +839,7 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                     permit.check()
                     progress("plan")
                     try:
-                        following = _plan(reply, snapshot.access)
+                        following = _take_notes(ledger, _plan(reply, snapshot.access))
                     except PlanError as error:
                         corrected(error)
                         continue
@@ -857,7 +857,7 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                 return following
 
             try:
-                plan = _plan(response, snapshot.access)
+                plan = _take_notes(ledger, _plan(response, snapshot.access))
             except PlanError as error:
                 corrected(error)
                 plan = next_plan()
@@ -1033,10 +1033,14 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                     # (it may ask for a file that did not fit with an ordinary read). When not even the first file
                     # fits, or no steps are left, this is the ordinary, final read of them all.
                     progress("collect")
-                    rest = list(plan["files"])
+                    rest, skipped = list(plan["files"]), []
                     try:
-                        while rest and ledger.whole(rest[0], permit) is not None:
+                        while rest:
+                            if ledger.whole(rest[0], permit) is None:
+                                skipped.append(rest[0])         # not plain text: an ordinary read, if asked again
                             rest.pop(0)
+                    except ask_discovery.WindowFull:
+                        rest = []                               # what was read goes first; the model asks for the rest
                     except ask_discovery.BudgetExhausted as exhausted:
                         if _exhausted(ledger, snapshot, exhausted.name):
                             plan = dict(plan, files=rest)   # the owner allowed more: the files not yet read, now
@@ -1044,10 +1048,10 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                         plan = next_plan()                  # discovery is over: the model answers from what it has
                         continue
                     permit.check()
-                    if len(rest) < len(plan["files"]):
+                    if len(skipped) < len(plan["files"]):
                         plan = next_plan()
                         continue
-                    plan = {"action": "read", "files": rest, "systemd": [], "weather": None}
+                    plan = {"action": "read", "files": skipped, "systemd": [], "weather": None}
                 try:
                     ledger.ground(plan["files"])
                     progress("collect")
@@ -1127,6 +1131,14 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
         return answer
     finally:
         permit.close()
+
+
+def _take_notes(ledger, plan):
+    """The model's working memory rides on any plan; the ledger keeps it for every later request of the question."""
+    notes = plan.pop("notes", None)
+    if notes is not None and ledger is not None:
+        ledger.note(notes)
+    return plan
 
 
 LIMIT_NOTE = ("A limit of this question was reached: the answer uses what was collected. "

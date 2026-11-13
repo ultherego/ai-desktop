@@ -47,14 +47,14 @@ The fields below are optional. Add them in the given section when you want to ch
 |---|---|---|---|
 | `[files] file_size` | `"32MiB"` | `"64MiB"` | largest locally inspected text file |
 | `[files] part_size` | `"240KiB"` | `"512KiB"` | portion when analyzing a whole file |
-| `[files] read_files` | 128 | 512 | files in one context |
+| `[files] read_files` | 128 | 512 | files in one context (one request) |
 | `[files] read_file_size` | `"2MiB"` | `"8MiB"` | bytes per file |
-| `[files] read_total_size` | `"4MiB"` | `"16MiB"` | bytes of all context files |
+| `[files] read_total_size` | `"4MiB"` | `"16MiB"` | bytes of all context files of one request |
 | `[files] test_copy_files` | 2000 | 20000 | files in the local test copy |
 | `[files] test_copy_file_size` | `"8MiB"` | `"32MiB"` | local copy bytes per file |
 | `[files] test_copy_total_size` | `"64MiB"` | `"128MiB"` | local copy total, independent of model data |
 | `[files] listing_entries` | 128 | 512 | entries in a list/find step |
-| `[files] discovery_bytes` | `"128KiB"` | `"256KiB"` | bytes of discovery steps sent to the model in one question |
+| `[files] discovery_bytes` | `"128KiB"` | `"256KiB"` | the window of discovery steps one request carries; older steps leave it as the question goes on |
 | `[files] search_scan` | 20000 | 100000 | directory entries per question |
 | `[files] plan_corrections` | 2 | 4 | read plan corrections per question (a path that does not exist costs a step of looking around instead) |
 | `[files] command_rounds` | 24 | 128 | commands per question (0 turns them off) |

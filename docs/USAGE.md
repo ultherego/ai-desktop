@@ -18,7 +18,7 @@
    - Commands that are not on your list are refused.
    - Commands from `allow` run in a sandbox: read-only, without network, with a mostly empty `/run` and D-Bus only through a read filter.
    - Commands from `change` are shown on a red card and wait for you to type `yes`.
-6. **The results go back to the model**, cut to the `command_output` and `discovery_bytes` limits.
+6. **The results go back to the model**, cut to the `command_output` and `discovery_bytes` limits. In a long question (for example reading a folder file by file) the oldest results leave the request to make room and the model is told what they were; it keeps its own notes of what it found, and a file larger than one excerpt (32 KiB) comes in parts.
 7. **The model may ask for more**, for example another batch of commands, a file or a Skill. Steps 5 and 6 repeat while the limits allow. Within this one question you are not asked again, except for changes (`yes`) and file writes (a diff to approve).
 8. **The model writes the answer**, and AI Desktop shows it.
 9. **The conversation is saved locally.** With your next question the model sees the latest exchanges of this conversation, and `ai-desktop -c` returns to it later.

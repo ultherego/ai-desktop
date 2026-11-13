@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-171: long questions read on, file by file
+
+- **A question can work through a whole folder:** when its results fill one request, the oldest leave it and the model is told what they were, so it can read them again; it keeps its own notes of what it found. Reading file by file no longer stops at a large file: a file larger than 32 KiB comes in parts.
+- **Limits per request:** `discovery_bytes`, `read_total_size` and `read_files` now bound one request of a question, not the whole question; the number of steps is still yours to extend.
+
 ## 0.1.0-170: deep project analysis keeps its place between stages
 
 - **`project` tasks over several stages** no longer lose their place: a search started in one stage can be continued in the next, files read earlier still count as sources of the final answer, and the coverage shown is that of the whole task. A changed file or permission still stops the task.

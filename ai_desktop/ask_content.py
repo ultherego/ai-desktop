@@ -70,9 +70,12 @@ def _fragment(raw, start, end):
             "start": start, "end": end, "sha256": _hash(raw[start:end]), "text": text}
 
 
-def _range(raw, first, last):
+def _range(raw, first, last, page=None):
+    """Lines first..last. With `page` (bytes), a range larger than that ends at the last whole line that fits: the
+    first page of a file read as a step; the model reads the rest with read-range (complete is then false)."""
     # Avoid a Python integer per line: a large file made entirely of newlines
     # must still use bounded memory, independently of its line count.
+    limit = MAX_FRAGMENT_BYTES if page is None else min(MAX_FRAGMENT_BYTES, page)
     start = 0
     for _ in range(1, first):
         position = raw.find(b"\n", start)
@@ -82,15 +85,18 @@ def _range(raw, first, last):
     end = start
     for _ in range(first, last + 1):
         position = raw.find(b"\n", end)
-        end = len(raw) if position == -1 else position + 1
-        if end - start > MAX_FRAGMENT_BYTES:
-            raise ValueError("files-total")
+        following = len(raw) if position == -1 else position + 1
+        if following - start > limit:
+            if page is None or end == start:
+                raise ValueError("files-total")
+            break                                   # the page ends before the line that does not fit
+        end = following
         if end == len(raw):
             break
     return _fragment(raw, start, end)
 
 
-def collect(policy, plan, permit, *, room):
+def collect(policy, plan, permit, *, room, page=False):
     """Return one closed content observation plus its immutable local guard."""
     if type(policy) is not permissions.Policy:
         raise ValueError("policy-type")
@@ -123,7 +129,7 @@ def collect(policy, plan, permit, *, room):
             "id": ident, "path": relative, "version": version, "size": len(raw),
             "lines": raw.count(b"\n") + 1, "fragments": [], "complete": False, "search": None}
     if plan["action"] == "read-range":
-        step["fragments"] = [_range(raw, plan["first"], plan["last"])]
+        step["fragments"] = [_range(raw, plan["first"], plan["last"], page=room if page else None)]
     else:
         needle = query(plan["needle"]).encode("utf-8")
         cursor = plan["cursor"]
