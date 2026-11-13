@@ -7,7 +7,7 @@ from unittest.mock import patch
 from ai_desktop import analysis_contract as wire, ask_content, assistant_contract, assistant_flow as flow
 from ai_desktop import conversation_state, discovery_contract, execution, permissions
 from ai_desktop.question_consent import ConversationConsent
-from test_ask_discovery import Base, options, sel, ANSWER, ANSWER_PLAN
+from test_ask_discovery import Base, options, sel, ANSWER, ANSWER_PLAN, contents as contents_of
 
 
 class AskContentTests(Base):
@@ -112,6 +112,39 @@ class AskContentTests(Base):
         self.assertEqual(request["mode"], "question")              # large.log alone does not fit: the final read
         self.assertEqual([step["path"] for step in request["discovery"]["steps"]], ["small.txt"])
         self.assertEqual([item["path"].rsplit("/", 1)[1] for item in request["context"][0]["files"]], ["large.log"])
+
+    def rounds(self, count):
+        from dataclasses import replace
+        original = permissions.Policy.limits
+        return patch.object(permissions.Policy, "limits",
+                            lambda policy: replace(original(policy), discovery_rounds=count))
+
+    def test_used_up_steps_while_reading_ask_to_continue_and_read_only_the_files_left(self):
+        for name in ("first.txt", "second.txt", "third.txt"):
+            self.file(name, name + " facts\n")
+        with self.rounds(1):
+            answer = self.run_flow([self.go_on("first.txt", "second.txt", "third.txt"), ANSWER_PLAN],
+                                   question="Read first.txt, second.txt and third.txt one by one")
+        self.assertEqual(answer, ANSWER)
+        self.assertIn("more-steps", [call.args[0] for call in self.confirm.call_args_list])
+        self.assertEqual(list(contents_of(self.wire[-1])), ["first.txt", "second.txt", "third.txt"])
+
+    def test_on_no_the_model_answers_from_the_files_it_has_with_the_limit_shown(self):
+        for name in ("first.txt", "second.txt"):
+            self.file(name, name + " facts\n")
+        self.confirm.side_effect = lambda action, **kwargs: action != "more-steps"
+        with self.rounds(1):
+            answer = self.run_flow([self.go_on("first.txt", "second.txt"), ANSWER_PLAN],
+                                   question="Read first.txt and second.txt one by one")
+        self.assertEqual(answer, ANSWER)
+        self.assertEqual(list(contents_of(self.wire[-1])), ["first.txt"])
+        self.assertEqual(self.wire[-1]["mode"], "assistant")            # never a silent final read of the rest
+        self.assertIn("the answer below uses what was collected", self.output.getvalue())
+
+    def test_a_final_answer_wrapped_in_an_answer_plan_is_shown_as_text(self):
+        self.assertEqual(flow._plain_answer(json.dumps({"action": "answer", "text": "Plain text."})), "Plain text.")
+        for kept in ("Plain text.", '{"action": "read"}', '{"note": 1}', "{not json", None):
+            self.assertEqual(flow._plain_answer(kept), kept)
 
     def test_continue_is_only_for_up_to_four_exact_files(self):
         access = permissions.load_policy().access()

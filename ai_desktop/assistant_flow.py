@@ -1034,8 +1034,15 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                     # fits, or no steps are left, this is the ordinary, final read of them all.
                     progress("collect")
                     rest = list(plan["files"])
-                    while rest and ledger.whole(rest[0], permit) is not None:
-                        rest.pop(0)
+                    try:
+                        while rest and ledger.whole(rest[0], permit) is not None:
+                            rest.pop(0)
+                    except ask_discovery.BudgetExhausted as exhausted:
+                        if _exhausted(ledger, snapshot, exhausted.name):
+                            plan = dict(plan, files=rest)   # the owner allowed more: the files not yet read, now
+                            continue
+                        plan = next_plan()                  # discovery is over: the model answers from what it has
+                        continue
                     permit.check()
                     if len(rest) < len(plan["files"]):
                         plan = next_plan()
@@ -1114,12 +1121,27 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                 progress("collect")
                 context = collect(plan, snapshot, args, reader, question_consent=permit)
             progress("answer-request")
-            answer = request(question, args, reader, context=context, check=permit.check, question_consent=permit,
-                             **_observed(carried, question=question, context=context))
+            answer = _plain_answer(request(question, args, reader, context=context, check=permit.check,
+                                           question_consent=permit,
+                                           **_observed(carried, question=question, context=context)))
         permit.check()
         return answer
     finally:
         permit.close()
+
+
+def _plain_answer(answer):
+    """The final answer is plain text; a model that still wrapped it in an answer plan gets its text shown, not the JSON."""
+    if type(answer) is not str or not answer.lstrip().startswith("{"):
+        return answer
+    try:
+        value = json.loads(answer)
+    except ValueError:
+        return answer
+    if (type(value) is dict and set(value) == {"action", "text"} and value["action"] == "answer"
+            and type(value["text"]) is str and value["text"].strip()):
+        return value["text"]
+    return answer
 
 
 def _without_excerpts(policy, selections, excerpts):
