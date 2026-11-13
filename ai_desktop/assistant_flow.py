@@ -1129,10 +1129,14 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
         permit.close()
 
 
+LIMIT_NOTE = ("A limit of this question was reached: the answer uses what was collected. "
+              "Ask to continue in your next message to go on.")
+
+
 def _limit_note(ledger):
-    if ledger is not None and ledger.budget_closed():
-        print(paint("  %s A limit of this question was reached: the answer below uses what was collected. "
-                    "Ask to continue in your next message to go on." % symbol("skip"), "muted"))
+    """In a conversation the note is shown after the answer (its text may already be on screen while it is written)."""
+    if ledger is not None and ledger.budget_closed() and not conversation_state.note_limit():
+        print(paint("  %s %s" % (symbol("skip"), LIMIT_NOTE), "muted"))
 
 
 def _plain_answer(answer):

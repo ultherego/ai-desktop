@@ -139,7 +139,7 @@ class AskContentTests(Base):
         self.assertEqual(answer, ANSWER)
         self.assertEqual(list(contents_of(self.wire[-1])), ["first.txt"])
         self.assertEqual(self.wire[-1]["mode"], "assistant")            # never a silent final read of the rest
-        self.assertIn("the answer below uses what was collected", self.output.getvalue())
+        self.assertIn("the answer uses what was collected", self.output.getvalue())
 
     def test_a_file_past_the_byte_budget_shows_the_limit_instead_of_a_silent_final_read(self):
         self.file("first.txt", "a" * 3000 + "\n")
@@ -151,7 +151,7 @@ class AskContentTests(Base):
         self.assertEqual(self.wire[-1]["mode"], "assistant")
         self.assertEqual(list(contents_of(self.wire[-1])), ["first.txt"])
         self.assertEqual(self.wire[-1]["discovery"]["steps"][-1]["code"], "discovery-budget")
-        self.assertIn("the answer below uses what was collected", self.output.getvalue())
+        self.assertIn("the answer uses what was collected", self.output.getvalue())
 
     def test_the_limit_is_also_shown_when_the_model_makes_one_last_read_after_it(self):
         self.file("first.txt", "a" * 3000 + "\n")
@@ -161,7 +161,20 @@ class AskContentTests(Base):
                                question="Read first.txt and second.txt one by one")
         self.assertEqual(answer, ANSWER)
         self.assertEqual(self.wire[-1]["mode"], "question")
-        self.assertIn("the answer below uses what was collected", self.output.getvalue())
+        self.assertIn("the answer uses what was collected", self.output.getvalue())
+
+    def test_in_a_conversation_the_limit_note_waits_for_the_answer(self):
+        # The text of an answer plan is shown live while it is written: a note printed by the flow would land inside it.
+        from ai_desktop import conversation_state
+        self.file("first.txt", "a" * 3000 + "\n")
+        self.file("second.txt", "b" * 3000 + "\n")
+        self.write_policy("discovery_bytes = \"16KiB\"\n")
+        with conversation_state.recording() as turn:
+            answer = self.run_flow([self.go_on("first.txt", "second.txt"), ANSWER_PLAN],
+                                   question="Read first.txt and second.txt one by one")
+        self.assertEqual(answer, ANSWER)
+        self.assertTrue(turn.limited)
+        self.assertNotIn("the answer uses what was collected", self.output.getvalue())
 
     def test_a_form_feed_page_break_is_text_but_other_control_characters_are_not(self):
         self.file("paged.c", "int a;\n\f\nint b;\n")

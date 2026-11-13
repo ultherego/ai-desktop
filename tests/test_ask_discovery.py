@@ -621,7 +621,7 @@ class BudgetTests(Base):
             result = self.run_flow([plan("list", "f0"), plan("list", sel("gizmo")), ANSWER_PLAN])
         self.assertEqual(result, ANSWER)
         self.assertIn("This question used its steps of looking around.", self.output.getvalue())
-        self.assertIn("the answer below uses what was collected", self.output.getvalue())
+        self.assertIn("the answer uses what was collected", self.output.getvalue())
         self.assertIn("more-steps", [call.args[0] for call in self.confirm.call_args_list])
         last = self.wire[-1]["discovery"]["steps"][-1]
         self.assertEqual((last["op"], last["code"], last["limit"]), ("refusal", "discovery-budget", 1))

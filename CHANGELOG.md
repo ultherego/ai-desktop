@@ -6,6 +6,7 @@
 - **Long questions can go on:** when a question uses up its steps, commands, pages or downloads, AI Desktop asks whether to continue instead of stopping; answer `n` and the model answers from what it has.
 - **Files with odd characters** (an old encoding, terminal colour codes) no longer end a question that reads several files: the unreadable characters are shown as `�` and counted; such files still cannot be edited.
 - **Long tasks and wrong paths:** the model no longer refuses a long file-by-file task up front, and when a folder you name is not where it expected, it searches for it instead of asking you.
+- **Reading many files in one question:** small files come back to the model one by one, as in Claude Code and Codex, so it can read a whole folder file by file; files with page breaks no longer stop it, and when a limit of the question runs out, a note after the answer says so.
 
 ## 0.1.0-168: project tests with any files, stricter plans
 
