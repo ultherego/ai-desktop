@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-170: deep project analysis keeps its place between stages
+
+- **`project` tasks over several stages** no longer lose their place: a search started in one stage can be continued in the next, files read earlier still count as sources of the final answer, and the coverage shown is that of the whole task. A changed file or permission still stops the task.
+
 ## 0.1.0-169: install single files, continue long questions
 
 - **Install a downloaded file** that is not an archive (a `.jar`, an image, a document) into a folder you allow: plan, one yes, never overwritten or made executable, undo with `task restore`.

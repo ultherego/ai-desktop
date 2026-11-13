@@ -355,8 +355,7 @@ class ProjectSession(Session):
                 if stage > 1:
                     print(self._coverage_line(loop, stage - 1))
                     scope.check(self.project)
-                    loop = Loop(self.project, history=self.history, progress=self.progress, pasted=pastes,
-                                visited=loop.visited, stage=stage)
+                    loop = loop.next_stage(stage, history=self.history, progress=self.progress, pasted=pastes)
                 grant = scope.next_stage(self.project)
                 session = TransferSession(self.binding, grant, clock=self._clock)
                 self.tasks.append({"session": session, "label": "%s: %s (stage %d)" % (self.name, _safe(text, 50), stage)})
@@ -507,7 +506,8 @@ class ProjectSession(Session):
         if not self.project.complete:
             notes.append(("Index", [recipient("incomplete (%s) — there may be files Claude could not see") %
                                      REASONS.get(self.project.reason, "limit")]))
-        partial = [needle for needle, complete in loop.searches if not complete]
+        latest = dict(loop.searches)             # a search continued to its end in a later stage is complete
+        partial = [needle for needle, complete in latest.items() if not complete]
         if partial:
             notes.append(("Incomplete", ["search (budget or further pages): " + ", ".join('"%s"' % _safe(n, 40) for n in partial)]))
         if loop.format_note:
