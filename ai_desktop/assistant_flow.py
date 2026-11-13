@@ -1025,6 +1025,19 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                         continue
                 if plan["action"] != "read" or not plan["files"]:
                     break
+                if plan.get("continue"):
+                    # Read and go on: each small file comes back as a discovery step and the model plans the rest
+                    # (it may ask for a file that did not fit with an ordinary read). When not even the first file
+                    # fits, or no steps are left, this is the ordinary, final read of them all.
+                    progress("collect")
+                    rest = list(plan["files"])
+                    while rest and ledger.whole(rest[0], permit) is not None:
+                        rest.pop(0)
+                    permit.check()
+                    if len(rest) < len(plan["files"]):
+                        plan = next_plan()
+                        continue
+                    plan = {"action": "read", "files": rest, "systemd": [], "weather": None}
                 try:
                     ledger.ground(plan["files"])
                     progress("collect")

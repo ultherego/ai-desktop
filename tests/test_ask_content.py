@@ -82,6 +82,46 @@ class AskContentTests(Base):
         self.assertTrue(contents["legacy.txt"].startswith("[AI Desktop: 1 character(s)"))
         self.assertEqual(contents["other.txt"], "additional facts\n")
 
+    @staticmethod
+    def go_on(*paths):
+        return json.dumps({"action": "read", "files": [sel(path) for path in paths], "systemd": [], "weather": None,
+                           "continue": True})
+
+    def test_a_read_with_continue_comes_back_as_steps_and_the_model_reads_on_file_by_file(self):
+        self.file("first.txt", "first facts\n")
+        self.file("second.txt", "second facts\n")
+        self.file("third.txt", "third facts\n")
+        answer = self.run_flow([self.go_on("first.txt"), self.go_on("second.txt", "third.txt"), ANSWER_PLAN],
+                               question="Read first.txt, second.txt and third.txt one by one")
+        self.assertEqual(answer, ANSWER)
+        self.assertEqual([request["mode"] for request in self.wire], ["assistant"] * 3)     # never a final read
+        steps = self.wire[-1]["discovery"]["steps"]
+        self.assertEqual([(step["path"], step["complete"], step["fragments"][0]["text"]) for step in steps],
+                         [("first.txt", True, "first facts\n"), ("second.txt", True, "second facts\n"),
+                          ("third.txt", True, "third facts\n")])
+        self.assertEqual(self.confirm.call_count, 1)
+
+    def test_a_file_too_large_for_a_step_is_left_to_the_model_and_then_read_the_ordinary_way(self):
+        self.file("small.txt", "small facts\n")
+        self.file("large.log", "x" * (ask_content.MAX_FRAGMENT_BYTES + 10) + "\n")
+        answer = self.run_flow([self.go_on("small.txt", "large.log"), self.go_on("large.log"), ANSWER],
+                               question="Read small.txt and large.log")
+        self.assertEqual(answer, ANSWER)
+        self.assertEqual([step["path"] for step in self.wire[1]["discovery"]["steps"]], ["small.txt"])
+        request = self.wire[-1]
+        self.assertEqual(request["mode"], "question")              # large.log alone does not fit: the final read
+        self.assertEqual([step["path"] for step in request["discovery"]["steps"]], ["small.txt"])
+        self.assertEqual([item["path"].rsplit("/", 1)[1] for item in request["context"][0]["files"]], ["large.log"])
+
+    def test_continue_is_only_for_up_to_four_exact_files(self):
+        access = permissions.load_policy().access()
+        good = json.loads(self.go_on("a.txt"))
+        self.assertTrue(assistant_contract.parse_plan(json.dumps(good), access)["continue"])
+        for change in ({"continue": False}, {"files": [sel(name) for name in "abcde"]}, {"files": [sel("*.txt")]},
+                       {"systemd": [{"scope": "system", "view": "failed"}]}, {"weather": "Example City"}):
+            with self.subTest(change=change), self.assertRaises(assistant_contract.PlanError):
+                assistant_contract.parse_plan(json.dumps(dict(good, **change)), access)
+
     def test_selected_excerpts_survive_into_the_final_answer_request(self):
         self.file("large.log", "one\ntwo\nthree\n")
         self.file("other.txt", "additional facts\n")

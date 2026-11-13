@@ -232,7 +232,7 @@ class StepBudgetPromptTests(unittest.TestCase):
 
     def test_the_prompt_says_remaining_is_a_portion_and_the_program_asks_to_continue(self):
         self.assertIn("only the current portion: never refuse or cut a long task for it", contract.SYSTEM_PROMPT)
-        self.assertIn("a read-range per file if asked one by one", contract.SYSTEM_PROMPT)
+        self.assertIn("with \"continue\":true (1-4 small files", contract.SYSTEM_PROMPT)
         self.assertIn("the program asks the owner to continue", contract.SYSTEM_PROMPT)
         self.assertIn("files-missing (no such path: do not retry it; find its last name", contract.SYSTEM_PROMPT)
         self.assertIn("never ask the user for what a find step can reveal", contract.SYSTEM_PROMPT)

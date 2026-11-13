@@ -317,6 +317,22 @@ class DiscoveryLedger:
         self.content_bytes += amount
         return step
 
+    def whole(self, selection, permit):
+        """One small file read whole as a discovery step, like a tool result in an agent loop: the model may read
+        more files before it answers, so a file-by-file task does not end after its first file. None when the file
+        does not fit one excerpt, is not plain text or the steps are used up; the caller then makes the ordinary,
+        final read, and nothing of this attempt is kept."""
+        if self.rounds_left <= 0 or self.budget_closed():
+            return None
+        rounds, steps, contents, used = self.rounds_left, len(self.steps), self.contents, self.content_bytes
+        plan = {"action": "read-range", "file": selection, "first": 1, "last": 64 * 1024 * 1024 + 1}
+        try:
+            return self.content(plan, permit)
+        except (ValueError, OSError, BudgetExhausted, Recoverable):
+            self.rounds_left, self.contents, self.content_bytes = rounds, contents, used
+            del self.steps[steps:]
+            return None
+
     def excerpts(self):
         """{absolute path: {"version", "size", "fragments"}} of the file excerpts this question already delivered, for
         an edit of a file too large to send whole (S3). Only excerpts of the newest version read are kept."""
