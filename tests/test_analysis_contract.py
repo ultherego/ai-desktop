@@ -235,7 +235,8 @@ class StepBudgetPromptTests(unittest.TestCase):
         self.assertIn("a read of 1-4 exact files comes back as discovery op=content (a large one as its first part: "
                       "read-range the rest) and you plan on", contract.SYSTEM_PROMPT)
         self.assertIn("Any plan may add \"notes\"", contract.SYSTEM_PROMPT)
-        self.assertIn("op=cleared (what they were)", contract.SYSTEM_PROMPT)
+        self.assertIn("In a long task put every finding there in the same plan, from the first step", contract.SYSTEM_PROMPT)
+        self.assertIn("op=cleared (only named; read again if needed)", contract.SYSTEM_PROMPT)
         self.assertIn("the program asks the owner to continue", contract.SYSTEM_PROMPT)
         self.assertIn("files-missing (no such path: do not retry it; find its last name", contract.SYSTEM_PROMPT)
         self.assertIn("never ask the user for what a find step can reveal", contract.SYSTEM_PROMPT)
