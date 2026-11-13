@@ -1071,9 +1071,7 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                     conversation_state.note_action(result.summary)
                 return result
             if plan["action"] == "answer":
-                if ledger is not None and ledger.budget_closed():
-                    print(paint("  %s A limit of this question was reached: the answer below uses what was collected. "
-                                "Ask to continue in your next message to go on." % symbol("skip"), "muted"))
+                _limit_note(ledger)
                 return plan["text"]
             if plan["action"] == "web":
                 # Web is a separate final request: the exact original question and the conversation (added by the
@@ -1120,6 +1118,7 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
             if context is None:
                 progress("collect")
                 context = collect(plan, snapshot, args, reader, question_consent=permit)
+            _limit_note(ledger)                 # after a used-up budget the model may still make the last read
             progress("answer-request")
             answer = _plain_answer(request(question, args, reader, context=context, check=permit.check,
                                            question_consent=permit,
@@ -1128,6 +1127,12 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
         return answer
     finally:
         permit.close()
+
+
+def _limit_note(ledger):
+    if ledger is not None and ledger.budget_closed():
+        print(paint("  %s A limit of this question was reached: the answer below uses what was collected. "
+                    "Ask to continue in your next message to go on." % symbol("skip"), "muted"))
 
 
 def _plain_answer(answer):
