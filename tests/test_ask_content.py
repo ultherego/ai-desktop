@@ -141,6 +141,18 @@ class AskContentTests(Base):
         self.assertEqual(self.wire[-1]["mode"], "assistant")            # never a silent final read of the rest
         self.assertIn("the answer below uses what was collected", self.output.getvalue())
 
+    def test_a_file_past_the_byte_budget_shows_the_limit_instead_of_a_silent_final_read(self):
+        self.file("first.txt", "a" * 3000 + "\n")
+        self.file("second.txt", "b" * 3000 + "\n")
+        self.write_policy("discovery_bytes = \"16KiB\"\n")
+        answer = self.run_flow([self.go_on("first.txt", "second.txt"), ANSWER_PLAN],
+                               question="Read first.txt and second.txt one by one")
+        self.assertEqual(answer, ANSWER)
+        self.assertEqual(self.wire[-1]["mode"], "assistant")
+        self.assertEqual(list(contents_of(self.wire[-1])), ["first.txt"])
+        self.assertEqual(self.wire[-1]["discovery"]["steps"][-1]["code"], "discovery-budget")
+        self.assertIn("the answer below uses what was collected", self.output.getvalue())
+
     def test_a_final_answer_wrapped_in_an_answer_plan_is_shown_as_text(self):
         self.assertEqual(flow._plain_answer(json.dumps({"action": "answer", "text": "Plain text."})), "Plain text.")
         for kept in ("Plain text.", '{"action": "read"}', '{"note": 1}', "{not json", None):

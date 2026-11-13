@@ -138,7 +138,7 @@ def collect(policy, plan, permit, *, room):
                           "next": None if complete else position, "complete": complete}
     amount = sum(len(item["text"].encode("utf-8")) for item in step["fragments"])
     if amount > room:
-        raise ValueError("files-total")
+        raise ValueError("files-room")          # fits one excerpt, not what is left of this question's budget
     # Search completion means only that the literal was scanned; it is not
     # whole-file analysis. Complete content requires one exact full-file read.
     step["complete"] = (step["operation"] == "read" and len(step["fragments"]) == 1

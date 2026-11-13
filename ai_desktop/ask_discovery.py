@@ -295,8 +295,10 @@ class DiscoveryLedger:
         self._record(step)
         return step
 
-    def content(self, plan, permit):
-        """One grounded file, local large-file scan, bounded excerpts on the wire."""
+    def content(self, plan, permit, *, whole=False):
+        """One grounded file, local large-file scan, bounded excerpts on the wire. An excerpt that no longer fits
+        what is left of the question's budget is a correction (files-total) for a range the model chose, and the
+        used-up byte budget for a whole small file read as a step."""
         from . import ask_content
         self.ground([plan["file"]])
         self.take_round()
@@ -305,11 +307,20 @@ class DiscoveryLedger:
         key = (selection, "") if type(selection) is str else (selection["id"], selection["path"])
         if key not in distinct and len(distinct) >= self.limits.read_files:
             raise ValueError("files-count")
-        room = min(ask_content.MAX_FRAGMENT_BYTES, self.limits.read_file_size,
-                   self.limits.read_total_size - self.content_bytes, max(0, (self._budget() - 2048) // 2))
+        owner_room = min(ask_content.MAX_FRAGMENT_BYTES, self.limits.read_file_size,
+                         self.limits.read_total_size - self.content_bytes)
+        budget_room = max(0, (self._budget() - 2048) // 2)
+        room = min(owner_room, budget_room)
         if room < 1:
             raise BudgetExhausted("discovery_bytes")
-        step, guard, amount = ask_content.collect(self.policy, plan, permit, room=room)
+        try:
+            step, guard, amount = ask_content.collect(self.policy, plan, permit, room=room)
+        except ValueError as error:
+            if error.args != ("files-room",):
+                raise
+            if whole and budget_room < owner_room:      # the question's byte budget, not an owner file limit
+                raise BudgetExhausted("discovery_bytes") from None
+            raise ValueError("files-total") from None
         if document_bytes({"steps": [step], "remaining": self.document()["remaining"]}) > self._budget():
             raise BudgetExhausted("discovery_bytes")
         self.steps.append(step)
@@ -328,7 +339,7 @@ class DiscoveryLedger:
         rounds, steps, contents, used = self.rounds_left, len(self.steps), self.contents, self.content_bytes
         plan = {"action": "read-range", "file": selection, "first": 1, "last": 64 * 1024 * 1024 + 1}
         try:
-            return self.content(plan, permit)
+            return self.content(plan, permit, whole=True)
         except (ValueError, OSError, BudgetExhausted, Recoverable) as error:
             self.rounds_left, self.contents, self.content_bytes = rounds, contents, used
             del self.steps[steps:]
