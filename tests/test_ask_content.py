@@ -73,14 +73,16 @@ class AskContentTests(Base):
         self.file("other.txt", "additional facts\n")
         final_read = json.dumps({"action": "read", "files": [sel("legacy.txt"), sel("other.txt")], "systemd": [],
                                  "weather": None})
-        answer = self.run_flow([self.ranges(path="legacy.txt"), final_read, ANSWER],
+        again = json.dumps({"action": "read", "files": [sel("legacy.txt")], "systemd": [], "weather": None})
+        # other.txt comes back as a step; legacy.txt is not plain text, so the model's read of it is the final read.
+        answer = self.run_flow([self.ranges(path="legacy.txt"), final_read, again, ANSWER],
                                question="Read legacy.txt and other.txt")
         self.assertEqual(answer, ANSWER)
         refusal = self.wire[1]["discovery"]["steps"][-1]
         self.assertEqual((refusal["op"], refusal["code"]), ("refusal", "files-text"))     # the question goes on
         contents = {item["path"].rsplit("/", 1)[1]: item["content"] for item in self.wire[-1]["context"][0]["files"]}
         self.assertTrue(contents["legacy.txt"].startswith("[AI Desktop: 1 character(s)"))
-        self.assertEqual(contents["other.txt"], "additional facts\n")
+        self.assertEqual(contents_of(self.wire[-1]), {"other.txt": "additional facts\n"})
 
     @staticmethod
     def go_on(*paths):
@@ -119,21 +121,27 @@ class AskContentTests(Base):
         return patch.object(permissions.Policy, "limits",
                             lambda policy: replace(original(policy), discovery_rounds=count))
 
-    def test_used_up_steps_while_reading_ask_to_continue_and_read_only_the_files_left(self):
+    @staticmethod
+    def no_more():
+        """No further portion of steps: the question has used all it takes on its own."""
+        from ai_desktop import ask_discovery
+        return patch.object(ask_discovery, "MAX_EXTENSIONS", 0)
+
+    def test_used_up_steps_while_reading_go_on_by_themselves_and_read_only_the_files_left(self):
         for name in ("first.txt", "second.txt", "third.txt"):
             self.file(name, name + " facts\n")
         with self.rounds(1):
             answer = self.run_flow([self.go_on("first.txt", "second.txt", "third.txt"), ANSWER_PLAN],
                                    question="Read first.txt, second.txt and third.txt one by one")
         self.assertEqual(answer, ANSWER)
-        self.assertIn("more-steps", [call.args[0] for call in self.confirm.call_args_list])
+        self.assertNotIn("more-steps", [call.args[0] for call in self.confirm.call_args_list])     # never asked
+        self.assertIn("The question goes on: another portion of steps of looking around (2 of 8).", self.output.getvalue())
         self.assertEqual(list(contents_of(self.wire[-1])), ["first.txt", "second.txt", "third.txt"])
 
-    def test_on_no_the_model_answers_from_the_files_it_has_with_the_limit_shown(self):
+    def test_after_the_last_portion_the_model_answers_from_the_files_it_has_with_the_limit_shown(self):
         for name in ("first.txt", "second.txt"):
             self.file(name, name + " facts\n")
-        self.confirm.side_effect = lambda action, **kwargs: action != "more-steps"
-        with self.rounds(1):
+        with self.rounds(1), self.no_more():
             answer = self.run_flow([self.go_on("first.txt", "second.txt"), ANSWER_PLAN],
                                    question="Read first.txt and second.txt one by one")
         self.assertEqual(answer, ANSWER)
@@ -141,24 +149,28 @@ class AskContentTests(Base):
         self.assertEqual(self.wire[-1]["mode"], "assistant")            # never a silent final read of the rest
         self.assertIn("the answer uses what was collected", self.output.getvalue())
 
-    def test_a_file_past_the_byte_budget_shows_the_limit_instead_of_a_silent_final_read(self):
+    def test_a_batch_larger_than_the_window_goes_first_and_older_steps_make_room_for_the_rest(self):
         self.file("first.txt", "a" * 3000 + "\n")
         self.file("second.txt", "b" * 3000 + "\n")
         self.write_policy("discovery_bytes = \"16KiB\"\n")
-        answer = self.run_flow([self.go_on("first.txt", "second.txt"), ANSWER_PLAN],
+        answer = self.run_flow([self.go_on("first.txt", "second.txt"), self.go_on("second.txt"), ANSWER_PLAN],
                                question="Read first.txt and second.txt one by one")
         self.assertEqual(answer, ANSWER)
-        self.assertEqual(self.wire[-1]["mode"], "assistant")
-        self.assertEqual(list(contents_of(self.wire[-1])), ["first.txt"])
-        self.assertEqual(self.wire[-1]["discovery"]["steps"][-1]["code"], "discovery-budget")
-        self.assertIn("the answer uses what was collected", self.output.getvalue())
+        self.assertEqual([request["mode"] for request in self.wire], ["assistant"] * 3)
+        self.assertEqual(list(contents_of(self.wire[1])), ["first.txt"])          # what fits goes first
+        steps = self.wire[2]["discovery"]["steps"]
+        self.assertEqual(steps[0], {"op": "cleared", "count": 1,
+                                    "items": [{"op": "content", "what": "f0:first.txt lines 1-1 of 2"}]})
+        self.assertEqual(list(contents_of(self.wire[2])), ["second.txt"])
+        self.assertNotIn("discovery-budget", json.dumps(self.wire))                # no limit was reached
+        self.assertNotIn("the answer uses what was collected", self.output.getvalue())
 
     def test_the_limit_is_also_shown_when_the_model_makes_one_last_read_after_it(self):
         self.file("first.txt", "a" * 3000 + "\n")
         self.file("second.txt", "b" * 3000 + "\n")
-        self.write_policy("discovery_bytes = \"16KiB\"\n")
-        answer = self.run_flow([self.go_on("first.txt", "second.txt"), self.go_on("second.txt"), ANSWER],
-                               question="Read first.txt and second.txt one by one")
+        with self.rounds(1), self.no_more():
+            answer = self.run_flow([self.go_on("first.txt", "second.txt"), self.go_on("second.txt"), ANSWER],
+                                   question="Read first.txt and second.txt one by one")
         self.assertEqual(answer, ANSWER)
         self.assertEqual(self.wire[-1]["mode"], "question")
         self.assertIn("the answer uses what was collected", self.output.getvalue())
@@ -168,8 +180,7 @@ class AskContentTests(Base):
         from ai_desktop import conversation_state
         self.file("first.txt", "a" * 3000 + "\n")
         self.file("second.txt", "b" * 3000 + "\n")
-        self.write_policy("discovery_bytes = \"16KiB\"\n")
-        with conversation_state.recording() as turn:
+        with conversation_state.recording() as turn, self.rounds(1), self.no_more():
             answer = self.run_flow([self.go_on("first.txt", "second.txt"), ANSWER_PLAN],
                                    question="Read first.txt and second.txt one by one")
         self.assertEqual(answer, ANSWER)
@@ -202,14 +213,14 @@ class AskContentTests(Base):
 
     def test_selected_excerpts_survive_into_the_final_answer_request(self):
         self.file("large.log", "one\ntwo\nthree\n")
-        self.file("other.txt", "additional facts\n" + "x" * 40000 + "\n")     # too large for a step: the final read
+        self.file("other.txt", "additional facts " + "x" * 40000 + "\n")   # one line too long for a step: the final read
         final_read = json.dumps({"action": "read", "files": [sel("other.txt")], "systemd": [], "weather": None})
         answer = self.run_flow([self.ranges(first=2, last=2), final_read, ANSWER], question="Read large.log and other.txt")
         self.assertEqual(answer, ANSWER)
         request = self.wire[-1]
         self.assertEqual(request["mode"], "question")
         self.assertEqual(request["discovery"]["steps"][0]["fragments"][0]["text"], "two\n")
-        self.assertTrue(request["context"][0]["files"][0]["content"].startswith("additional facts\n"))
+        self.assertTrue(request["context"][0]["files"][0]["content"].startswith("additional facts "))
 
     def test_exact_file_scope_is_usable_without_guessing_a_relative_path(self):
         self.file("large.log", "complete file\n")
@@ -283,11 +294,14 @@ class AskContentTests(Base):
         self.write_policy('read_file_size = "1KiB"\nread_total_size = "1KiB"\n')
         # A search snippet fits, but its repeated copies still consume the
         # same per-question excerpt budget.
+        # read_total_size bounds the file text of one request: the second search clears the first one's excerpt.
         self.run_flow([self.search(), self.search(), ANSWER_PLAN])
+        for request in self.wire[1:]:
+            text = sum(len(item["text"].encode()) for step in request["discovery"]["steps"] if step["op"] == "content"
+                       for item in step["fragments"])
+            self.assertLessEqual(text, 1024)
         steps = self.wire[-1]["discovery"]["steps"]
-        self.assertEqual(steps[0]["op"], "content")
-        self.assertEqual(steps[1]["op"], "refusal")
-        self.assertEqual(steps[1]["code"], "files-total")
+        self.assertEqual([step["op"] for step in steps], ["cleared", "content"])
 
     def test_search_pagination_and_multibyte_fragment_hashes_are_exact(self):
         self.file("large.log", ("Zażółć UNIQUE-MARKER\n" * 25))

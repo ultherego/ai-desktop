@@ -13,7 +13,7 @@ MAX_SKILL_ROUNDS = 3
 MAX_REUSED_SKILLS = 4
 MAX_COMMAND_ROUNDS = 128      # ceiling of [files] command_rounds; output stays bounded by discovery_bytes
 MAX_DISCOVERY_STEPS = 32 + 8 + 16  # discovery rounds, pages (ask_discovery.MAX_PAGES), downloads and archive steps
-# Step budgets may be extended twice on the owner's yes (ask_discovery.MAX_EXTENSIONS); bytes stay bounded.
+# Steps in one document; the window clears the oldest before this is reached (ask_discovery.make_room).
 MAX_STEPS = 3 * (MAX_DISCOVERY_STEPS + MAX_COMMAND_ROUNDS) + 4 + MAX_SKILL_ROUNDS * 4 + MAX_REUSED_SKILLS + 1
 MAX_WEB_TEXT = 32 * 1024      # the checked web answer with its source list
 # A page step: opened ("ok"); the user declined a model-composed address ("declined"); the broker refused the address
@@ -53,10 +53,18 @@ REFUSAL_CODES = ("discovery-required", "discovery-budget", "files-missing", "fil
                  # an archive that is not "<folder>/<name>" of a download step (inspect, install)
                  "archive-label",
                  # a file whose content is not UTF-8 text, refused for a line read or content search (the model goes on)
-                 "files-text")
+                 "files-text",
+                 # a reply that was not one valid plan (not JSON, a wrong form, notes or show too long): sent again
+                 "plan-invalid")
 _ID = re.compile(r"f(?:[0-9]|[1-5][0-9]|6[0-3])\Z", re.ASCII)
 _SKILL = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*(?:/[a-z0-9]+(?:-[a-z0-9]+)*)?\Z", re.ASCII)
 MAX_SKILL_TEXT = 96 * 1024
+# Working memory of one question (S3 engine): the model's own notes, kept by the program across every step and never
+# cleared; and the trace of older steps cleared from the window to make room (what was there, so it can be read again).
+NOTES_BYTES = 32 * 1024
+CLEARED_ITEMS = 128            # newest cleared steps named one by one; older ones are only counted
+CLEARED_TEXT = 600             # one cleared step's description
+CLEARED_OPS = ("content", "list", "find", "run", "manual", "page", "download", "archive", "refusal")
 
 
 def clean_path(value, *, empty=False, wildcard=False):
@@ -279,6 +287,26 @@ def _step(value, total):
                        for item in value["top"] + value["examples"] + [value["archive"]])):
             raise ValueError("discovery")
         return {key: (list(value[key]) if key in ("top", "examples") else value[key]) for key in ARCHIVE_KEYS}
+    if op == "notes":
+        if (set(value) != {"op", "text"} or type(value["text"]) is not str or not value["text"].strip()
+                or len(value["text"].encode("utf-8")) > NOTES_BYTES):
+            raise ValueError("discovery")
+        _plain(value["text"])
+        return {"op": "notes", "text": value["text"]}
+    if op == "cleared":
+        if (set(value) != {"op", "count", "items"} or type(value["count"]) is not int or isinstance(value["count"], bool)
+                or not 1 <= value["count"] < 2**31 or type(value["items"]) is not list
+                or not 1 <= len(value["items"]) <= min(CLEARED_ITEMS, value["count"])):
+            raise ValueError("discovery")
+        items = []
+        for item in value["items"]:
+            if (type(item) is not dict or set(item) != {"op", "what"} or item["op"] not in CLEARED_OPS
+                    or type(item["what"]) is not str or not item["what"]
+                    or len(item["what"].encode("utf-8")) > CLEARED_TEXT):
+                raise ValueError("discovery")
+            _plain(item["what"])
+            items.append({"op": item["op"], "what": item["what"]})
+        return {"op": "cleared", "count": value["count"], "items": items}
     if op == "refusal":
         if (set(value) != {"op", "code", "selectors", "limit"} or type(value["code"]) is not str
                 or value["code"] not in REFUSAL_CODES or type(value["selectors"]) is not list
@@ -296,6 +324,13 @@ def _step(value, total):
     raise ValueError("discovery")
 
 
+def _plain(text):
+    """Text the model wrote (notes) or the program composed from validated steps (cleared): no control or format
+    characters except newline and tab."""
+    if any(char not in "\n\t" and unicodedata.category(char) in ("Cc", "Cf", "Cs", "Zl", "Zp") for char in text):
+        raise ValueError("discovery")
+
+
 def validate_discovery(value):
     """Copy a closed document without I/O or interpretation of names."""
     try:
@@ -311,6 +346,11 @@ def validate_discovery(value):
         total = [0]
         steps = [_step(item, total) for item in value["steps"]]
         if sum(1 for step in steps if step["op"] == "web") > 1:
+            raise ValueError()
+        # At most one trace and one notes step, first and in this order: the window's memory comes before its steps.
+        head = [step["op"] for step in steps if step["op"] in ("cleared", "notes")]
+        if head != [step["op"] for step in steps[:len(head)]] or head not in ([], ["cleared"], ["notes"],
+                                                                               ["cleared", "notes"]):
             raise ValueError()
         if total[0] > CEILING_TOTAL_ENTRIES:
             raise ValueError()
@@ -382,7 +422,7 @@ def scope_ids(document):
             found.update(item["id"] for item in step["directories"])
         elif step["op"] in ("find", "content"):
             found.add(step["id"])
-        elif step["op"] in ("run", "skill", "web", "manual", "page", "download", "archive"):
+        elif step["op"] in ("run", "skill", "web", "manual", "page", "download", "archive", "notes", "cleared"):
             continue
         else:
             found.update(item["id"] for item in step["selectors"])

@@ -524,6 +524,18 @@ class QuestionTests(Base):
         self.assertIn("is not in the required format", self.output)
         self.assertNotIn("TOP-SECRET", json.dumps(self.payloads()))
 
+    def test_a_page_break_is_text_and_an_unreadable_file_is_named_so_the_model_skips_it(self):
+        (self.proj / "src/paged.c").write_text("int a;\n\f\nint b;\n")          # a form feed, as in GNU sources
+        (self.proj / "src/raw.bin").write_bytes(b"head\x00RAW-SECRET\n")
+        self.ask({"action": "read", "path": "src/paged.c", "ranges": [{"first": 1, "last": 3}]},
+                 {"action": "read", "path": "src/raw.bin", "ranges": [{"first": 1, "last": 1}]},
+                 {"action": "answer", "text": "Gotowe.", "sources": [{"path": "src/paged.c", "first": 1, "last": 3}]})
+        self.assertIn("src/paged.c, lines 1–3 (", self.output)
+        observations = self.payloads()[2]["project"]["observations"]
+        self.assertEqual(observations[-1], {"kind": "refused", "action": "read", "code": "FILE", "path": "src/raw.bin"})
+        self.assertIn("src/raw.bin — refused: file cannot be read", self.output)
+        self.assertNotIn("RAW-SECRET", json.dumps(self.payloads()))
+
     def test_a_repeated_request_a_bad_format_and_the_step_budget_stop_the_task_honestly(self):
         self.ask({"action": "list", "prefix": "", "cursor": 0}, {"action": "list", "prefix": "", "cursor": 0})
         self.assertIn("repeated an earlier request", self.output)

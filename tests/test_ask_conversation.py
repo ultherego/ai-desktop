@@ -351,6 +351,24 @@ class ConversationLoopTests(unittest.TestCase):
         self.assertEqual([t["question"] for t in counter[2]], ["Dwa"])      # turn 3 sees only the completed turn
         self.assertEqual(code, 0)
 
+    def test_details_show_the_shape_of_a_broken_plan_reply_never_its_text(self):
+        from argparse import Namespace
+        from ai_desktop.assistant_contract import PlanError
+        access = {"files": [], "systemd": [], "weather": False}
+        reply = '{"action":"answer","text":"' + "x" * 2000 + "cut"
+        with self.assertRaises(PlanError) as caught:
+            assistant_flow._plan(reply, access)
+        self.assertEqual(caught.exception.reply, reply)
+        for details, expected in ((False, False), (True, True)):
+            out = io.StringIO()
+            with redirect_stdout(out):
+                ask._report_plan_error(caught.exception, Namespace(details=details))
+            text = out.getvalue()
+            self.assertIn("plan-json", text)
+            self.assertEqual(("ASK: reply bytes=%d first=brace last=letter fence=no plan_at=0 "
+                              "json=unterminated-string@26" % len(reply)) in text, expected)
+            self.assertNotIn("xcut", text)                                      # the shape, never the reply's text
+
     def test_prose_is_an_answer_only_inside_the_conversation_and_never_when_it_looks_like_a_plan(self):
         from ai_desktop.assistant_contract import PlanError
         access = {"files": [], "systemd": [], "weather": False}

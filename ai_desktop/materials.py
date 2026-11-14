@@ -100,7 +100,9 @@ def import_bytes(raw, origin, limit=MAX_MATERIAL_BYTES):
         text = raw.decode("utf-8")  # strict: no replacement, no BOM stripping
     except UnicodeDecodeError:
         raise MaterialError("IMPORT_ENCODING") from None
-    _validate_text(text)
+    # A form feed (a page break, common in GNU sources) is plain text in a file, as in a conversation excerpt
+    # (ask_content); every other control or format character is still refused.
+    _validate_text(text.replace("\f", "\n") if origin == "file" else text)
     starts, position = array("I", [0]), raw.find(b"\n")
     while position != -1:
         starts.append(position + 1)

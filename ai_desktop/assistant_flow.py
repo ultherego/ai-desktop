@@ -10,6 +10,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 import functools
 import json
+import re
 import os
 import unicodedata
 
@@ -34,7 +35,31 @@ lenient_prose = ContextVar("ai_desktop_lenient_prose", default=False)
 FILE_SELECTION_CHECKS = frozenset({"files-scope", "files-path", "files-directory", "files-selector"})
 
 
+_FENCED = re.compile(r"```(?:json)?[ \t]*\n(.*)\n[ \t]*```", re.DOTALL)
+
+# Plan refusals the model may send again, corrected, within the owner's plan_corrections budget (nothing ran).
+REPLY_CHECKS = frozenset({"json", "shape", "action", "text", "size", "empty"})
+
+
+def _unfenced(response):
+    """A reply that is nothing but one fenced block is that block: the whole reply is the plan, no prose around it."""
+    if type(response) is not str:
+        return response
+    match = _FENCED.fullmatch(response.strip())
+    return match.group(1) if match and "```" not in match.group(1) else response
+
+
 def _plan(response, access):
+    response = _unfenced(response)
+    try:
+        return _plan_or_prose(response, access)
+    except PlanError as error:
+        if type(response) is str:
+            error.reply = response      # shown, shortened, only by --v: the cause of a broken plan
+        raise
+
+
+def _plan_or_prose(response, access):
     try:
         return parse_plan(response, access)
     except PlanError as error:
@@ -666,14 +691,13 @@ _WHAT = {"discovery_rounds": "steps of looking around", "command_rounds": "comma
 
 
 def _more(ledger, name):
-    """A step budget ran out: the owner decides whether this question continues (at most MAX_EXTENSIONS times).
-    True when it was extended; the caller then retries what it was doing."""
-    ask = getattr(ledger, "ask_more", None)
-    if ask is None or not ledger.can_extend(name):
+    """A step budget ran out: the question takes its next portion by itself (at most MAX_EXTENSIONS times), within the
+    sources, commands and approval it already has; Ctrl+C still stops it. True when it was extended; the caller then
+    retries what it was doing."""
+    if getattr(ledger, "grant_rounds", None) is None or not ledger.can_extend(name):
         return False
-    print("This question used its %s." % _WHAT[name])
-    if not ask():
-        return False
+    print(paint("  %s The question goes on: another portion of %s (%d of %d)." % (
+        symbol("skip"), _WHAT[name], ledger.extensions + 2, ask_discovery.MAX_EXTENSIONS + 1), "muted"))
     before = (ledger.rounds_left, ledger.commands_left, ledger.pages_left, ledger.files_left)
     if not ledger.extend(name):
         return False
@@ -773,11 +797,7 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
             answer = request(question, args, reader, context=context, check=permit.check, question_consent=permit)
         else:
             ledger = ask_discovery.DiscoveryLedger(snapshot.policy, question, (selected or {}).get("instructions", ""))
-
-            def ask_more():
-                with permit.waiting():                  # the owner's thinking time is not the question's time
-                    return confirm("more-steps", reader=reader, config=selected)
-            ledger.ask_more, ledger.grant_rounds = ask_more, permit.allow_rounds
+            ledger.grant_rounds = permit.allow_rounds
             carried = {}
             loaded = set()
             if skills is not None and conversation_consent is not None:
@@ -793,7 +813,7 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                         application_input(None, question=question, access=snapshot.access, discovery=pending.document)
                     except (ContextBudgetExceeded, InputBudgetExceeded):
                         ledger = ask_discovery.DiscoveryLedger(snapshot.policy, question, (selected or {}).get("instructions", ""))
-                        ledger.ask_more, ledger.grant_rounds = ask_more, permit.allow_rounds
+                        ledger.grant_rounds = permit.allow_rounds
                         loaded.clear()
                     else:
                         carried["document"] = permit.bind_discovery(snapshot.policy, pending, reuse_loader=skills)
@@ -818,6 +838,16 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                     print(paint("  %s The archive was not named as a downloaded file; the model may correct it."
                                 % symbol("skip"), "muted"))
                     return
+                if error.check in REPLY_CHECKS and snapshot.policy is not None and ledger.correction(
+                        ask_discovery.Recoverable("plan-invalid", [], None)):
+                    print(paint("  %s The model's reply was not a valid plan (%s); it may send it again."
+                                % (symbol("skip"), error.check), "muted"))
+                    if args.details:
+                        from .ask_cli import reply_shape
+                        print("ASK: CORRECTION stage=plan check=" + error.check)
+                        if type(getattr(error, "reply", None)) is str:
+                            print("ASK: reply " + reply_shape(error.reply))
+                    return
                 if error.check != "command" or snapshot.policy is None or not ledger.correction(
                         ask_discovery.Recoverable("command-invalid", [], None)):
                     raise error
@@ -839,7 +869,7 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                     permit.check()
                     progress("plan")
                     try:
-                        following = _plan(reply, snapshot.access)
+                        following = _take_notes(ledger, _plan(reply, snapshot.access))
                     except PlanError as error:
                         corrected(error)
                         continue
@@ -857,7 +887,7 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                 return following
 
             try:
-                plan = _plan(response, snapshot.access)
+                plan = _take_notes(ledger, _plan(response, snapshot.access))
             except PlanError as error:
                 corrected(error)
                 plan = next_plan()
@@ -1033,10 +1063,14 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                     # (it may ask for a file that did not fit with an ordinary read). When not even the first file
                     # fits, or no steps are left, this is the ordinary, final read of them all.
                     progress("collect")
-                    rest = list(plan["files"])
+                    rest, skipped = list(plan["files"]), []
                     try:
-                        while rest and ledger.whole(rest[0], permit) is not None:
+                        while rest:
+                            if ledger.whole(rest[0], permit) is None:
+                                skipped.append(rest[0])         # not plain text: an ordinary read, if asked again
                             rest.pop(0)
+                    except ask_discovery.WindowFull:
+                        rest = []                               # what was read goes first; the model asks for the rest
                     except ask_discovery.BudgetExhausted as exhausted:
                         if _exhausted(ledger, snapshot, exhausted.name):
                             plan = dict(plan, files=rest)   # the owner allowed more: the files not yet read, now
@@ -1044,10 +1078,10 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                         plan = next_plan()                  # discovery is over: the model answers from what it has
                         continue
                     permit.check()
-                    if len(rest) < len(plan["files"]):
+                    if len(skipped) < len(plan["files"]):
                         plan = next_plan()
                         continue
-                    plan = {"action": "read", "files": rest, "systemd": [], "weather": None}
+                    plan = {"action": "read", "files": skipped, "systemd": [], "weather": None}
                 try:
                     ledger.ground(plan["files"])
                     progress("collect")
@@ -1072,7 +1106,7 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                 return result
             if plan["action"] == "answer":
                 _limit_note(ledger)
-                return plan["text"]
+                return ledger.with_shown(plan["text"]) if ledger is not None else plan["text"]
             if plan["action"] == "web":
                 # Web is a separate final request: the exact original question and the conversation (added by the
                 # request builder), never files, task memory, Skills or a write proposal.
@@ -1123,10 +1157,30 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
             answer = _plain_answer(request(question, args, reader, context=context, check=permit.check,
                                            question_consent=permit,
                                            **_observed(carried, question=question, context=context)))
+            if ledger is not None:
+                answer = ledger.with_shown(answer)
         permit.check()
         return answer
     finally:
         permit.close()
+
+
+def _take_notes(ledger, plan):
+    """The model's working memory and its results for the user ride on any plan. Notes stay in every later request of
+    the question; results are shown at once (in a conversation) and kept before the final answer. An answer plan's
+    own results come after its text, which is already on screen while it is written."""
+    notes, shown = plan.pop("notes", None), plan.pop("show", None)
+    if notes is not None and ledger is not None:
+        ledger.note(notes)
+    if shown is not None and ledger is not None:
+        if plan["action"] == "answer":
+            plan["text"] = plan["text"].rstrip("\n") + ("\n\n" + shown.strip("\n") if shown.strip() else "")
+        elif ledger.show(shown):
+            from . import live_answer
+            live = live_answer.current()
+            if live is not None:
+                live.feed(ledger.shown[-1] + "\n\n")
+    return plan
 
 
 LIMIT_NOTE = ("A limit of this question was reached: the answer uses what was collected. "

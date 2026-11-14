@@ -138,13 +138,16 @@ class Loop:
         if action == "search":
             return self._search(decision["needle"], decision["continue"])
         note = self._read(decision["path"], decision["ranges"])
-        if self.observations and self.observations[-1] == {"kind": "refused", "action": "read", "code": "CHANGED"}:
+        if self.observations and self.observations[-1] == {"kind": "refused", "action": "read", "code": "CHANGED",
+                                                           "path": decision["path"]}:
             self.executed.discard(key)        # the invited retry reads the re-pinned version; it is not a repeat
         return note
 
-    def _refuse(self, action, code, what=None, detail=""):
-        """Record the closed refusal for the model; the returned line explains it to the user."""
-        self.observations.append({"kind": "refused", "action": action, "code": code})
+    def _refuse(self, action, code, what=None, detail="", path=None):
+        """Record the closed refusal for the model; the returned line explains it to the user. A refused read names
+        its file, so the model knows which one to skip instead of asking for it again."""
+        self.observations.append(dict({"kind": "refused", "action": action, "code": code},
+                                      **({"path": path} if path is not None else {})))
         return "%s — refused: %s%s" % (what or ACTION_TEXT[action], REFUSAL_TEXT[code], " (%s)" % detail if detail else "")
 
     def _overview(self):
@@ -209,7 +212,9 @@ class Loop:
         except scope.ProjectError as exc:
             if exc.code == "PROJECT_POLICY":
                 raise
-            return self._refuse("read", "PATH" if exc.code == "PROJECT_PATH" else "FILE")
+            if exc.code == "PROJECT_PATH":
+                return self._refuse("read", "PATH")              # not in the index: the name is not echoed
+            return self._refuse("read", "FILE", path, path=path)
         material = loaded.material
         if loaded.changed and path not in self.changed:
             self.changed.append(path)
@@ -225,14 +230,14 @@ class Loop:
                                                 "first": item["first"], "last": item["last"]}
             if path not in self.changed:
                 self.changed.append(path)
-            return self._refuse("read", "CHANGED")
+            return self._refuse("read", "CHANGED", path=path)
         self.versions[path] = material.sha256
         lines = visible_lines(material)
         self.file_lines[path] = lines
         planned = []
         what = "%s, %s" % (path, lines_label(spans))
         if any(first > lines for first, _ in spans):
-            return self._refuse("read", "RANGE_INVALID", what, "the file has %s" % count_lines(lines))
+            return self._refuse("read", "RANGE_INVALID", what, "the file has %s" % count_lines(lines), path=path)
         cut = any(last > lines for _, last in spans)
         spans = sorted({(first, min(last, lines)) for first, last in spans})       # an end past the last line is cut to it
         for first, last in spans:
@@ -240,12 +245,12 @@ class Loop:
                 start, end = materials.line_range(material, first, last)
                 planned.extend(materials.split_range(material, start, end))
             except materials.MaterialError:
-                return self._refuse("read", "RANGE_INVALID", what, "the file has %s" % count_lines(lines))
+                return self._refuse("read", "RANGE_INVALID", what, "the file has %s" % count_lines(lines), path=path)
         total = sum(b - a for a, b in planned)
         if total > max(0, step.DATA_BYTES - SEARCH_RESERVE - self.data_bytes()):
             self._compact_for(total)
             if total > max(0, step.DATA_BYTES - SEARCH_RESERVE - self.data_bytes()):
-                return self._refuse("read", "TOO_LARGE", what)
+                return self._refuse("read", "TOO_LARGE", what, path=path)
         for start, end in planned:
             fragment = materials.read_range(material, material.sha256, start, end)
             first = material.line_of(start)[0]

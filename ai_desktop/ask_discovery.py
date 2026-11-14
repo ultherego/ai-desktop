@@ -4,6 +4,11 @@ A ledger belongs to exactly one question. It owns the budgets (rounds, correctio
 executes local list/find steps through `directory_context`, remembers which names were actually observed, and refuses a
 content read whose selectors were neither observed nor named by the user (`discovery-required`). It never decides what the
 model may read: the captured policy still does that. Nothing here retries silently or sends a partial selection.
+
+The wire document is a window, not the whole task (the S3 engine, docs/WORKSPACE_ENGINE.md): when a new step does not
+fit `discovery_bytes`, the oldest steps leave it and one `cleared` step names what they were, so the model can read a
+file again; its own `notes` are kept by the program across every step and never cleared. The rounds stay the owner's
+budget of the question; the window only decides what one request carries.
 """
 from dataclasses import replace
 import json
@@ -12,16 +17,19 @@ import unicodedata
 
 from . import directory_context, permissions
 from .skill_runtime import MAX_KNOWLEDGE_BYTES, observe_command
-from .discovery_contract import (CEILING_TOTAL_ENTRIES, REFUSAL_CODES, MAX_SELECTORS, clean_path, document_bytes,
-                                 diagnostic_bytes, skill_bytes, validate_discovery, web_data)
+from .discovery_contract import (CEILING_TOTAL_ENTRIES, CLEARED_ITEMS, CLEARED_OPS, CLEARED_TEXT, NOTES_BYTES,
+                                 REFUSAL_CODES, MAX_SELECTORS, MAX_STEPS, clean_path, document_bytes, diagnostic_bytes, skill_bytes,
+                                 validate_discovery, web_data)
 
 REFUSAL_RESERVE = 2400
 WEB_MINIMUM = 512          # bytes of a shortened web answer below which it is not worth sending
 OVERHEAD = 1024            # envelope of a document with its counters; leaves room for the remaining steps' framing
 MAX_PAGES = 8              # public pages opened in one question (S10 stage A); a program bound, not a setting
 MAX_FILE_STEPS = 16        # downloaded files and archive inspections in one question (S10 stages B and C)
-MAX_EXTENSIONS = 2         # times one question may continue past a step budget, each on the owner's yes
+MAX_EXTENSIONS = 7         # further portions of a step budget one question takes on its own (8 portions in all)
 EXTENDABLE = ("discovery_rounds", "command_rounds", "pages", "downloads")
+SHOWN_BYTES = 128 * 1024   # results shown during one question; the final answer adds its own
+ROUND_ROOM = 8 * 1024      # window bytes a list, find or command step may need; older steps are cleared to make it
 
 
 class BudgetExhausted(Exception):
@@ -30,6 +38,10 @@ class BudgetExhausted(Exception):
     def __init__(self, name):
         self.name = name
         super().__init__("discovery budget")
+
+
+class WindowFull(Exception):
+    """The steps of this round fill the window and none of them has reached the model yet: send them first."""
 
 
 class Recoverable(Exception):
@@ -65,7 +77,11 @@ class DiscoveryLedger:
             self.scopes = {}
         self.home = getattr(policy, "home", "") if type(getattr(policy, "home", "")) is str else ""
         self.steps, self.guards = [], ()
-        self.contents, self.content_bytes = (), 0
+        self.delivered = []            # (content step, guard) of every excerpt this question sent, cleared ones too
+        self.cleared = {"count": 0, "items": []}
+        self.notes = ""
+        self._sent = set()             # steps that already reached the model: only these may leave the window
+        self.shown = []                # results the model showed the user during the question (kept before its answer)
         self.scan = directory_context.Scan(self.limits.search_scan)
         self.rounds_left = self.limits.discovery_rounds
         self.corrections_left = self.limits.plan_corrections
@@ -80,15 +96,106 @@ class DiscoveryLedger:
 
     # -- state ---------------------------------------------------------------------------------------------------
     def document(self):
-        return {"steps": [dict(step) for step in self.steps],
+        head = ([{"op": "cleared", "count": self.cleared["count"], "items": [dict(i) for i in self.cleared["items"]]}]
+                if self.cleared["count"] else []) + ([{"op": "notes", "text": self.notes}] if self.notes else [])
+        return {"steps": head + [dict(step) for step in self.steps],
                 "remaining": {"rounds": self.rounds_left, "corrections": self.corrections_left,
                                   "commands": self.commands_left}}
+
+    @property
+    def contents(self):
+        """Guards of the excerpts still in the window (the transfer rechecks exactly these)."""
+        return tuple(guard for step, guard in self.delivered if any(step is kept for kept in self.steps))
+
+    @property
+    def content_bytes(self):
+        """File text in the window: read_total_size bounds one request, not the whole task."""
+        return sum(len(item["text"].encode("utf-8")) for step, _ in self.delivered
+                   if any(step is kept for kept in self.steps) for item in step["fragments"])
 
     def snapshot(self):
         document = validate_discovery(self.document())
         if self._diagnostic_bytes(document) > self.limits.discovery_bytes:
             raise ValueError("discovery_bytes")
+        self._sent = {id(step) for step in self.steps}
         return directory_context.DiscoverySnapshot(self.policy, document, self.guards, self.contents)
+
+    def unsent(self):
+        return any(id(step) not in self._sent for step in self.steps)
+
+    # -- the window ------------------------------------------------------------------------------------------------
+    def note(self, text):
+        """The model's working memory for this question (findings, what is left), replaced whole by each plan that
+        carries it. Data, never authority; it stays in every request of the question and is never cleared."""
+        if text is None:
+            return
+        if type(text) is not str or len(text.encode("utf-8")) > NOTES_BYTES:
+            raise ValueError("notes")
+        limit = min(NOTES_BYTES, self.limits.discovery_bytes // 4)     # a small window still has room for steps
+        raw = text.encode("utf-8")
+        if len(raw) > limit:
+            marker = " …[notes shortened: keep them shorter]"
+            text = raw[:limit - len(marker.encode("utf-8"))].decode("utf-8", "ignore") + marker
+        self.notes = text if text.strip() else ""
+
+    def show(self, text):
+        """Results the model shows the user now (a long task's batch of findings): kept in order and put before the
+        final answer, so they are never lost when their sources leave the window. False past SHOWN_BYTES."""
+        if type(text) is not str or not text.strip():
+            return False
+        if sum(len(item.encode("utf-8")) for item in self.shown) + len(text.encode("utf-8")) > SHOWN_BYTES:
+            return False
+        self.shown.append(text.strip("\n"))
+        return True
+
+    def with_shown(self, answer):
+        """The final answer of the question: what was shown during it, then the answer itself."""
+        if not self.shown:
+            return answer
+        return "".join(item + "\n\n" for item in self.shown) + (answer if type(answer) is str else "")
+
+    @staticmethod
+    def _describe(step):
+        op = step["op"]
+        if op == "content":
+            spans = ", ".join("%d-%d" % (item["first"], item["last"]) for item in step["fragments"]) or "no match"
+            what = "%s:%s lines %s of %d" % (step["id"], step["path"] or ".", spans, step["lines"])
+            if step["search"] is not None:
+                what += " (search %s)" % json.dumps(step["search"]["needle"], ensure_ascii=False)
+        elif op == "list":
+            what = "list " + ", ".join("%s:%s" % (d["id"], d["path"] or ".") for d in step["directories"])
+        elif op == "find":
+            what = "find %s in %s:%s" % (" ".join(step["queries"]), step["id"], step["path"] or ".")
+        elif op == "run":
+            what = " ".join(step["argv"])
+        elif op == "manual":
+            what = "%s(%s)" % (step["page"], step["section"])
+        elif op == "refusal":
+            what = step["code"]
+        else:
+            what = str(step.get("url") or step.get("archive") or step.get("name") or op)
+        what = "".join(c for c in what if c not in "\n\t" and unicodedata.category(c) not in ("Cc", "Cf", "Cs", "Zl", "Zp"))
+        raw = what.encode("utf-8")
+        return raw[:CLEARED_TEXT - 4].decode("utf-8", "ignore") + " …" if len(raw) > CLEARED_TEXT else what or op
+
+    def _clear_oldest(self, ops=CLEARED_OPS):
+        for index, step in enumerate(self.steps):
+            if (step["op"] in ops and id(step) in self._sent
+                    and not (step["op"] == "refusal" and step["code"] == "discovery-budget")):
+                del self.steps[index]
+                self.cleared["count"] += 1
+                self.cleared["items"] = (self.cleared["items"] + [{"op": step["op"], "what": self._describe(step)}])[-CLEARED_ITEMS:]
+                return True
+        return False
+
+    def make_room(self, need):
+        """Clear the oldest steps until `need` bytes fit the window (and its entries); False when nothing is left to
+        clear. A cleared step stays readable again: what it named is still known to grounding."""
+        while self._budget() < need or self._entries_left() <= 0 or len(self.steps) >= MAX_STEPS - 40:
+            ops = ("list", "find") if self._budget() >= need and self._entries_left() <= 0 else CLEARED_OPS
+            if not self._clear_oldest(ops):
+                return self._budget() >= need and self._entries_left() > 0
+        return True
 
     @staticmethod
     def _diagnostic_bytes(document):
@@ -121,11 +228,12 @@ class DiscoveryLedger:
 
     # -- steps -----------------------------------------------------------------------------------------------------
     def can_extend(self, name):
-        return name in EXTENDABLE and self.extensions < MAX_EXTENSIONS and (
+        # A question whose discovery is closed (a byte or scan budget, or its last portion) never opens again.
+        return name in EXTENDABLE and self.extensions < MAX_EXTENSIONS and not self.budget_closed() and (
             name != "command_rounds" or self.limits.command_rounds > 0)
 
     def extend(self, name):
-        """One more portion of the exhausted step budget, after the owner's yes; byte budgets never grow."""
+        """One more portion of the exhausted step budget (the question goes on by itself); byte budgets never grow."""
         if not self.can_extend(name):
             return False
         self.extensions += 1
@@ -144,6 +252,7 @@ class DiscoveryLedger:
             raise BudgetExhausted("discovery_rounds")
         if self.scan.left <= 0:
             raise BudgetExhausted("search_scan")
+        self.make_room(ROUND_ROOM)
         if self._budget() <= 0:
             raise BudgetExhausted("discovery_bytes")
         if self._entries_left() <= 0:
@@ -159,6 +268,7 @@ class DiscoveryLedger:
     def output_room(self):
         """Bytes of command output that still fit the discovery budget; BudgetExhausted when almost nothing does."""
         # JSON can double a byte (newline, quote), so the raw output gets at most half of what is left.
+        self.make_room(2 * self.limits.command_output + 600)
         room = min(self.limits.command_output, (self._budget() - 600) // 2)
         if room < 256:
             raise BudgetExhausted("discovery_bytes")
@@ -166,6 +276,7 @@ class DiscoveryLedger:
 
     def can_afford(self, steps):
         """True when `steps` more commands each still get a usable slice of output and a command round."""
+        self.make_room(600 + 512 * steps)
         return self.commands_left >= steps and (self._budget() - 600) // 2 >= 256 * steps
 
     def manual(self, plan):
@@ -184,7 +295,8 @@ class DiscoveryLedger:
                 step["fragments"] = [dict(item, text="".join(c for c in item["text"] if c in "\n\t"
                                      or unicodedata.category(c) not in ("Cc", "Cf", "Cs"))) for item in step["fragments"]]
                 break
-        if document_bytes({"steps": [step], "remaining": self.document()["remaining"]}) > self._budget():
+        need = document_bytes({"steps": [step], "remaining": self.document()["remaining"]})
+        if not self.make_room(need) or need > self._budget():
             raise BudgetExhausted("discovery_bytes")
         self.steps.append(step)
         return step
@@ -205,14 +317,19 @@ class DiscoveryLedger:
         """One page step (opened, declined, refused or failed) as data for the next round; its links become known."""
         if self.pages_left <= 0:
             raise BudgetExhausted("pages")
-        document = self.document()
-        document["steps"].append(step)
-        if self._diagnostic_bytes(validate_discovery(document)) > self.limits.discovery_bytes:
-            raise BudgetExhausted("discovery_bytes")
+        self._fit(step)
         self.pages_left -= 1
         self.steps.append(step)
         self.known_urls.update(step["links"])
         return step
+
+    def _fit(self, step):
+        """Make room for one more step, clearing the oldest ones; BudgetExhausted when even an empty window is too small."""
+        self.make_room(document_bytes({"steps": [step], "remaining": self.document()["remaining"]}) + OVERHEAD)
+        document = self.document()
+        document["steps"].append(step)
+        if self._diagnostic_bytes(validate_discovery(document)) > self.limits.discovery_bytes:
+            raise BudgetExhausted("discovery_bytes")
 
     def add_archive(self, step):
         return self.add_download(step)
@@ -222,10 +339,7 @@ class DiscoveryLedger:
         round; bounded per question like pages."""
         if self.files_left <= 0:
             raise BudgetExhausted("downloads")
-        document = self.document()
-        document["steps"].append(step)
-        if self._diagnostic_bytes(validate_discovery(document)) > self.limits.discovery_bytes:
-            raise BudgetExhausted("discovery_bytes")
+        self._fit(step)
         self.files_left -= 1
         self.steps.append(step)
         return step
@@ -245,6 +359,7 @@ class DiscoveryLedger:
         # Only the program-made source list counts, never an address the model wrote into the answer text.
         self.known_urls.update(urls_in(original.rpartition(WEB_SOURCES)[2]))
         limit = len(original.encode("utf-8"))
+        self.make_room(2 * limit + OVERHEAD)
         for _ in range(8):
             shortened = web_data(original, limit)
             if shortened is None:
@@ -264,6 +379,7 @@ class DiscoveryLedger:
     def add_run(self, step):
         # Test and undo must finish after an approved live change. Keep their status even if command
         # output cannot fit on the wire. snapshot() refuses a transfer if the statuses alone overflow.
+        self.make_room(document_bytes({"steps": [step], "remaining": self.document()["remaining"]}) + OVERHEAD)
         self.steps.append(step)
         observe_command(step)
         if step["output"] and self._diagnostic_bytes(self.document()) > self.limits.discovery_bytes:
@@ -296,63 +412,73 @@ class DiscoveryLedger:
         return step
 
     def content(self, plan, permit, *, whole=False):
-        """One grounded file, local large-file scan, bounded excerpts on the wire. An excerpt that no longer fits
-        what is left of the question's budget is a correction (files-total) for a range the model chose, and the
-        used-up byte budget for a whole small file read as a step."""
+        """One grounded file, local large-file scan, bounded excerpts on the wire. Older steps leave the window to make
+        room. An excerpt that still does not fit what is left of the request is a correction (files-total) for a range
+        the model chose, and the used-up byte budget for a whole small file read as a step."""
         from . import ask_content
         self.ground([plan["file"]])
         self.take_round()
-        distinct = {(guard.ident, guard.relative) for guard in self.contents}
         selection = plan["file"]
         key = (selection, "") if type(selection) is str else (selection["id"], selection["path"])
-        if key not in distinct and len(distinct) >= self.limits.read_files:
+        owner_room = min(ask_content.MAX_FRAGMENT_BYTES, self.limits.read_file_size)
+        self.make_room(2 * owner_room + 2048)
+        while True:                      # the owner's per-request limits count only the files still in the window
+            distinct = {(guard.ident, guard.relative) for guard in self.contents}
+            room_total = self.limits.read_total_size - self.content_bytes
+            if (key in distinct or len(distinct) < self.limits.read_files) and room_total >= owner_room:
+                break
+            if not self._clear_oldest(("content",)):
+                break
+        if key not in distinct and len(distinct) >= self.limits.read_files and not (whole and self.unsent()):
             raise ValueError("files-count")
-        owner_room = min(ask_content.MAX_FRAGMENT_BYTES, self.limits.read_file_size,
-                         self.limits.read_total_size - self.content_bytes)
+        owner_room = min(owner_room, self.limits.read_total_size - self.content_bytes)
         budget_room = max(0, (self._budget() - 2048) // 2)
         room = min(owner_room, budget_room)
+        if whole and (budget_room < owner_room or key not in distinct and len(distinct) >= self.limits.read_files
+                      ) and self.unsent():
+            raise WindowFull()       # this round's files fill the window: they go to the model first
         if room < 1:
             raise BudgetExhausted("discovery_bytes")
         try:
-            step, guard, amount = ask_content.collect(self.policy, plan, permit, room=room)
+            step, guard, amount = ask_content.collect(self.policy, plan, permit, room=room, page=whole)
         except ValueError as error:
-            if error.args != ("files-room",):
+            if error.args not in (("files-room",), ("files-total",)):
                 raise
-            if whole and budget_room < owner_room:      # the question's byte budget, not an owner file limit
+            if whole and budget_room < owner_room:      # the request's byte budget, not an owner file limit
                 raise BudgetExhausted("discovery_bytes") from None
             raise ValueError("files-total") from None
         if document_bytes({"steps": [step], "remaining": self.document()["remaining"]}) > self._budget():
             raise BudgetExhausted("discovery_bytes")
         self.steps.append(step)
-        self.contents += (guard,)
-        self.content_bytes += amount
+        self.delivered.append((step, guard))
         return step
 
     def whole(self, selection, permit):
-        """One small file read whole as a discovery step, like a tool result in an agent loop: the model may read
-        more files before it answers, so a file-by-file task does not end after its first file. None when the file
-        does not fit one excerpt or is not plain text (the caller then makes the ordinary, final read), and nothing of
-        this attempt is kept. A used-up step or byte budget raises BudgetExhausted like any other step, so the owner
-        is asked to continue, or the model answers from what it has with the limit shown."""
+        """One file read as a discovery step, like a tool result in an agent loop: the model may read more files before
+        it answers, so a file-by-file task does not end after its first file. A file larger than one excerpt comes as
+        its first page (complete=false; the model reads the rest with read-range). None when the file is not plain
+        text or cannot be read (the caller then makes the ordinary, final read), and nothing of this attempt is kept.
+        A used-up step or byte budget raises BudgetExhausted like any other step, so the owner is asked to continue,
+        or the model answers from what it has with the limit shown."""
         if self.budget_closed():
             return None
-        rounds, steps, contents, used = self.rounds_left, len(self.steps), self.contents, self.content_bytes
+        saved = (self.rounds_left, list(self.steps), list(self.delivered),
+                 {"count": self.cleared["count"], "items": list(self.cleared["items"])})
         plan = {"action": "read-range", "file": selection, "first": 1, "last": 64 * 1024 * 1024 + 1}
         try:
             return self.content(plan, permit, whole=True)
-        except (ValueError, OSError, BudgetExhausted, Recoverable) as error:
-            self.rounds_left, self.contents, self.content_bytes = rounds, contents, used
-            del self.steps[steps:]
-            if type(error) is BudgetExhausted:
+        except (ValueError, OSError, BudgetExhausted, Recoverable, WindowFull) as error:
+            self.rounds_left, self.steps, self.delivered, self.cleared = saved
+            if type(error) in (BudgetExhausted, WindowFull):
                 raise
             return None
 
     def excerpts(self):
         """{absolute path: {"version", "size", "fragments"}} of the file excerpts this question already delivered, for
-        an edit of a file too large to send whole (S3). Only excerpts of the newest version read are kept."""
+        an edit of a file too large to send whole (S3). Only excerpts of the newest version read are kept; an excerpt
+        cleared from the window still counts, it was delivered."""
         found = {}
-        steps = [step for step in self.steps if step["op"] == "content"]
-        for step, guard in zip(steps, self.contents):
+        for step, guard in self.delivered:
             entry = found.get(guard.path)
             if entry is None or entry["version"] != step["version"]:
                 entry = found[guard.path] = {"version": step["version"], "size": step["size"], "fragments": []}

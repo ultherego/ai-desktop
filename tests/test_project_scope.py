@@ -155,6 +155,13 @@ class ScanTests(Base):
         target.write_text("two\n")
         self.assertTrue(project.read_file("a.txt").changed)
 
+    def test_a_source_file_with_a_page_break_is_read_and_searched(self):
+        self.put("src/example.c", "int a;\n\f\nint b;\n")                       # a form feed, as in GNU sources
+        project = self.project().scan()
+        loaded = project.read_file("src/example.c")
+        self.assertEqual(loaded.material.raw, b"int a;\n\f\nint b;\n")          # the bytes are kept exactly
+        self.assertEqual([hit.line for hit in project.search_text("int b").hits], [3])
+
     def test_root_must_be_inside_the_read_policy_and_a_real_directory(self):
         (self.home / "other").mkdir()
         for root in (self.home / "other", self.home, "/", self.home / "proj/../other"):

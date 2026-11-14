@@ -615,31 +615,31 @@ class BudgetTests(Base):
         original = p.Policy.limits
         return patch.object(p.Policy, "limits", lambda policy: replace(original(policy), discovery_rounds=count))
 
-    def test_a_used_up_round_budget_asks_and_on_no_the_model_answers_from_what_it_has(self):
-        self.confirm.side_effect = lambda action, **kwargs: action != "more-steps"
-        with self.rounds(1):
+    def test_after_its_last_portion_of_rounds_the_model_answers_from_what_it_has(self):
+        from ai_desktop import ask_discovery
+        with self.rounds(1), patch.object(ask_discovery, "MAX_EXTENSIONS", 0):
             result = self.run_flow([plan("list", "f0"), plan("list", sel("gizmo")), ANSWER_PLAN])
         self.assertEqual(result, ANSWER)
-        self.assertIn("This question used its steps of looking around.", self.output.getvalue())
         self.assertIn("the answer uses what was collected", self.output.getvalue())
-        self.assertIn("more-steps", [call.args[0] for call in self.confirm.call_args_list])
+        self.assertNotIn("more-steps", [call.args[0] for call in self.confirm.call_args_list])
         last = self.wire[-1]["discovery"]["steps"][-1]
         self.assertEqual((last["op"], last["code"], last["limit"]), ("refusal", "discovery-budget", 1))
         self.assertNotIn("permissions.toml", self.output.getvalue())            # not a setting any more
 
-    def test_on_yes_the_stopped_step_runs_and_the_budget_is_shared_across_list_and_find(self):
+    def test_the_stopped_step_runs_in_the_next_portion_and_the_budget_is_shared_across_list_and_find(self):
         with self.rounds(2):
             result = self.run_flow([plan("list", "f0"), plan("find", "f0", queries=["gizmo"], kind="any"),
                                     plan("list", sel("gizmo")), ANSWER_PLAN])
         self.assertEqual(result, ANSWER)
-        self.assertEqual([call.args[0] for call in self.confirm.call_args_list].count("more-steps"), 1)
+        self.assertEqual([call.args[0] for call in self.confirm.call_args_list].count("more-steps"), 0)
+        self.assertEqual(self.output.getvalue().count("The question goes on: another portion"), 1)
         self.assertEqual([step["op"] for step in self.wire[-1]["discovery"]["steps"]], ["list", "find", "list"])
 
-    def test_a_question_extends_its_step_budgets_at_most_twice(self):
+    def test_a_question_extends_its_step_budgets_at_most_max_extensions_times(self):
         from ai_desktop import ask_discovery
         book = ask_discovery.DiscoveryLedger(permissions.load_policy(), "question")
-        self.assertTrue(book.extend("discovery_rounds"))
-        self.assertTrue(book.extend("pages"))
+        for index in range(ask_discovery.MAX_EXTENSIONS):
+            self.assertTrue(book.extend(("discovery_rounds", "pages")[index % 2]))
         self.assertFalse(book.extend("downloads"))
         self.assertFalse(book.extend("discovery_bytes"))                       # a byte budget never grows
 
