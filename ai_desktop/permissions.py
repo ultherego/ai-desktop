@@ -1230,8 +1230,30 @@ def load_policy(*, optional=False):
         raise ValueError("policy-invalid") from None
 
 
-def read_selected(policy, paths):
-    """Read exact approved files; caller must acquire fresh local consent first."""
+def readable_text(raw):
+    """A file's text for reading (never for editing): bytes that are not UTF-8 and control or format characters become
+    a visible U+FFFD, a form feed or a lone carriage return a line break; a first line says how many were replaced.
+    Returns (text, replaced)."""
+    text = plain_text(raw.decode("utf-8", errors="replace"))
+    text = text.replace("\f", "\n").replace("\r", "\n")
+    out, replaced = [], text.count("\ufffd")
+    for char in text:
+        if char not in "\n\t" and unicodedata.category(char) in ("Cc", "Cf", "Cs"):
+            out.append("\ufffd")
+            replaced += 1
+        else:
+            out.append(char)
+    text = "".join(out)
+    if replaced:
+        text = ("[AI Desktop: %d character(s) of this file were not plain UTF-8 text and are shown as \ufffd]\n"
+                % replaced) + text
+    return text, replaced
+
+
+def read_selected(policy, paths, *, lossy=False):
+    """Read exact approved files; caller must acquire fresh local consent first. With `lossy` (reading for an answer,
+    never for an edit) a file that is not clean UTF-8 is shown with its unreadable characters replaced and marked,
+    instead of refusing the whole selection."""
     if type(policy) is not Policy:
         raise ValueError("policy-type")
     limits = policy.limits()
@@ -1242,10 +1264,13 @@ def read_selected(policy, paths):
     for path in selected:
         raw, _ = _read(path, policy.uid, limits.read_file_size, system=policy._version == 2)
         try:
-            content = raw.decode("utf-8", errors="strict")
+            content = plain_text(raw.decode("utf-8", errors="strict"))
+            if lossy and any(char not in "\n\t" and unicodedata.category(char) in ("Cc", "Cf", "Cs") for char in content):
+                raise UnicodeError()
         except UnicodeError:
-            raise ValueError("files-text") from None
-        content = plain_text(content)
+            if not lossy:
+                raise ValueError("files-text") from None
+            content, _ = readable_text(raw)
         if policy._version == 1 and contains_private_key(content):
             raise ValueError("files-private-key")
         total += len(raw)

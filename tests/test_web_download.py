@@ -256,6 +256,7 @@ class FlowTests(unittest.TestCase):
 
     def test_the_file_limit_is_checked_before_asking_or_connecting(self):
         self.ledger.files_left = 1
+        self.ledger.can_extend.return_value = False                            # no more allowed: the model answers
         self.ledger.soft_stop.return_value = True
         with patch.object(assistant_flow, "confirm") as confirm, patch.object(d, "download") as download:
             assistant_flow._download(self.ledger, [URL, URL + "?2"], Mock(), None, Mock())

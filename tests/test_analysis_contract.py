@@ -227,6 +227,17 @@ class AnalysisContractTests(unittest.TestCase):
         self.assertEqual(contract.AnalysisDenied([]).reason, "internal")
 
 
+class StepBudgetPromptTests(unittest.TestCase):
+    """A step budget is a portion the owner can extend: the model must not refuse a long task up front."""
+
+    def test_the_prompt_says_remaining_is_a_portion_and_the_program_asks_to_continue(self):
+        self.assertIn("only the current portion: never refuse or cut a long task for it", contract.SYSTEM_PROMPT)
+        self.assertIn("a read of 1-4 small exact files comes back as discovery op=content and you plan on", contract.SYSTEM_PROMPT)
+        self.assertIn("the program asks the owner to continue", contract.SYSTEM_PROMPT)
+        self.assertIn("files-missing (no such path: do not retry it; find its last name", contract.SYSTEM_PROMPT)
+        self.assertIn("never ask the user for what a find step can reveal", contract.SYSTEM_PROMPT)
+
+
 class AnswerLanguageTests(unittest.TestCase):
     """The interface is English, but the model answers in the language of the user's own message."""
 

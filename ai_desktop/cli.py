@@ -17,9 +17,12 @@ PUBLIC_COMMANDS = ("ask", "material", "project", "task", "status", "stop", "sett
                    "widget")
 
 
+DETAILS_FLAGS = ("--v", "--verbose", "-v", "--details")
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
-        prog="ai-desktop",
+        prog="ai-desktop", allow_abbrev=False,
         description="AI Desktop: controlled tools for Arch Linux and CachyOS (full list; short help: ai-desktop --help)",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -165,8 +168,9 @@ def login_menu(*, details=False):
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else list(argv)
-    if not argv:
-        argv = ["ask"] if sys.stdin.isatty() and sys.stdout.isatty() else ["status"]
+    if not argv or argv[0] in DETAILS_FLAGS:
+        # `ai-desktop --v` opens the conversation with details, as --v does everywhere else (never --version).
+        argv = (["ask"] if sys.stdin.isatty() and sys.stdout.isatty() else ["status"]) + argv
     if argv in (["--help"], ["-h"]):                  # the short, task-oriented help; every command still works
         print(SHORT_HELP, end="")
         from .local_settings import saving

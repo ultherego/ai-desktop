@@ -175,7 +175,7 @@ def collect(policy, scope_ids, args, reader=input, *, question_consent=None, def
         if question_consent is not None:
             question_consent.bind_file_selection(policy, paths)
         check_question()
-        item = validate_context(permissions.read_selected(policy, paths))
+        item = validate_context(permissions.read_selected(policy, paths, lossy=True))
         check_question()
         policy.recheck()
         check_question()

@@ -44,11 +44,13 @@ class WebThenLocalTests(Base):
 
     def test_after_the_search_the_model_may_read_files_and_answer_from_both(self):
         question = "Look up the recommended mode online and compare it with ~/.config/gizmo/settings.conf"
-        self.assertEqual(self.run_flow([CONTINUE, WEB_TEXT, READ, FINAL], question=question), FINAL)
-        self.assertEqual(self.modes(), ["assistant", "web", "assistant", "question"])
+        final_plan = json.dumps({"action": "answer", "text": FINAL})
+        self.assertEqual(self.run_flow([CONTINUE, WEB_TEXT, READ, final_plan], question=question), FINAL)
+        self.assertEqual(self.modes(), ["assistant", "web", "assistant", "assistant"])
         final = self.wire[3]
         self.assertEqual(final["discovery"]["steps"][0], {"op": "web", "text": WEB_TEXT})
-        self.assertIn("mode=basic", json.dumps(final["context"]))
+        self.assertEqual(final["discovery"]["steps"][-1]["op"], "content")        # the small file came back as a step
+        self.assertIn("mode=basic", json.dumps(final["discovery"]))
         self.assertNoDeniedData()
 
     def test_a_plain_web_plan_still_ends_the_question_with_the_search_answer(self):

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-169: install single files, continue long questions
+
+- **Install a downloaded file** that is not an archive (a `.jar`, an image, a document) into a folder you allow: plan, one yes, never overwritten or made executable, undo with `task restore`.
+- **Long questions can go on:** when a question uses up its steps, commands, pages or downloads, AI Desktop asks whether to continue instead of stopping; answer `n` and the model answers from what it has.
+- **Files with odd characters** (an old encoding, terminal colour codes) no longer end a question that reads several files: the unreadable characters are shown as `�` and counted; such files still cannot be edited.
+- **Long tasks and wrong paths:** the model no longer refuses a long file-by-file task up front, and when a folder you name is not where it expected, it searches for it instead of asking you.
+- **Reading many files in one question:** small files come back to the model one by one, as in Claude Code and Codex, so it can read a whole folder file by file; files with page breaks no longer stop it, and when a limit of the question runs out, a note after the answer says so.
+
 ## 0.1.0-168: project tests with any files, stricter plans
 
 - **Project tests work on normal projects:** images, test fixtures and other non-text files, and folder names with spaces, other languages, `@` or `+`, are copied into the test sandbox as they are. Only a file holding a private key stops the copy, and it is named.

@@ -15,6 +15,18 @@ class CliTests(unittest.TestCase):
             self.assertEqual(main([]), 3)
         ask.assert_called_once_with([])
 
+    def test_details_flag_alone_opens_the_conversation_with_details_not_the_version(self):
+        for flag in ("--v", "-v", "--verbose", "--details"):
+            with self.subTest(flag=flag), patch("sys.stdin.isatty", return_value=True), \
+                    patch("sys.stdout.isatty", return_value=True), \
+                    patch("ai_desktop.ask_cli.main", return_value=3) as ask:
+                self.assertEqual(main([flag]), 3)
+                ask.assert_called_once_with([flag])
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), self.assertRaises(SystemExit):
+            main(["--version"])
+        self.assertIn("ai-desktop 0.1.0", out.getvalue())
+
     def test_settings_routes_to_neutral_configuration_without_account_operations(self):
         for arguments in ([], ["show"], ["set", "--effort", "xhigh"], ["--help"]):
             with self.subTest(arguments=arguments), \

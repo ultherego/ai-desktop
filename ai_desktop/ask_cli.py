@@ -12,7 +12,7 @@ from . import ask_commands, conversation_memory, conversation_state, project_che
 from .conversation_sessions import SessionError
 from .assistant_contract import PlanError, PLAN_CHECKS
 from .analysis_cli import HINTS
-from .terminal_style import paint, rule
+from .terminal_style import paint, rule, symbol
 from .analysis_contract import SERVICE_MARGIN, request_seconds, terminal_text
 from .analysis_contract import (AnalysisConsent, AnalysisDenied, ContextBudgetExceeded,
                                 InputBudgetExceeded, MAX_CONTEXT_BYTES, MAX_PACKET,
@@ -645,6 +645,8 @@ def _main(argv, *, reader, link):
                         print("\n" + rule() + "\n")
                         if visible.strip():
                             print(render_answer(visible, output_format=args.format))
+                    if getattr(sources, "limited", False):
+                        print("\n" + paint("%s %s" % (symbol("skip"), assistant_flow.LIMIT_NOTE), "muted"))
                     print("\n" + rule() + "\n")
                     remember(question, visible, ops, sources)
                     if not interactive:

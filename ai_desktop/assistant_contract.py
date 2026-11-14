@@ -421,7 +421,7 @@ def parse_plan(raw, access):
                 raise ValueError("assistant-plan")
             return {"action": "edit", "write": value["write"], "files": files,
                     "create": created, "check": value["check"]}
-        if value.get("action") != "read" or set(value) != {"action", "files", "systemd", "weather"}:
+        if value.get("action") != "read" or set(value) - {"continue"} != {"action", "files", "systemd", "weather"}:
             check = "shape" if value.get("action") == "read" else "action"
             raise ValueError("assistant-plan")
         check = "shape"
@@ -448,6 +448,13 @@ def parse_plan(raw, access):
         if not selected_files and not selected_systemd and city is None:
             check = "empty"
             raise ValueError("assistant-plan")
+        if "continue" in value:
+            # Read and go on (an agent loop's tool result): up to 4 exact files, no systemd or weather.
+            check = "continue"
+            if (value["continue"] is not True or not 1 <= len(selected_files) <= 4 or selected_systemd
+                    or city is not None or any(type(item) is not dict or "*" in item["path"] for item in selected_files)):
+                raise ValueError("assistant-plan")
+            return {"action": "read", "files": selected_files, "systemd": [], "weather": None, "continue": True}
         return {"action": "read", "files": selected_files, "systemd": selected_systemd, "weather": city}
     except _Selection as exc:
         raise PlanError(exc.args[0] if check == "files" else check) from None

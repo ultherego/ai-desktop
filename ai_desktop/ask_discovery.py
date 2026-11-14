@@ -20,6 +20,8 @@ WEB_MINIMUM = 512          # bytes of a shortened web answer below which it is n
 OVERHEAD = 1024            # envelope of a document with its counters; leaves room for the remaining steps' framing
 MAX_PAGES = 8              # public pages opened in one question (S10 stage A); a program bound, not a setting
 MAX_FILE_STEPS = 16        # downloaded files and archive inspections in one question (S10 stages B and C)
+MAX_EXTENSIONS = 2         # times one question may continue past a step budget, each on the owner's yes
+EXTENDABLE = ("discovery_rounds", "command_rounds", "pages", "downloads")
 
 
 class BudgetExhausted(Exception):
@@ -74,6 +76,7 @@ class DiscoveryLedger:
         self.known_urls = set(urls_in(question))
         self.pages_left = MAX_PAGES
         self.files_left = MAX_FILE_STEPS
+        self.extensions = 0
 
     # -- state ---------------------------------------------------------------------------------------------------
     def document(self):
@@ -117,6 +120,25 @@ class DiscoveryLedger:
         (self.files if entry["type"] == "file" else self.directories).add((ident, entry["path"]))
 
     # -- steps -----------------------------------------------------------------------------------------------------
+    def can_extend(self, name):
+        return name in EXTENDABLE and self.extensions < MAX_EXTENSIONS and (
+            name != "command_rounds" or self.limits.command_rounds > 0)
+
+    def extend(self, name):
+        """One more portion of the exhausted step budget, after the owner's yes; byte budgets never grow."""
+        if not self.can_extend(name):
+            return False
+        self.extensions += 1
+        if name == "discovery_rounds":
+            self.rounds_left += self.limits.discovery_rounds
+        elif name == "command_rounds":
+            self.commands_left += self.limits.command_rounds
+        elif name == "pages":
+            self.pages_left += MAX_PAGES
+        else:
+            self.files_left += MAX_FILE_STEPS
+        return True
+
     def take_round(self):
         if self.rounds_left <= 0:
             raise BudgetExhausted("discovery_rounds")
@@ -273,8 +295,10 @@ class DiscoveryLedger:
         self._record(step)
         return step
 
-    def content(self, plan, permit):
-        """One grounded file, local large-file scan, bounded excerpts on the wire."""
+    def content(self, plan, permit, *, whole=False):
+        """One grounded file, local large-file scan, bounded excerpts on the wire. An excerpt that no longer fits
+        what is left of the question's budget is a correction (files-total) for a range the model chose, and the
+        used-up byte budget for a whole small file read as a step."""
         from . import ask_content
         self.ground([plan["file"]])
         self.take_round()
@@ -283,17 +307,45 @@ class DiscoveryLedger:
         key = (selection, "") if type(selection) is str else (selection["id"], selection["path"])
         if key not in distinct and len(distinct) >= self.limits.read_files:
             raise ValueError("files-count")
-        room = min(ask_content.MAX_FRAGMENT_BYTES, self.limits.read_file_size,
-                   self.limits.read_total_size - self.content_bytes, max(0, (self._budget() - 2048) // 2))
+        owner_room = min(ask_content.MAX_FRAGMENT_BYTES, self.limits.read_file_size,
+                         self.limits.read_total_size - self.content_bytes)
+        budget_room = max(0, (self._budget() - 2048) // 2)
+        room = min(owner_room, budget_room)
         if room < 1:
             raise BudgetExhausted("discovery_bytes")
-        step, guard, amount = ask_content.collect(self.policy, plan, permit, room=room)
+        try:
+            step, guard, amount = ask_content.collect(self.policy, plan, permit, room=room)
+        except ValueError as error:
+            if error.args != ("files-room",):
+                raise
+            if whole and budget_room < owner_room:      # the question's byte budget, not an owner file limit
+                raise BudgetExhausted("discovery_bytes") from None
+            raise ValueError("files-total") from None
         if document_bytes({"steps": [step], "remaining": self.document()["remaining"]}) > self._budget():
             raise BudgetExhausted("discovery_bytes")
         self.steps.append(step)
         self.contents += (guard,)
         self.content_bytes += amount
         return step
+
+    def whole(self, selection, permit):
+        """One small file read whole as a discovery step, like a tool result in an agent loop: the model may read
+        more files before it answers, so a file-by-file task does not end after its first file. None when the file
+        does not fit one excerpt or is not plain text (the caller then makes the ordinary, final read), and nothing of
+        this attempt is kept. A used-up step or byte budget raises BudgetExhausted like any other step, so the owner
+        is asked to continue, or the model answers from what it has with the limit shown."""
+        if self.budget_closed():
+            return None
+        rounds, steps, contents, used = self.rounds_left, len(self.steps), self.contents, self.content_bytes
+        plan = {"action": "read-range", "file": selection, "first": 1, "last": 64 * 1024 * 1024 + 1}
+        try:
+            return self.content(plan, permit, whole=True)
+        except (ValueError, OSError, BudgetExhausted, Recoverable) as error:
+            self.rounds_left, self.contents, self.content_bytes = rounds, contents, used
+            del self.steps[steps:]
+            if type(error) is BudgetExhausted:
+                raise
+            return None
 
     def excerpts(self):
         """{absolute path: {"version", "size", "fragments"}} of the file excerpts this question already delivered, for
@@ -358,10 +410,11 @@ class DiscoveryLedger:
     def soft_stop(self, name):
         """Scan/byte budgets close further discovery but do not abort the question: the model is told, once,
         that discovery is over (rounds -> 0) and may still read observed paths or answer from what it has."""
-        if name not in ("search_scan", "discovery_bytes", "pages", "downloads") or any(
+        if name not in ("search_scan", "discovery_bytes") + EXTENDABLE or any(
                 step["op"] == "refusal" and step["code"] == "discovery-budget" for step in self.steps):
             return False
-        limit = {"pages": MAX_PAGES, "downloads": MAX_FILE_STEPS}.get(name)
+        limit = {"pages": MAX_PAGES, "downloads": MAX_FILE_STEPS, "discovery_rounds": self.limits.discovery_rounds,
+                 "command_rounds": self.limits.command_rounds}.get(name)
         self.steps.append({"op": "refusal", "code": "discovery-budget", "selectors": [],
                            "limit": getattr(self.limits, name) if limit is None else limit})
         self.rounds_left = 0
@@ -374,9 +427,14 @@ class DiscoveryLedger:
         return any(step["op"] == "refusal" and step["code"] == "discovery-budget" for step in self.steps)
 
     # -- corrections ---------------------------------------------------------------------------------------------------
-    def correction(self, problem):
-        """Record a recoverable refusal; returns False when the owner's correction budget is used up."""
-        if self.corrections_left <= 0:
+    def correction(self, problem, *, round_spent=False):
+        """Record a recoverable refusal; returns False when the owner's correction budget is used up.
+
+        A path that does not exist is a discovery outcome, not a malformed plan: while discovery rounds are left it
+        costs one of them (a list or find step has already spent its round), so the model can still find the right
+        place instead of running out of corrections."""
+        missing = problem.code == "files-missing" and (round_spent or self.rounds_left > 0)
+        if self.corrections_left <= 0 and not missing:
             return False
         step = {"op": "refusal", "code": problem.code, "selectors": problem.selectors, "limit": problem.limit}
         self.steps.append(step)
@@ -385,7 +443,10 @@ class DiscoveryLedger:
             if self._diagnostic_bytes(self.document()) > self.limits.discovery_bytes:
                 self.steps.pop()
                 return False
-        self.corrections_left -= 1
+        if missing:
+            self.rounds_left -= 0 if round_spent else 1
+        else:
+            self.corrections_left -= 1
         return True
 
     def limit_for(self, code):

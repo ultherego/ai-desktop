@@ -119,6 +119,24 @@ class ConversationLoopTests(unittest.TestCase):
         self.assertEqual(len({c.args[0].payload for c in r.sent.call_args_list}), 3)
         self.assertNotIn("The conversation continues", r.out)
 
+    def test_a_used_up_limit_is_shown_after_the_answer_not_inside_it(self):
+        from ai_desktop import conversation_state
+
+        def limited(*_args, **_kwargs):
+            conversation_state.note_limit()
+            return "First part.\n\nLast part."
+        with patch.object(assistant_flow, "run", side_effect=limited):
+            r = self.run_ui([], ["Read every file one by one", ""])
+        self.assertEqual(r.code, 0, r.out)
+        note = r.out.index(assistant_flow.LIMIT_NOTE)
+        self.assertLess(r.out.index("Last part."), note)
+        self.assertEqual(r.out.count(assistant_flow.LIMIT_NOTE), 1)
+
+    def test_a_turn_without_a_used_up_limit_shows_no_note(self):
+        with patch.object(assistant_flow, "run", return_value="Plain answer."):
+            r = self.run_ui([], ["Read one file", ""])
+        self.assertNotIn(assistant_flow.LIMIT_NOTE, r.out)
+
     def test_declining_sends_nothing_grants_nothing_and_keeps_the_conversation(self):
         r = self.run_ui([], ["Pierwsze", "no", "Drugie", "yes", "Trzecie", ""])
         self.assertEqual(r.prompts, [Q, C, Q, C, Q, Q])                     # a no is not remembered as a yes

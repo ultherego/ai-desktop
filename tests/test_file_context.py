@@ -121,7 +121,7 @@ class FileContextTests(unittest.TestCase):
 
     def test_question_revocation_after_read_withholds_context_and_private_output(self):
         permit, snapshot = self.permit()
-        def read(*args):
+        def read(*args, **kwargs):
             snapshot.sources["claude"] = False
             return CONTEXT
         self.read.side_effect = read
@@ -154,7 +154,7 @@ class FileContextTests(unittest.TestCase):
         self.assertEqual(item, CONTEXT)
         self.assertIsNot(item, CONTEXT)
         self.assertEqual(actions.mock_calls, [call.consent("files-read", reader=self.reader),
-            call.recheck(), call.expand((2, 0)), call.read(self.policy, self.policy.expand.return_value), call.recheck()])
+            call.recheck(), call.expand((2, 0)), call.read(self.policy, self.policy.expand.return_value, lossy=True), call.recheck()])
         self.assertIn(CONTEXT["files"][0]["path"], self.output.getvalue())
         self.assertIn("1 file", self.output.getvalue())
         self.assertIn("--details", self.output.getvalue())
@@ -174,7 +174,7 @@ class FileContextTests(unittest.TestCase):
         self.assertEqual(result, bundle)
         self.policy.expand_selected.assert_called_once_with(((0, "settings.conf"), (0, "parts/**")))
         self.policy.expand.assert_not_called()
-        self.read.assert_called_once_with(self.policy, paths)
+        self.read.assert_called_once_with(self.policy, paths, lossy=True)
         self.consent.assert_not_called()
         self.reader.assert_not_called()
         self.assertEqual(self.output.getvalue(), "")
@@ -189,7 +189,7 @@ class FileContextTests(unittest.TestCase):
         file_context.collect(self.policy, selectors, options(details=True), self.reader)
         self.assertEqual(actions.mock_calls, [call.consent("files-read", reader=self.reader), call.recheck(),
                          call.expand_selected(((2, None), (0, "settings.conf"))),
-                         call.read(self.policy, self.policy.expand_selected.return_value), call.recheck()])
+                         call.read(self.policy, self.policy.expand_selected.return_value, lossy=True), call.recheck()])
         self.policy.expand.assert_not_called()
         self.assertIn('Narrowed "f0": "settings.conf"', self.output.getvalue())
         self.assertNotIn("PRIVATE FILE CONTENT", self.output.getvalue())

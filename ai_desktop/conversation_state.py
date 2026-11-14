@@ -28,6 +28,7 @@ class Recorder(list):
         super().__init__()
         self.actions = []
         self.reads, self.more = 0, None        # read commands listed so far, and the index of the "N more" entry
+        self.limited = False                   # a budget of this question ran out: the terminal says so after the answer
 
 
 @contextmanager
@@ -53,6 +54,15 @@ def change_room(needed=1):
         return True
     used = len(recorder.actions) - min(recorder.reads, READ_FACTS) - (recorder.more is not None)
     return used + needed <= CHANGE_FACTS
+
+
+def note_limit():
+    """A budget of this turn ran out. False outside a recorded turn (the caller shows the note itself)."""
+    recorder = _log.get()
+    if recorder is None:
+        return False
+    recorder.limited = True
+    return True
 
 
 def note_action(text, *, read=False):

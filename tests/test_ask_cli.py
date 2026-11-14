@@ -165,7 +165,7 @@ class AskCliTests(unittest.TestCase):
                                         policy=policy, collect_source=assistant_flow.collect,
                                         answers=("Sprawdź konfigurację", "yes"))
                     self.assertEqual(r.code, 2)
-                    read.assert_called_once_with(policy, policy.expand.return_value)
+                    read.assert_called_once_with(policy, policy.expand.return_value, lossy=True)
                     r.sent.assert_called_once()
                     r.ready.assert_called_once()
                     r.started.assert_called_once()

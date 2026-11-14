@@ -33,9 +33,10 @@ class OperationsBase(Base):
     def setUp(self):
         super().setUp()
         self.asked = []
+        self.more = False                       # the answer to "continue with more steps?" (no by default)
         def confirm(action, **kwargs):
             self.asked.append(action)
-            return True
+            return self.more if action == "more-steps" else True
         self.confirm.side_effect = confirm
         self.executed = []
         real = command_ops.execute
@@ -157,11 +158,17 @@ class FlowTests(OperationsBase):
         self.assertEqual([step["code"] for step in last["steps"] if step["op"] == "refusal"], ["discovery-budget"])
         self.assertIn("output budget used up", self.output.getvalue())
 
-    def test_the_command_budget_is_the_owners_and_exhaustion_is_named(self):
+    def test_the_command_budget_is_the_owners_and_the_owner_decides_whether_to_continue(self):
         self.write_policy("command_rounds = 1\n")
-        out = self.refused([run("uname", "-s"), run("uname", "-r"), ANSWER_PLAN])
-        self.assertIn("command_rounds=1", out)
+        result = self.run_flow([run("uname", "-s"), run("uname", "-r"), ANSWER_PLAN])
+        self.assertEqual(result, ANSWER)                                         # no: the model answers from what it has
         self.assertEqual(self.executed, [["uname", "-s"]])
+        self.assertIn("This question used its commands.", self.output.getvalue())
+        self.assertEqual(self.asked.count("more-steps"), 1)
+        self.more = True
+        self.executed.clear()
+        self.assertEqual(self.run_flow([run("uname", "-s"), run("uname", "-r"), ANSWER_PLAN]), ANSWER)
+        self.assertEqual(self.executed, [["uname", "-s"], ["uname", "-r"]])     # yes: one more portion of commands
         self.write_policy("command_rounds = 0\n")
         self.executed.clear()
         self.assertNotIn("commands", permissions.load_policy().access())       # not advertised to the model at all

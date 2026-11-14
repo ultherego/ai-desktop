@@ -44,6 +44,12 @@ def sel(path, ident="f0"):
     return {"id": ident, "path": path}
 
 
+def contents(request):
+    """{path: text} of the files a request carries back to the model as discovery op=content steps."""
+    return {step["path"]: step["fragments"][0]["text"]
+            for step in request.get("discovery", {}).get("steps", ()) if step["op"] == "content"}
+
+
 class Base(unittest.TestCase):
     policy_extra = ""
 
@@ -125,12 +131,13 @@ class Base(unittest.TestCase):
             self.assertIs(type(approval), Approval)
             observed.append(json.loads(approval.payload))
             if "discovery" in kwargs:
-                text = json.dumps(kwargs["discovery"])
+                # File content travels only in op=content steps (a read of a few small files returns to the model).
+                steps = [step for step in kwargs["discovery"].get("steps", ()) if step.get("op") != "content"]
+                text = json.dumps(dict(kwargs["discovery"], steps=steps))
                 for marker in ("SYNTHETIC UNUSED", "mode=basic", "output=A", "office=1", "panels\":["):
                     self.assertNotIn(marker, text, "discovery carried file content")
                 # A loaded Skill's own text is a procedure, not file data, and English prose may use the word "content".
-                steps = [dict(step, text="") if step.get("op") == "skill" else step
-                         for step in kwargs["discovery"].get("steps", ())]
+                steps = [dict(step, text="") if step.get("op") == "skill" else step for step in steps]
                 self.assertNotIn("content", json.dumps(dict(kwargs["discovery"], steps=steps)),
                                  "discovery carried file content")
             item = next(replies)
@@ -263,12 +270,11 @@ class SkillsOnDemandTests(Base):
 
     def test_a_loaded_skill_and_command_results_reach_the_final_answer_with_the_files(self):
         self.run_flow([json.dumps({"action": "skill", "names": ["przyklad"]}), plan("list", sel("gizmo")),
-                       read(sel("gizmo/settings.conf")), ANSWER], skills=self.load, access="changes")
+                       read(sel("gizmo/settings.conf")), ANSWER_PLAN], skills=self.load, access="changes")
         last = self.wire[-1]
-        self.assertEqual(last["mode"], "question")
-        self.assertTrue(any(item["kind"] == "files" for item in last["context"]))
         self.assertEqual(last["discovery"]["steps"][0]["text"], self.BODY)
-        self.assertEqual([step["op"] for step in last["discovery"]["steps"]], ["skill", "list"])
+        self.assertEqual([step["op"] for step in last["discovery"]["steps"]], ["skill", "list", "content"])
+        self.assertEqual(contents(last), {"gizmo/settings.conf": "mode=basic\n"})
 
     def test_packaged_procedures_reach_the_final_answer_without_loading_other_bodies(self):
         """Exercise real procedure sizes through consent, discovery and the final file hand-off."""
@@ -281,18 +287,18 @@ class SkillsOnDemandTests(Base):
                 self.assertTrue(body.startswith("Guide: " + name + "\n"))
                 loader = Mock(side_effect=lambda requested: body if requested == name else None)
                 self.run_flow([json.dumps({"action": "skill", "names": [name]}), plan("list", sel("gizmo")),
-                               read(sel("gizmo/settings.conf")), ANSWER], instructions=catalog, skills=loader)
+                               read(sel("gizmo/settings.conf")), ANSWER_PLAN], instructions=catalog, skills=loader)
                 self.assertNotIn(body, json.dumps(self.wire[0], ensure_ascii=False))
                 self.assertTrue(loader.call_args_list)
                 self.assertTrue(all(call.args == (name,) for call in loader.call_args_list))
                 last = self.wire[-1]
-                self.assertEqual(last["mode"], "question")
                 self.assertEqual(last["discovery"]["steps"][0],
                                  {"op": "skill", "name": name, "status": "ok", "text": body})
-                self.assertEqual(last["context"][0]["files"][0]["content"], "mode=basic\n")
+                self.assertEqual(contents(last), {"gizmo/settings.conf": "mode=basic\n"})
 
     def test_without_earlier_steps_the_final_request_is_what_it_was(self):
-        self.run_flow([read(sel("gizmo/settings.conf")), ANSWER], question="Co jest w ~/.config/gizmo/settings.conf?")
+        self.file("gizmo/large.log", "x" * 40000 + "\n")        # too large for a step: the ordinary final read
+        self.run_flow([read(sel("gizmo/large.log")), ANSWER], question="Co jest w ~/.config/gizmo/large.log?")
         self.assertEqual(self.wire[-1]["mode"], "question")
         self.assertNotIn("discovery", self.wire[-1])
 
@@ -308,9 +314,10 @@ class SkillsOnDemandTests(Base):
         self.assertEqual(self.attempts[-1]["discovery"]["steps"][0]["text"], self.BODY)
 
     def test_results_too_large_for_the_last_request_are_dropped_with_a_visible_note(self):
+        self.file("gizmo/large.log", "x" * 40000 + "\n")        # too large for a step: the ordinary final read
         with patch.object(flow, "application_input", side_effect=flow.InputBudgetExceeded()):
             self.run_flow([json.dumps({"action": "skill", "names": ["przyklad"]}), plan("list", sel("gizmo")),
-                           read(sel("gizmo/settings.conf")), ANSWER], skills=self.load)
+                           read(sel("gizmo/large.log")), ANSWER], skills=self.load)
         self.assertNotIn("discovery", self.wire[-1])
         self.assertIn("do not fit", self.output.getvalue())
 
@@ -373,9 +380,9 @@ class FullFlowTests(Base):
             plan("find", "f0", queries=["gizmo"], kind="directory"),
             plan("list", sel("GizmoSuite")),
             read(sel("GizmoSuite/panels.json")),
-            ANSWER])
+            ANSWER_PLAN])
         self.assertEqual(result, ANSWER)
-        self.assertEqual([body["mode"] for body in self.wire], ["assistant", "assistant", "assistant", "question"])
+        self.assertEqual([body["mode"] for body in self.wire], ["assistant"] * 4)
         self.assertNotIn("discovery", self.wire[0])
         found = [entry["path"] + ":" + entry["type"] for entry in self.steps(1)[0]["matches"]]
         self.assertEqual(found, ["GizmoSuite:alias", "gizmo:directory", "gizmo-suite:directory"])
@@ -383,8 +390,7 @@ class FullFlowTests(Base):
         self.assertEqual([entry["path"] for entry in self.steps(2)[1]["directories"][0]["entries"]],
                          ["GizmoSuite/notes", "GizmoSuite/panels.json"] + ["GizmoSuite/settings-link"][:0])
         self.assertEqual(self.wire[2]["discovery"]["remaining"], {"rounds": p.MAX_DISCOVERY_ROUNDS - 2, "corrections": 2, "commands": 24})
-        files = self.wire[3]["context"][0]["files"]
-        self.assertEqual([item["path"] for item in files], [str(self.home / ".config/gizmo-suite/panels.json")])
+        self.assertEqual(list(contents(self.wire[3])), ["GizmoSuite/panels.json"])
         self.assertEqual(self.confirm.call_count, 1)                       # ONE consent for the whole finite flow
         self.reader.assert_not_called()
         self.assertEqual([p for p in self.reads], [str(self.home / ".config/gizmo-suite/panels.json")])
@@ -395,10 +401,10 @@ class FullFlowTests(Base):
         result = self.run_flow([
             plan("find", "f0", queries=["office"], kind="file"),
             read(sel("gizmo/display/profiles/office.conf")),
-            ANSWER])
+            ANSWER_PLAN])
         self.assertEqual(result, ANSWER)
         self.assertEqual([m["path"] for m in self.steps(1)[0]["matches"]], ["gizmo/display/profiles/office.conf"])
-        self.assertEqual(self.wire[2]["context"][0]["files"][0]["content"], "office=1\n")
+        self.assertEqual(contents(self.wire[2]), {"gizmo/display/profiles/office.conf": "office=1\n"})
 
     def test_both_providers_use_the_same_contract_and_data(self):
         for provider in ("claude", "codex"):
@@ -413,14 +419,25 @@ class FullFlowTests(Base):
 class GroundingTests(Base):
     def test_guess_then_discover_then_read_recovers_with_a_correction(self):
         result = self.run_flow([read(sel("gizmo/settings.conf")), plan("list", sel("gizmo")),
-                                read(sel("gizmo/settings.conf")), ANSWER])
+                                read(sel("gizmo/settings.conf")), ANSWER_PLAN])
         self.assertEqual(result, ANSWER)
         self.assertEqual(self.steps(1), [{"op": "refusal", "code": "discovery-required",
                                           "selectors": [sel("gizmo/settings.conf")], "limit": None}])
         self.assertEqual(self.wire[1]["discovery"]["remaining"], {"rounds": p.MAX_DISCOVERY_ROUNDS, "corrections": 1, "commands": 24})
 
+    def test_a_missing_path_costs_a_discovery_round_not_a_correction(self):
+        self.write_policy("plan_corrections = 0\n")
+        result = self.run_flow([plan("list", sel("missing/package")), plan("list", sel("missing")),
+                                plan("find", "f0", queries=["gizmo"], kind="directory"),
+                                plan("list", sel("gizmo")), read(sel("gizmo/settings.conf")), ANSWER_PLAN],
+                               question="Read missing/package/settings.conf")
+        self.assertEqual(result, ANSWER)
+        self.assertEqual([step["code"] for step in self.steps(2)], ["files-missing", "files-missing"])
+        remaining = self.wire[2]["discovery"]["remaining"]
+        self.assertEqual((remaining["rounds"], remaining["corrections"]), (p.MAX_DISCOVERY_ROUNDS - 2, 0))
+
     def test_a_path_the_user_typed_needs_no_discovery(self):
-        result = self.run_flow([read(sel("gizmo/settings.conf")), ANSWER],
+        result = self.run_flow([read(sel("gizmo/settings.conf")), ANSWER_PLAN],
                                question="Show gizmo/settings.conf please")
         self.assertEqual(result, ANSWER)
         self.assertEqual(len(self.wire), 2)
@@ -539,8 +556,12 @@ class DenyAndAliasTests(Base):
             with self.subTest(name=name):
                 self.output.truncate(0)
                 self.write_policy("plan_corrections = 0\n")
-                out = self.refused([read(sel(name)), ANSWER], question="Pokaż " + name)
-                self.assertIn("File read refused", out)
+                if name == "ghost/x":     # a broken link is a missing path: a discovery round, the model goes on
+                    self.assertEqual(self.run_flow([read(sel(name)), ANSWER_PLAN], question="Pokaż " + name), ANSWER)
+                    self.assertEqual(self.steps(1)[-1]["code"], "files-missing")
+                else:
+                    out = self.refused([read(sel(name)), ANSWER], question="Pokaż " + name)
+                    self.assertIn("File read refused", out)
                 self.assertEqual(self.reads, [])
 
     def test_the_alias_is_rechecked_and_a_swap_stops_the_question(self):
@@ -556,13 +577,12 @@ class DenyAndAliasTests(Base):
 class NarrowingAndCorrectionTests(Base):
     def test_overbroad_read_is_refused_with_the_owner_limit_and_the_model_narrows_it(self):
         result = self.run_flow([plan("list", "f0"), read(sel("bulk/**")),
-                                plan("list", sel("bulk")), read(sel("bulk/small.conf")), ANSWER])
+                                plan("list", sel("bulk")), read(sel("bulk/small.conf")), ANSWER_PLAN])
         self.assertEqual(result, ANSWER)
         refusal = self.steps(2)[1]
         self.assertEqual(refusal, {"op": "refusal", "code": "files-count", "selectors": [sel("bulk/**")], "limit": 128})
         self.assertNotIn("Traceback", self.output.getvalue())
-        self.assertEqual(self.wire[-1]["context"][0]["files"][0]["content"], "small\n")
-        self.assertEqual(len(self.wire[-1]["context"][0]["files"]), 1)
+        self.assertEqual(contents(self.wire[-1]), {"bulk/small.conf": "small\n"})
 
     def test_correction_budget_is_owner_managed_and_exhaustion_is_explained_without_a_partial_send(self):
         self.write_policy("plan_corrections = 0\n")
@@ -595,18 +615,33 @@ class BudgetTests(Base):
         original = p.Policy.limits
         return patch.object(p.Policy, "limits", lambda policy: replace(original(policy), discovery_rounds=count))
 
-    def test_round_budget_stops_the_flow_with_the_key_name(self):
+    def test_a_used_up_round_budget_asks_and_on_no_the_model_answers_from_what_it_has(self):
+        self.confirm.side_effect = lambda action, **kwargs: action != "more-steps"
         with self.rounds(1):
-            out = self.refused([plan("list", "f0"), plan("list", sel("gizmo")), ANSWER])
-        self.assertIn("used all 1 steps the program allows for looking around (discovery_rounds)", out)
-        self.assertNotIn("permissions.toml", out)                               # not a setting any more
-        self.assertEqual(len(self.wire), 2)
+            result = self.run_flow([plan("list", "f0"), plan("list", sel("gizmo")), ANSWER_PLAN])
+        self.assertEqual(result, ANSWER)
+        self.assertIn("This question used its steps of looking around.", self.output.getvalue())
+        self.assertIn("the answer uses what was collected", self.output.getvalue())
+        self.assertIn("more-steps", [call.args[0] for call in self.confirm.call_args_list])
+        last = self.wire[-1]["discovery"]["steps"][-1]
+        self.assertEqual((last["op"], last["code"], last["limit"]), ("refusal", "discovery-budget", 1))
+        self.assertNotIn("permissions.toml", self.output.getvalue())            # not a setting any more
 
-    def test_the_budget_is_shared_per_question_across_list_and_find(self):
+    def test_on_yes_the_stopped_step_runs_and_the_budget_is_shared_across_list_and_find(self):
         with self.rounds(2):
-            out = self.refused([plan("list", "f0"), plan("find", "f0", queries=["gizmo"], kind="any"),
-                                plan("list", sel("gizmo")), ANSWER])
-        self.assertIn("used all 2 steps", out)
+            result = self.run_flow([plan("list", "f0"), plan("find", "f0", queries=["gizmo"], kind="any"),
+                                    plan("list", sel("gizmo")), ANSWER_PLAN])
+        self.assertEqual(result, ANSWER)
+        self.assertEqual([call.args[0] for call in self.confirm.call_args_list].count("more-steps"), 1)
+        self.assertEqual([step["op"] for step in self.wire[-1]["discovery"]["steps"]], ["list", "find", "list"])
+
+    def test_a_question_extends_its_step_budgets_at_most_twice(self):
+        from ai_desktop import ask_discovery
+        book = ask_discovery.DiscoveryLedger(permissions.load_policy(), "question")
+        self.assertTrue(book.extend("discovery_rounds"))
+        self.assertTrue(book.extend("pages"))
+        self.assertFalse(book.extend("downloads"))
+        self.assertFalse(book.extend("discovery_bytes"))                       # a byte budget never grows
 
     def test_scan_budget_ends_discovery_softly_and_tells_the_model(self):
         self.write_policy("search_scan = 100\n")
@@ -950,10 +985,10 @@ class InstructionPathHintTests(Base):
 
     def test_a_path_named_in_the_instructions_needs_no_discovery(self):
         hint = "Known locations: the gizmo configuration is ~/.config/gizmo/settings.conf (read only that file)."
-        result = self.run_flow([read(sel("gizmo/settings.conf")), ANSWER], instructions=hint)
+        result = self.run_flow([read(sel("gizmo/settings.conf")), ANSWER_PLAN], instructions=hint)
         self.assertEqual(result, ANSWER)
         self.assertEqual(len(self.wire), 2)                                       # no list, no correction round
-        self.assertEqual(self.wire[1]["context"][0]["files"][0]["content"], "mode=basic\n")
+        self.assertEqual(contents(self.wire[1]), {"gizmo/settings.conf": "mode=basic\n"})
         self.assertEqual(self.wire[0]["execution"]["instructions"], hint)
 
     def test_the_same_path_without_the_hint_is_still_refused_until_discovered(self):

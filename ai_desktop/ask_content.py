@@ -21,6 +21,12 @@ def _hash(raw):
     return hashlib.sha256(raw).hexdigest()
 
 
+def _validate_content(text):
+    """File text an excerpt may carry: the material rules, except that a form feed (a page break, common in GNU
+    sources) is plain text for the model; every other control or format character is still refused."""
+    materials._validate_text(text.replace("\f", "\n"))
+
+
 def query(value):
     if (type(value) is not str or not value or len(value.encode("utf-8")) > MAX_NEEDLE_BYTES
             or "\n" in value or "\r" in value):
@@ -104,7 +110,7 @@ def collect(policy, plan, permit, *, room):
         raise ValueError("files-empty")
     try:
         text = raw.decode("utf-8")
-        materials._validate_text(text)
+        _validate_content(text)
         if policy._version == 1 and contains_private_key(text):
             raise ValueError("files-private-key")
     except (UnicodeError, materials.MaterialError):
@@ -138,7 +144,7 @@ def collect(policy, plan, permit, *, room):
                           "next": None if complete else position, "complete": complete}
     amount = sum(len(item["text"].encode("utf-8")) for item in step["fragments"])
     if amount > room:
-        raise ValueError("files-total")
+        raise ValueError("files-room")          # fits one excerpt, not what is left of this question's budget
     # Search completion means only that the literal was scanned; it is not
     # whole-file analysis. Complete content requires one exact full-file read.
     step["complete"] = (step["operation"] == "read" and len(step["fragments"]) == 1
@@ -175,7 +181,7 @@ def validate_step(value):
         if (len(encoded) != fragment["end"] - fragment["start"] or len(encoded) > MAX_FRAGMENT_BYTES
                 or fragment["sha256"] != _hash(encoded)):
             raise ValueError("discovery")
-        materials._validate_text(fragment["text"])
+        _validate_content(fragment["text"])
     if value["operation"] == "read":
         if len(value["fragments"]) != 1 or value["search"] is not None:
             raise ValueError("discovery")

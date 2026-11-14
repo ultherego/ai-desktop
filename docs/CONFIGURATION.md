@@ -56,7 +56,7 @@ The fields below are optional. Add them in the given section when you want to ch
 | `[files] listing_entries` | 128 | 512 | entries in a list/find step |
 | `[files] discovery_bytes` | `"128KiB"` | `"256KiB"` | bytes of discovery steps sent to the model in one question |
 | `[files] search_scan` | 20000 | 100000 | directory entries per question |
-| `[files] plan_corrections` | 2 | 4 | read plan corrections per question |
+| `[files] plan_corrections` | 2 | 4 | read plan corrections per question (a path that does not exist costs a step of looking around instead) |
 | `[files] command_rounds` | 24 | 128 | commands per question (0 turns them off) |
 | `[files] command_output` | `"8KiB"` | `"128KiB"` | bytes of the output of one command |
 | `[files] command_timeout` | 20 | 60 | seconds per command |
