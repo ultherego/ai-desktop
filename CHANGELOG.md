@@ -3,6 +3,7 @@
 ## 0.1.0-171: long questions read on, file by file
 
 - **A question can work through a whole folder:** when its results fill one request, the oldest leave it and the model is told what they were, so it can read them again; it keeps its own notes of what it found. Reading file by file no longer stops at a large file: a file larger than 32 KiB comes in parts.
+- **`project` reads source files with page breaks:** a form feed (common in GNU sources) no longer makes a file unreadable, and a file that cannot be read is named to the model so it moves on.
 - **A badly formatted step no longer ends a long question:** a plan wrapped in a code block is accepted, and any other reply that is not a valid plan goes back to the model to correct (within `plan_corrections`).
 - **No more "Continue this question?":** a long question takes its next portion of steps by itself (at most 8; Ctrl+C stops it), within what you already allowed. Its results appear on screen as it works.
 - **Limits per request:** `discovery_bytes`, `read_total_size` and `read_files` now bound one request of a question, not the whole question.

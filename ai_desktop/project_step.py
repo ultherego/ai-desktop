@@ -200,9 +200,11 @@ def validate_input(value):
             if _int(item["first"], 1, MAX_LINES) > _int(item["last"], 1, MAX_LINES):
                 raise ValueError("project step")
         elif kind == "refused":
-            if (set(item) != {"kind", "action", "code"} or item["action"] not in REFUSAL_ACTIONS
-                    or item["code"] not in REFUSAL_CODES):
+            if (set(item) - {"path"} != {"kind", "action", "code"} or item["action"] not in REFUSAL_ACTIONS
+                    or item["code"] not in REFUSAL_CODES or "path" in item and item["action"] != "read"):
                 raise ValueError("project step")
+            if "path" in item:
+                data += len(_path(item["path"]).encode("utf-8"))
         else:
             raise ValueError("project step")
     if data > DATA_BYTES:

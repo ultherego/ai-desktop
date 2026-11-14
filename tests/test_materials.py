@@ -50,6 +50,10 @@ class ImportTests(unittest.TestCase):
                     m.import_bytes(raw, "file")
                 self.assertEqual(raised.exception.code, code)
                 self.assertNotIn("abc", str(raised.exception))
+        self.assertEqual(m.import_bytes(b"a\n\fb\n", "file").raw, b"a\n\fb\n")  # a page break in a file is text
+        with self.assertRaises(m.MaterialError) as pasted:
+            m.import_bytes(b"a\fb", "paste")                                    # a paste stays strict
+        self.assertEqual(pasted.exception.code, "IMPORT_CONTROL")
         with self.assertRaises(m.MaterialError):
             m.import_bytes("text", "file")  # str is not bytes
         with self.assertRaises(m.MaterialError):
