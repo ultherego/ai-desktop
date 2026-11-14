@@ -36,6 +36,15 @@ FILE_SELECTION_CHECKS = frozenset({"files-scope", "files-path", "files-directory
 
 def _plan(response, access):
     try:
+        return _plan_or_prose(response, access)
+    except PlanError as error:
+        if type(response) is str:
+            error.reply = response      # shown, shortened, only by --v: the cause of a broken plan
+        raise
+
+
+def _plan_or_prose(response, access):
+    try:
         return parse_plan(response, access)
     except PlanError as error:
         text = response.strip() if type(response) is str else ""

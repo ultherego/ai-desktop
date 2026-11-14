@@ -277,11 +277,35 @@ def _explain_access(exc):
         print("The access policy does not allow this operation, or it has changed. Check permissions.toml.")
 
 
+def _reply_shape(reply):
+    """The shape of a broken plan reply, never its text: size, fences, where the plan starts and where JSON fails."""
+    text = reply.strip()
+    facts = ["bytes=%d" % len(reply.encode("utf-8")), "first=" + _kind(text[:1]), "last=" + _kind(text[-1:]),
+             "fence=" + ("yes" if "```" in text else "no"), "plan_at=%d" % text.find('{"')]
+    try:
+        json.loads(text)
+        facts.append("json=ok")
+    except ValueError as error:
+        facts.append("json=%s@%d" % ({"Unterminated string starting at": "unterminated-string",
+                                      "Expecting ',' delimiter": "missing-comma", "Extra data": "extra-data",
+                                      "Invalid control character at": "control-character",
+                                      "Expecting value": "no-value"}.get(getattr(error, "msg", ""), "other"),
+                                     getattr(error, "pos", -1)))
+    return " ".join(facts)
+
+
+def _kind(char):
+    return {"": "none", "{": "brace", "}": "brace-close", "`": "fence"}.get(char, "letter" if char.isalpha() else "other")
+
+
 def _report_plan_error(exc, args):
     check = exc.check if type(exc.check) is str and exc.check in PLAN_CHECKS else "invalid"
     print("The model returned an invalid plan (plan-" + check + "). This plan was not carried out.")
     if args.details:
         print("ASK: REFUSED stage=plan check=" + check)
+        reply = getattr(exc, "reply", None)
+        if type(reply) is str and reply:
+            print("ASK: reply " + _reply_shape(reply))
 
 
 def _refresh_status():
