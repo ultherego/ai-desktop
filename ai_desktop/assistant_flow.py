@@ -10,6 +10,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 import functools
 import json
+import re
 import os
 import unicodedata
 
@@ -34,7 +35,22 @@ lenient_prose = ContextVar("ai_desktop_lenient_prose", default=False)
 FILE_SELECTION_CHECKS = frozenset({"files-scope", "files-path", "files-directory", "files-selector"})
 
 
+_FENCED = re.compile(r"```(?:json)?[ \t]*\n(.*)\n[ \t]*```", re.DOTALL)
+
+# Plan refusals the model may send again, corrected, within the owner's plan_corrections budget (nothing ran).
+REPLY_CHECKS = frozenset({"json", "shape", "action", "text", "size", "empty"})
+
+
+def _unfenced(response):
+    """A reply that is nothing but one fenced block is that block: the whole reply is the plan, no prose around it."""
+    if type(response) is not str:
+        return response
+    match = _FENCED.fullmatch(response.strip())
+    return match.group(1) if match and "```" not in match.group(1) else response
+
+
 def _plan(response, access):
+    response = _unfenced(response)
     try:
         return _plan_or_prose(response, access)
     except PlanError as error:
@@ -821,6 +837,16 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                         ask_discovery.Recoverable("archive-label", [], None)):
                     print(paint("  %s The archive was not named as a downloaded file; the model may correct it."
                                 % symbol("skip"), "muted"))
+                    return
+                if error.check in REPLY_CHECKS and snapshot.policy is not None and ledger.correction(
+                        ask_discovery.Recoverable("plan-invalid", [], None)):
+                    print(paint("  %s The model's reply was not a valid plan (%s); it may send it again."
+                                % (symbol("skip"), error.check), "muted"))
+                    if args.details:
+                        from .ask_cli import reply_shape
+                        print("ASK: CORRECTION stage=plan check=" + error.check)
+                        if type(getattr(error, "reply", None)) is str:
+                            print("ASK: reply " + reply_shape(error.reply))
                     return
                 if error.check != "command" or snapshot.policy is None or not ledger.correction(
                         ask_discovery.Recoverable("command-invalid", [], None)):

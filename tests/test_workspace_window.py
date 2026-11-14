@@ -242,6 +242,33 @@ class ShowFlowTests(Base):
         self.assertFalse(ledger.show("   "))
 
 
+class ReplyCorrectionTests(Base):
+    run_flow = test_ask_content.AskContentTests.run_flow
+
+    def test_a_plan_in_one_code_fence_is_the_plan(self):
+        self.file("first.txt", "first facts\n")
+        answer = self.run_flow(["```json\n" + read("first.txt") + "\n```",
+                                "```\n" + json.dumps({"action": "answer", "text": "Done."}) + "\n```"],
+                               question="Read first.txt")
+        self.assertEqual(answer, "Done.")
+
+    def test_a_fence_with_prose_around_it_or_two_fences_is_still_not_a_plan(self):
+        from ai_desktop import assistant_flow
+        inner = json.dumps({"action": "answer", "text": "x"})
+        for reply in ("Plan:\n```json\n" + inner + "\n```", "```json\n" + inner + "\n```\n```\n{}\n```"):
+            with self.subTest(reply=reply[:12]):
+                self.assertEqual(assistant_flow._unfenced(reply), reply)
+
+    def test_a_reply_that_is_not_a_valid_plan_is_sent_back_once_and_the_question_goes_on(self):
+        self.file("first.txt", "first facts\n")
+        broken = json.dumps({"action": "read", "files": [sel("first.txt")]})          # systemd and weather missing
+        answer = self.run_flow([broken, read("first.txt"), json.dumps({"action": "answer", "text": "Done."})],
+                               question="Read first.txt")
+        self.assertEqual(answer, "Done.")
+        refusals = [step for step in self.wire[1]["discovery"]["steps"] if step["op"] == "refusal"]
+        self.assertEqual([step["code"] for step in refusals], ["plan-invalid"])
+
+
 def contents_step(request, name):
     return [step for step in request["discovery"]["steps"] if step["op"] == "content" and step["path"] == name][-1]
 

@@ -53,7 +53,9 @@ REFUSAL_CODES = ("discovery-required", "discovery-budget", "files-missing", "fil
                  # an archive that is not "<folder>/<name>" of a download step (inspect, install)
                  "archive-label",
                  # a file whose content is not UTF-8 text, refused for a line read or content search (the model goes on)
-                 "files-text")
+                 "files-text",
+                 # a reply that was not one valid plan (not JSON, a wrong form, notes or show too long): sent again
+                 "plan-invalid")
 _ID = re.compile(r"f(?:[0-9]|[1-5][0-9]|6[0-3])\Z", re.ASCII)
 _SKILL = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*(?:/[a-z0-9]+(?:-[a-z0-9]+)*)?\Z", re.ASCII)
 MAX_SKILL_TEXT = 96 * 1024

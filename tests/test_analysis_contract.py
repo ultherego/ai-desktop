@@ -230,15 +230,16 @@ class AnalysisContractTests(unittest.TestCase):
 class StepBudgetPromptTests(unittest.TestCase):
     """A step budget is a portion the owner can extend: the model must not refuse a long task up front."""
 
-    def test_the_prompt_says_remaining_is_a_portion_and_the_program_asks_to_continue(self):
+    def test_the_prompt_says_remaining_is_a_portion_and_the_program_adds_more(self):
         self.assertIn("only the current portion: never refuse or cut a long task for it", contract.SYSTEM_PROMPT)
         self.assertIn("a read of 1-4 exact files comes back as discovery op=content (a large one as its first part: "
                       "read-range the rest) and you plan on", contract.SYSTEM_PROMPT)
         self.assertIn("Any plan may add \"notes\"", contract.SYSTEM_PROMPT)
-        self.assertIn("In a long task put every finding there in the same plan, from the first step", contract.SYSTEM_PROMPT)
-        self.assertIn("op=cleared (only named; read again if needed)", contract.SYSTEM_PROMPT)
-        self.assertIn("the program asks the owner to continue", contract.SYSTEM_PROMPT)
-        self.assertIn("files-missing (no such path: do not retry it; find its last name", contract.SYSTEM_PROMPT)
+        self.assertIn("in a long task note every finding from the first step", contract.SYSTEM_PROMPT)
+        self.assertIn("op=cleared (named only; read again if needed)", contract.SYSTEM_PROMPT)
+        self.assertIn("the program adds more when it runs out", contract.SYSTEM_PROMPT)
+        self.assertIn("files-missing (no such path: do not retry it; find it from", contract.SYSTEM_PROMPT)
+        self.assertIn("plan-invalid (resend one bare JSON plan)", contract.SYSTEM_PROMPT)
         self.assertIn("never ask the user for what a find step can reveal", contract.SYSTEM_PROMPT)
 
 

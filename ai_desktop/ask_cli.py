@@ -277,7 +277,7 @@ def _explain_access(exc):
         print("The access policy does not allow this operation, or it has changed. Check permissions.toml.")
 
 
-def _reply_shape(reply):
+def reply_shape(reply):
     """The shape of a broken plan reply, never its text: size, fences, where the plan starts and where JSON fails."""
     text = reply.strip()
     facts = ["bytes=%d" % len(reply.encode("utf-8")), "first=" + _kind(text[:1]), "last=" + _kind(text[-1:]),
@@ -305,7 +305,7 @@ def _report_plan_error(exc, args):
         print("ASK: REFUSED stage=plan check=" + check)
         reply = getattr(exc, "reply", None)
         if type(reply) is str and reply:
-            print("ASK: reply " + _reply_shape(reply))
+            print("ASK: reply " + reply_shape(reply))
 
 
 def _refresh_status():
