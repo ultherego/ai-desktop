@@ -342,6 +342,76 @@ class QuestionTests(Base):
         self.assertIn("── Stage 2 of 5", self.output)
         self.assertIn("Komplet.", self.output)
 
+    def test_a_search_started_in_one_stage_continues_in_the_next(self):
+        for i in range(30):
+            (self.proj / "docs" / ("n%02d.txt" % i)).write_text("NEEDLE\n" * 3)
+        self.model = script(
+            {"action": "search", "needle": "NEEDLE", "continue": False},
+            {"action": "answer", "text": "Pierwsza strona.", "sources": [], "progress": "Szukam dalej.", "continue": True},
+            {"action": "search", "needle": "NEEDLE", "continue": True},
+            {"action": "answer", "text": "Druga strona.", "sources": [], "continue": False})
+        self.run_cli(["Find every NEEDLE", "/exit"], ["yes"])
+        first, second, third, fourth = self.payloads()
+        carried = [o for o in third["project"]["observations"] if o["kind"] == "search"]
+        self.assertEqual(carried, [{"kind": "search", "needle": "NEEDLE", "complete": False, "more": True, "hits": [],
+                                    "skipped": {"large": 0, "binary": 0, "unreadable": 0}}])
+        page = [o for o in fourth["project"]["observations"] if o["kind"] == "search" and o["hits"]]
+        self.assertEqual(len(page), 1)
+        self.assertNotIn({"kind": "refused", "action": "search", "code": "LIMIT"}, fourth["project"]["observations"])
+        first_hits = [o for o in second["project"]["observations"] if o["kind"] == "search"][0]["hits"]
+        self.assertFalse({(h["path"], h["line"]) for h in first_hits} & {(h["path"], h["line"]) for h in page[0]["hits"]})
+        self.assertIn("Druga strona.", self.output)
+        self.assertRegex(self.output.split("── Stage 2 of 5")[1], r"Incomplete\s+search")   # 90 matches, two pages seen
+
+    def test_a_search_finished_in_a_later_stage_is_no_longer_called_incomplete(self):
+        for i in range(8):
+            (self.proj / "docs" / ("n%02d.txt" % i)).write_text("NEEDLE\n" * 3)
+        self.model = script(
+            {"action": "search", "needle": "NEEDLE", "continue": False},
+            {"action": "answer", "text": "Pierwsza strona.", "sources": [], "continue": True},
+            {"action": "search", "needle": "NEEDLE", "continue": True},
+            {"action": "answer", "text": "Wszystko.", "sources": [], "continue": False})
+        self.run_cli(["Find every NEEDLE", "/exit"], ["yes"])
+        last = self.output.split("── Stage 2 of 5")[1]
+        self.assertNotRegex(last, r"Incomplete\s+search")
+        self.assertIn("Wszystko.", last)
+
+    def test_sources_read_in_an_earlier_stage_stay_confirmed_and_the_coverage_counts_the_whole_task(self):
+        self.model = script(
+            {"action": "read", "path": "src/util.py", "ranges": [{"first": 1, "last": 2}]},
+            {"action": "answer", "text": "Częściowo.", "sources": [], "progress": "util.py przeczytany.", "continue": True},
+            {"action": "read", "path": "docs/readme.txt", "ranges": [{"first": 1, "last": 1}]},
+            {"action": "answer", "text": "Komplet.", "continue": False,
+             "sources": [{"path": "src/util.py", "first": 1, "last": 2}, {"path": "docs/readme.txt", "first": 1, "last": 1}]})
+        self.run_cli(["Do a deep analysis", "/exit"], ["yes"], argv=[str(self.proj), "--v"])
+        self.assertRegex(self.output, r"Confirmed\s+src/util.py:1–2")
+        self.assertNotIn("Claude cited sources it did not receive", self.output)
+        received = self.output.split("Claude received")[-1]
+        self.assertIn("src/util.py", received)
+        self.assertIn("docs/readme.txt", received)
+
+    def test_a_file_read_in_an_earlier_stage_may_be_read_again_later(self):
+        read = {"action": "read", "path": "src/util.py", "ranges": [{"first": 1, "last": 2}]}
+        self.model = script(read, {"action": "answer", "text": "Częściowo.", "sources": [], "continue": True},
+                            read, {"action": "answer", "text": "Komplet.", "sources": [], "continue": False})
+        self.run_cli(["Do a deep analysis", "/exit"], ["yes"])
+        fourth = self.payloads()[3]
+        self.assertTrue([o for o in fourth["project"]["observations"] if o["kind"] == "read"])
+        self.assertNotIn("repeated an earlier request", self.output)
+        self.assertIn("Komplet.", self.output)
+
+    def test_a_file_denied_between_stages_stops_before_the_carried_task_goes_on(self):
+        def model(payload):
+            if len(self.sent) == 1:
+                return json.dumps({"action": "read", "path": "src/util.py", "ranges": [{"first": 1, "last": 2}]})
+            self.config.write_text(self.config.read_text().replace('deny = ["~/proj/secret/**"]',
+                                                                   'deny = ["~/proj/secret/**", "~/proj/src/util.py"]'))
+            return json.dumps({"action": "answer", "text": "Partial.", "sources": [], "continue": True})
+        self.model = model
+        self.run_cli(["Analyze", "/exit"], ["yes"])
+        self.assertEqual(len(self.sent), 2)
+        self.assertIn("The consent is invalid", self.output)
+
     def test_declining_the_scope_or_reaching_the_stage_cap_ends_the_deep_task(self):
         partial = {"action": "answer", "text": "Kolejny kawałek.", "sources": [], "continue": True}
         self.model = script(partial)

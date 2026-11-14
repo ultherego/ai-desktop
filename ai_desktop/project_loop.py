@@ -7,6 +7,8 @@ grant itself more: reads are bounded, claimed sources are checked against what w
 handed over, a repeated action ends the task, an over-large read is refused, and a file that
 changed under the conversation is reported and re-pinned (never silently mixed).
 """
+import copy
+
 from . import material_step as base
 from . import materials
 from . import project_scope as scope
@@ -41,6 +43,23 @@ class Loop:
         self.format_note = False          # set when Claude answered in prose instead of the JSON action
         for number, text in pasted:       # what the user pasted: their own material, never dropped by compaction
             self.observations.append({"kind": "pasted", "id": number, "lines": text.count("\n") + 1, "text": text})
+
+    # Evidence of the whole deep task. The next stage keeps it: the scope check between stages has already required
+    # the same files, identities and policy, so nothing here can describe a different project. The texts themselves
+    # (observations) and the per-stage repeat check do not carry over: a re-read in a later stage is new progress.
+    CARRIED = ("delivered", "delivered_versions", "hit_lines", "_whole_hits", "versions", "file_lines", "changed",
+               "cursors", "searches", "read_bytes")
+
+    def next_stage(self, stage, *, history=(), progress="", pasted=()):
+        """The loop of the following stage of the same task: coverage, pinned versions and unfinished searches kept."""
+        following = Loop(self.project, max_steps=self.max_steps, history=history, progress=progress, pasted=pasted,
+                         visited=self.visited, stage=stage)
+        for name in self.CARRIED:
+            setattr(following, name, copy.deepcopy(getattr(self, name)))
+        for needle in following.cursors:    # the model learns which searches it can continue (more=true)
+            following.observations.append({"kind": "search", "needle": needle, "complete": False, "more": True,
+                                           "hits": [], "skipped": {"large": 0, "binary": 0, "unreadable": 0}})
+        return following
 
     # --- request ---------------------------------------------------------------
     def request_input(self, step_number, bytes_left):
