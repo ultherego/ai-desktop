@@ -231,11 +231,13 @@ class ChangeFlowTests(ChangeBase):
         self.assertIn("record of changes is full", said.getvalue())
 
     def test_there_must_be_room_for_change_test_and_undo_before_anything_is_changed(self):
+        from ai_desktop import ask_discovery
         self.write_policy("command_rounds = 2\n")
-        out = self.refused([change(RESTART, STATUS, REVERT), ANSWER_PLAN])
+        with patch.object(ask_discovery, "MAX_EXTENSIONS", 0):             # no further portion of commands
+            out = self.refused([change(RESTART, STATUS, REVERT), ANSWER_PLAN])
         self.assertIn("command_rounds=2", out)
         self.assertEqual(self.calls, [])
-        self.assertIn("more-steps", self.asked)                                 # the owner was asked and said no
+        self.assertNotIn("run-change", self.asked)                             # nothing was offered to change
 
     def test_if_the_change_cannot_even_start_there_is_no_test_and_no_undo_offered(self):
         with patch.object(command_ops, "resolve", return_value=None):

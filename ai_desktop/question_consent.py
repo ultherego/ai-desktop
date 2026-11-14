@@ -201,7 +201,7 @@ class QuestionConsent:
         self._approved = True
 
     def allow_rounds(self, count):
-        """More discovery sends for this question, only after the owner's own yes to continue (or one more to let the
+        """More discovery sends for this question when its step budget takes another portion (or one more to let the
         model answer from what it has); never more than the extended step budgets add up to."""
         from .ask_discovery import MAX_EXTENSIONS
         from .discovery_contract import MAX_STEPS

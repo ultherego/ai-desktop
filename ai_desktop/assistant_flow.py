@@ -666,14 +666,13 @@ _WHAT = {"discovery_rounds": "steps of looking around", "command_rounds": "comma
 
 
 def _more(ledger, name):
-    """A step budget ran out: the owner decides whether this question continues (at most MAX_EXTENSIONS times).
-    True when it was extended; the caller then retries what it was doing."""
-    ask = getattr(ledger, "ask_more", None)
-    if ask is None or not ledger.can_extend(name):
+    """A step budget ran out: the question takes its next portion by itself (at most MAX_EXTENSIONS times), within the
+    sources, commands and approval it already has; Ctrl+C still stops it. True when it was extended; the caller then
+    retries what it was doing."""
+    if getattr(ledger, "grant_rounds", None) is None or not ledger.can_extend(name):
         return False
-    print("This question used its %s." % _WHAT[name])
-    if not ask():
-        return False
+    print(paint("  %s The question goes on: another portion of %s (%d of %d)." % (
+        symbol("skip"), _WHAT[name], ledger.extensions + 2, ask_discovery.MAX_EXTENSIONS + 1), "muted"))
     before = (ledger.rounds_left, ledger.commands_left, ledger.pages_left, ledger.files_left)
     if not ledger.extend(name):
         return False
@@ -773,11 +772,7 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
             answer = request(question, args, reader, context=context, check=permit.check, question_consent=permit)
         else:
             ledger = ask_discovery.DiscoveryLedger(snapshot.policy, question, (selected or {}).get("instructions", ""))
-
-            def ask_more():
-                with permit.waiting():                  # the owner's thinking time is not the question's time
-                    return confirm("more-steps", reader=reader, config=selected)
-            ledger.ask_more, ledger.grant_rounds = ask_more, permit.allow_rounds
+            ledger.grant_rounds = permit.allow_rounds
             carried = {}
             loaded = set()
             if skills is not None and conversation_consent is not None:
@@ -793,7 +788,7 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                         application_input(None, question=question, access=snapshot.access, discovery=pending.document)
                     except (ContextBudgetExceeded, InputBudgetExceeded):
                         ledger = ask_discovery.DiscoveryLedger(snapshot.policy, question, (selected or {}).get("instructions", ""))
-                        ledger.ask_more, ledger.grant_rounds = ask_more, permit.allow_rounds
+                        ledger.grant_rounds = permit.allow_rounds
                         loaded.clear()
                     else:
                         carried["document"] = permit.bind_discovery(snapshot.policy, pending, reuse_loader=skills)
@@ -1076,7 +1071,7 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
                 return result
             if plan["action"] == "answer":
                 _limit_note(ledger)
-                return plan["text"]
+                return ledger.with_shown(plan["text"]) if ledger is not None else plan["text"]
             if plan["action"] == "web":
                 # Web is a separate final request: the exact original question and the conversation (added by the
                 # request builder), never files, task memory, Skills or a write proposal.
@@ -1127,6 +1122,8 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
             answer = _plain_answer(request(question, args, reader, context=context, check=permit.check,
                                            question_consent=permit,
                                            **_observed(carried, question=question, context=context)))
+            if ledger is not None:
+                answer = ledger.with_shown(answer)
         permit.check()
         return answer
     finally:
@@ -1134,10 +1131,20 @@ def _run_once(question, args, reader, request, *, snapshot, phase=None, conversa
 
 
 def _take_notes(ledger, plan):
-    """The model's working memory rides on any plan; the ledger keeps it for every later request of the question."""
-    notes = plan.pop("notes", None)
+    """The model's working memory and its results for the user ride on any plan. Notes stay in every later request of
+    the question; results are shown at once (in a conversation) and kept before the final answer. An answer plan's
+    own results come after its text, which is already on screen while it is written."""
+    notes, shown = plan.pop("notes", None), plan.pop("show", None)
     if notes is not None and ledger is not None:
         ledger.note(notes)
+    if shown is not None and ledger is not None:
+        if plan["action"] == "answer":
+            plan["text"] = plan["text"].rstrip("\n") + ("\n\n" + shown.strip("\n") if shown.strip() else "")
+        elif ledger.show(shown):
+            from . import live_answer
+            live = live_answer.current()
+            if live is not None:
+                live.feed(ledger.shown[-1] + "\n\n")
     return plan
 
 

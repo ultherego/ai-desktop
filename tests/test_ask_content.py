@@ -121,21 +121,27 @@ class AskContentTests(Base):
         return patch.object(permissions.Policy, "limits",
                             lambda policy: replace(original(policy), discovery_rounds=count))
 
-    def test_used_up_steps_while_reading_ask_to_continue_and_read_only_the_files_left(self):
+    @staticmethod
+    def no_more():
+        """No further portion of steps: the question has used all it takes on its own."""
+        from ai_desktop import ask_discovery
+        return patch.object(ask_discovery, "MAX_EXTENSIONS", 0)
+
+    def test_used_up_steps_while_reading_go_on_by_themselves_and_read_only_the_files_left(self):
         for name in ("first.txt", "second.txt", "third.txt"):
             self.file(name, name + " facts\n")
         with self.rounds(1):
             answer = self.run_flow([self.go_on("first.txt", "second.txt", "third.txt"), ANSWER_PLAN],
                                    question="Read first.txt, second.txt and third.txt one by one")
         self.assertEqual(answer, ANSWER)
-        self.assertIn("more-steps", [call.args[0] for call in self.confirm.call_args_list])
+        self.assertNotIn("more-steps", [call.args[0] for call in self.confirm.call_args_list])     # never asked
+        self.assertIn("The question goes on: another portion of steps of looking around (2 of 8).", self.output.getvalue())
         self.assertEqual(list(contents_of(self.wire[-1])), ["first.txt", "second.txt", "third.txt"])
 
-    def test_on_no_the_model_answers_from_the_files_it_has_with_the_limit_shown(self):
+    def test_after_the_last_portion_the_model_answers_from_the_files_it_has_with_the_limit_shown(self):
         for name in ("first.txt", "second.txt"):
             self.file(name, name + " facts\n")
-        self.confirm.side_effect = lambda action, **kwargs: action != "more-steps"
-        with self.rounds(1):
+        with self.rounds(1), self.no_more():
             answer = self.run_flow([self.go_on("first.txt", "second.txt"), ANSWER_PLAN],
                                    question="Read first.txt and second.txt one by one")
         self.assertEqual(answer, ANSWER)
@@ -162,8 +168,7 @@ class AskContentTests(Base):
     def test_the_limit_is_also_shown_when_the_model_makes_one_last_read_after_it(self):
         self.file("first.txt", "a" * 3000 + "\n")
         self.file("second.txt", "b" * 3000 + "\n")
-        self.confirm.side_effect = lambda action, **kwargs: action != "more-steps"
-        with self.rounds(1):
+        with self.rounds(1), self.no_more():
             answer = self.run_flow([self.go_on("first.txt", "second.txt"), self.go_on("second.txt"), ANSWER],
                                    question="Read first.txt and second.txt one by one")
         self.assertEqual(answer, ANSWER)
@@ -175,8 +180,7 @@ class AskContentTests(Base):
         from ai_desktop import conversation_state
         self.file("first.txt", "a" * 3000 + "\n")
         self.file("second.txt", "b" * 3000 + "\n")
-        self.confirm.side_effect = lambda action, **kwargs: action != "more-steps"
-        with conversation_state.recording() as turn, self.rounds(1):
+        with conversation_state.recording() as turn, self.rounds(1), self.no_more():
             answer = self.run_flow([self.go_on("first.txt", "second.txt"), ANSWER_PLAN],
                                    question="Read first.txt and second.txt one by one")
         self.assertEqual(answer, ANSWER)

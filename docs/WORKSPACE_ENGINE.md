@@ -36,7 +36,7 @@ of the agent loop: it runs each step locally, under the policy, and decides what
 |---|---|---|
 | One step | one excerpt or page: 32 KiB of whole lines; one search: 20 snippets; one command's output | `command_output`, fixed excerpt size |
 | One request (the window) | the steps one request carries; file text in it; files in it | `discovery_bytes`, `read_total_size`, `read_files` |
-| One question | rounds of steps, commands, pages, downloads; each portion extended on the owner's yes, at most twice | `discovery_rounds`, `command_rounds` |
+| One question | rounds of steps, commands, pages, downloads, taken in portions by the question itself (8 portions at most; Ctrl+C stops) | `discovery_rounds`, `command_rounds` |
 | The task across questions | conversation history and task memory; in `project` the approved task scope (stages, requests, bytes, time) | conversation limits, project task scope |
 
 A request is always bounded. A question is bounded by rounds that the owner can extend. A task continues in the next
@@ -58,7 +58,13 @@ message from the conversation's history and task memory.
 4. **Pages.** A read of one to four exact files returns each as an `op=content` step. A file larger than one excerpt
    comes as its first page of whole lines (`complete=false`); the model reads the rest with `read-range`. Only a file
    that is not plain text, or whose first line alone exceeds an excerpt, goes to the ordinary final read.
-5. **Owner limits per request.** `read_total_size` and `read_files` bound the file text and files of one request; older
+5. **Results shown at once.** Any plan may carry `"show"`: results for the user (at most 16 KiB per plan, 128 KiB per
+   question). In a conversation they appear at once, as Claude Code writes while it works, and they are kept before
+   the final answer, so a result never depends on the model remembering it to the end. The answer does not repeat them.
+6. **Portions without questions.** When a step budget runs out the question takes the next portion by itself, within the
+   sources, commands and approval it already has, at most 8 portions; a closed question (byte or scan budget) never
+   opens again. Final writes still need their exact diff approved.
+7. **Owner limits per request.** `read_total_size` and `read_files` bound the file text and files of one request; older
    excerpts leave the window to make room. Excerpts that left it still count as delivered for an edit of a large file.
 
 ### Invariants kept
@@ -94,7 +100,7 @@ and quality (the expected findings):
 
 | Scenario | Required result |
 |---|---|
-| A folder of about 200 small and large source files, "describe each file" | every file described in one question with at most the owner's continue answers; large files read in pages; no question ends early without the limit note |
+| A folder of about 200 small and large source files, "describe each file" | every file described in one question without any question to the user; large files read in pages; no question ends early without the limit note |
 | About 100 files | the requested areas analysed completely |
 | About 1000 files | a defect that spans several distant modules found |
 | About 10,000 files | the analysis continues across portions and messages without losing findings |

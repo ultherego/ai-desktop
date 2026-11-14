@@ -18,7 +18,7 @@ import unicodedata
 from . import directory_context, permissions
 from .skill_runtime import MAX_KNOWLEDGE_BYTES, observe_command
 from .discovery_contract import (CEILING_TOTAL_ENTRIES, CLEARED_ITEMS, CLEARED_OPS, CLEARED_TEXT, NOTES_BYTES,
-                                 REFUSAL_CODES, MAX_SELECTORS, clean_path, document_bytes, diagnostic_bytes, skill_bytes,
+                                 REFUSAL_CODES, MAX_SELECTORS, MAX_STEPS, clean_path, document_bytes, diagnostic_bytes, skill_bytes,
                                  validate_discovery, web_data)
 
 REFUSAL_RESERVE = 2400
@@ -26,8 +26,9 @@ WEB_MINIMUM = 512          # bytes of a shortened web answer below which it is n
 OVERHEAD = 1024            # envelope of a document with its counters; leaves room for the remaining steps' framing
 MAX_PAGES = 8              # public pages opened in one question (S10 stage A); a program bound, not a setting
 MAX_FILE_STEPS = 16        # downloaded files and archive inspections in one question (S10 stages B and C)
-MAX_EXTENSIONS = 2         # times one question may continue past a step budget, each on the owner's yes
+MAX_EXTENSIONS = 7         # further portions of a step budget one question takes on its own (8 portions in all)
 EXTENDABLE = ("discovery_rounds", "command_rounds", "pages", "downloads")
+SHOWN_BYTES = 128 * 1024   # results shown during one question; the final answer adds its own
 ROUND_ROOM = 8 * 1024      # window bytes a list, find or command step may need; older steps are cleared to make it
 
 
@@ -80,6 +81,7 @@ class DiscoveryLedger:
         self.cleared = {"count": 0, "items": []}
         self.notes = ""
         self._sent = set()             # steps that already reached the model: only these may leave the window
+        self.shown = []                # results the model showed the user during the question (kept before its answer)
         self.scan = directory_context.Scan(self.limits.search_scan)
         self.rounds_left = self.limits.discovery_rounds
         self.corrections_left = self.limits.plan_corrections
@@ -136,6 +138,22 @@ class DiscoveryLedger:
             text = raw[:limit - len(marker.encode("utf-8"))].decode("utf-8", "ignore") + marker
         self.notes = text if text.strip() else ""
 
+    def show(self, text):
+        """Results the model shows the user now (a long task's batch of findings): kept in order and put before the
+        final answer, so they are never lost when their sources leave the window. False past SHOWN_BYTES."""
+        if type(text) is not str or not text.strip():
+            return False
+        if sum(len(item.encode("utf-8")) for item in self.shown) + len(text.encode("utf-8")) > SHOWN_BYTES:
+            return False
+        self.shown.append(text.strip("\n"))
+        return True
+
+    def with_shown(self, answer):
+        """The final answer of the question: what was shown during it, then the answer itself."""
+        if not self.shown:
+            return answer
+        return "".join(item + "\n\n" for item in self.shown) + (answer if type(answer) is str else "")
+
     @staticmethod
     def _describe(step):
         op = step["op"]
@@ -173,8 +191,9 @@ class DiscoveryLedger:
     def make_room(self, need):
         """Clear the oldest steps until `need` bytes fit the window (and its entries); False when nothing is left to
         clear. A cleared step stays readable again: what it named is still known to grounding."""
-        while self._budget() < need or self._entries_left() <= 0:
-            if not self._clear_oldest(CLEARED_OPS if self._budget() < need else ("list", "find")):
+        while self._budget() < need or self._entries_left() <= 0 or len(self.steps) >= MAX_STEPS - 40:
+            ops = ("list", "find") if self._budget() >= need and self._entries_left() <= 0 else CLEARED_OPS
+            if not self._clear_oldest(ops):
                 return self._budget() >= need and self._entries_left() > 0
         return True
 
@@ -209,11 +228,12 @@ class DiscoveryLedger:
 
     # -- steps -----------------------------------------------------------------------------------------------------
     def can_extend(self, name):
-        return name in EXTENDABLE and self.extensions < MAX_EXTENSIONS and (
+        # A question whose discovery is closed (a byte or scan budget, or its last portion) never opens again.
+        return name in EXTENDABLE and self.extensions < MAX_EXTENSIONS and not self.budget_closed() and (
             name != "command_rounds" or self.limits.command_rounds > 0)
 
     def extend(self, name):
-        """One more portion of the exhausted step budget, after the owner's yes; byte budgets never grow."""
+        """One more portion of the exhausted step budget (the question goes on by itself); byte budgets never grow."""
         if not self.can_extend(name):
             return False
         self.extensions += 1

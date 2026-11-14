@@ -188,25 +188,33 @@ def selected_file_ids(value):
 _SKILL_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*(?:/[a-z0-9]+(?:-[a-z0-9]+)*)?\Z")
 
 
+SHOW_BYTES = 16 * 1024       # results one plan shows to the user at once (a long task's batch of findings)
+
+
 def parse_plan(raw, access):
-    """Accept one bounded answer or one proposed read within advertised access. Any plan may carry "notes": the
-    model's working memory for the question (plain text, NOTES_BYTES), returned under the same key; it grants nothing."""
-    notes = None
-    if type(raw) is str and '"notes"' in raw:
+    """Accept one bounded answer or one proposed read within advertised access. Any plan may carry "notes" (the
+    model's working memory for the question, NOTES_BYTES) and "show" (results for the user, shown at once and kept
+    before the final answer, SHOW_BYTES): plain text returned under the same keys; they grant nothing."""
+    extra = {}
+    if type(raw) is str and ('"notes"' in raw or '"show"' in raw):
         try:
             value = json.loads(raw, object_pairs_hook=_unique, parse_constant=_constant)
         except ValueError:
             value = None
-        if type(value) is dict and "notes" in value:
+        if type(value) is dict and ("notes" in value or "show" in value):
             from .discovery_contract import NOTES_BYTES
-            notes = value.pop("notes")
-            if (type(notes) is not str or len(notes.encode("utf-8")) > NOTES_BYTES
-                    or any(char not in "\n\t" and unicodedata.category(char) in ("Cc", "Cf", "Cs", "Zl", "Zp")
-                           for char in notes)):
-                raise PlanError("text")
+            for key, limit in (("notes", NOTES_BYTES), ("show", SHOW_BYTES)):
+                if key not in value:
+                    continue
+                text = value.pop(key)
+                if (type(text) is not str or len(text.encode("utf-8")) > limit
+                        or any(char not in "\n\t" and unicodedata.category(char) in ("Cc", "Cf", "Cs", "Zl", "Zp")
+                               for char in text)):
+                    raise PlanError("text")
+                extra[key] = text
             raw = json.dumps(value, ensure_ascii=False)
     plan = _parse_plan(raw, access)
-    return plan if notes is None else dict(plan, notes=notes)
+    return dict(plan, **extra) if extra else plan
 
 
 def _parse_plan(raw, access):

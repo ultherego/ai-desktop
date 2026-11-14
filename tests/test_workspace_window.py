@@ -9,7 +9,7 @@ import unittest
 
 from ai_desktop import ask_discovery, assistant_contract, discovery_contract as dc, permissions
 from ai_desktop.question_consent import _added_steps
-from test_ask_content import AskContentTests
+import test_ask_content
 from test_ask_discovery import Base, sel, ANSWER, ANSWER_PLAN, contents as contents_of
 
 LIST = {"op": "list", "directories": [{"id": "f0", "path": "", "entries": [], "truncated": False, "next": None}],
@@ -56,6 +56,19 @@ class ContractTests(unittest.TestCase):
             assistant_contract.parse_plan(json.dumps({"action": "read", "notes": "x"}), access)
 
 
+class ShowContractTests(unittest.TestCase):
+    access = {"files": [{"id": "f0", "pattern": "~/.config/**"}], "systemd": [], "weather": False}
+
+    def test_a_plan_may_show_results_to_the_user_that_grant_nothing(self):
+        plan = json.loads(read("a.txt"))
+        plan["show"] = "a.txt: settings."
+        parsed = assistant_contract.parse_plan(json.dumps(plan), self.access)
+        self.assertEqual((parsed["action"], parsed["show"]), ("read", "a.txt: settings."))
+        for show in (1, "a\x1b[31m", "x" * (assistant_contract.SHOW_BYTES + 1)):
+            with self.subTest(show=str(show)[:20]), self.assertRaises(assistant_contract.PlanError):
+                assistant_contract.parse_plan(json.dumps(dict(plan, show=show)), self.access)
+
+
 class ConsentWindowTests(unittest.TestCase):
     """bind_discovery: what stayed is unchanged and in order, what left is counted, and something new follows."""
     A, B, C = (dict(REFUSAL, limit=n) for n in (1, 2, 3))
@@ -84,9 +97,9 @@ class ConsentWindowTests(unittest.TestCase):
 
 
 class WindowFlowTests(Base):
-    run_flow = AskContentTests.run_flow
-    go_on = staticmethod(AskContentTests.go_on)
-    rounds = AskContentTests.rounds
+    run_flow = test_ask_content.AskContentTests.run_flow
+    go_on = staticmethod(test_ask_content.AskContentTests.go_on)
+    rounds = test_ask_content.AskContentTests.rounds
 
     def test_a_long_file_by_file_task_reads_past_the_window_without_a_limit(self):
         names = ["n%02d.txt" % index for index in range(24)]
@@ -178,6 +191,55 @@ class WindowFlowTests(Base):
             ledger.whole(sel("second.txt"), PermitStub())
         self.assertEqual(ledger.cleared["count"], 0)
         self.assertEqual(len(ledger.steps), 1)
+
+
+class ShowFlowTests(Base):
+    run_flow = test_ask_content.AskContentTests.run_flow
+
+    def plan(self, path, show):
+        value = json.loads(read(path))
+        value["show"] = show
+        return json.dumps(value)
+
+    def test_results_shown_during_the_question_come_before_the_answer_and_are_never_lost(self):
+        self.file("first.txt", "a" * 3000 + "\n")
+        self.file("second.txt", "b" * 3000 + "\n")
+        self.write_policy("discovery_bytes = \"16KiB\"\n")
+        answer_plan = json.dumps({"action": "answer", "text": "Both read.", "show": "second.txt: only b."})
+        answer = self.run_flow([read("first.txt"), self.plan("second.txt", "first.txt: only a."), answer_plan],
+                               question="Read first.txt and second.txt one by one")
+        # first.txt left the window before the answer; its result was shown and kept
+        self.assertEqual(answer, "first.txt: only a.\n\nBoth read.\n\nsecond.txt: only b.")
+        self.assertNotIn("first.txt: only a.", json.dumps(self.wire))             # shown text is not sent back
+
+    def test_in_a_conversation_results_appear_at_once_and_the_answer_does_not_repeat_them(self):
+        from ai_desktop import live_answer
+        self.file("first.txt", "first facts\n")
+        written = []
+        with live_answer.turn(render=lambda text: text, rule=lambda: "----", write=written.append) as live:
+            answer = self.run_flow([self.plan("first.txt", "first.txt: facts."),
+                                    json.dumps({"action": "answer", "text": "Done."})],
+                                   question="Read first.txt")
+            self.assertIn("first.txt: facts.", written)                          # on screen before the answer
+            self.assertTrue(live.finish(answer))
+        self.assertEqual(answer, "first.txt: facts.\n\nDone.")
+        self.assertEqual(written.count("first.txt: facts."), 1)
+        self.assertIn("Done.", written)
+        self.assertNotIn("(The final answer differs", "".join(written))
+
+    def test_a_closed_question_never_takes_another_portion(self):
+        ledger = ask_discovery.DiscoveryLedger(permissions.load_policy(), "question")
+        self.assertTrue(ledger.can_extend("command_rounds"))
+        ledger.soft_stop("discovery_bytes")
+        for name in ask_discovery.EXTENDABLE:
+            self.assertFalse(ledger.can_extend(name))
+
+    def test_shown_results_are_bounded(self):
+        ledger = ask_discovery.DiscoveryLedger(permissions.load_policy(), "question")
+        part = "y" * 16000
+        kept = sum(ledger.show(part) for _ in range(20))
+        self.assertEqual(kept, ask_discovery.SHOWN_BYTES // 16000)
+        self.assertFalse(ledger.show("   "))
 
 
 def contents_step(request, name):
